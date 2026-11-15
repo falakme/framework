@@ -1,0 +1,9 @@
+# Litestream configuration for Falak Framework Notebook application.
+# Continuously replicates SQLite write-ahead log (WAL) frames to the backup replica.
+
+dbs:
+  - path: "${NOTEBOOK_DB_PATH:-./notebook.db}"
+    replicas:
+      # S3 / Cloudflare R2 continuous replication target:
+      - url: "${LITESTREAM_REPLICA_URL:-file://./notebook-replica}"
+        sync-interval: 1s

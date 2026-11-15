@@ -1,0 +1,9 @@
+# Litestream configuration template for Falak Framework native applications.
+# Continuously replicates SQLite write-ahead log (WAL) frames to the backup replica.
+
+dbs:
+  - path: "${DATABASE_PATH:-./data/app.db}"
+    replicas:
+      # S3, Cloudflare R2, or local filesystem replica target:
+      - url: "${LITESTREAM_REPLICA_URL:-file://./data/replica}"
+        sync-interval: 1s

@@ -40,7 +40,33 @@ pub fn create_router<D: NativeDriver>(
 
     Router::<Arc<AppState<D>>>::new()
         .route("/healthz", get(|| async { "ok" }))
-        .route("/readyz", get(|| async { "ok" }))
+        .route(
+            "/readyz",
+            get(
+                |axum::extract::State(state): axum::extract::State<Arc<AppState<D>>>| async move {
+                    use axum::response::IntoResponse;
+                    let ctx = falak_contracts::identity::RequestContext {
+                        principal: None,
+                        request_id: "readyz_check".to_string(),
+                    };
+                    match state
+                        .driver
+                        .query(
+                            &ctx,
+                            falak_contracts::driver::Statement::new("SELECT 1;", vec![]),
+                        )
+                        .await
+                    {
+                        Ok(_) => (axum::http::StatusCode::OK, "ok").into_response(),
+                        Err(_) => (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            "database unavailable",
+                        )
+                            .into_response(),
+                    }
+                },
+            ),
+        )
         .route(
             "/v1/{entity}",
             get(list_handler::<D>).post(create_handler::<D>),
