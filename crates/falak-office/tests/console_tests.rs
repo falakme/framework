@@ -408,3 +408,76 @@ async fn the_provider_can_be_turned_on_and_off_without_a_restart_and_is_saved() 
     .await;
     assert_eq!((s, &v["restart_needed"]), (StatusCode::OK, &json!(true)));
 }
+
+#[tokio::test]
+async fn the_overview_numbers_count_sign_ins_tokens_and_failures_by_day() {
+    let e = env(false).await;
+    let code = e.office.arm_setup().await.unwrap().unwrap();
+    call(
+        &e,
+        "POST",
+        "/v1/_office/setup",
+        None,
+        Some(json!({"token": code, "email": "boss@example.com", "password": PASSWORD})),
+    )
+    .await;
+    let admin = login(&e, "boss@example.com").await; // one sign-in
+    let (s, _) = call(
+        &e,
+        "POST",
+        "/v1/auth/login",
+        None,
+        Some(json!({"email": "boss@example.com", "password": "wrong wrong wrong"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+
+    e.office
+        .db
+        .run(
+            "INSERT INTO office_apps (name, tier, public_key, kid, capabilities, passport_jti, status, created_at) VALUES ('notes', 1, ?, 'k', '{}', 'j', 'active', 0)",
+            vec![falak_contracts::driver::Value::Text(
+                falak_federation::AppKey::generate().public(),
+            )],
+        )
+        .await
+        .unwrap();
+    call(
+        &e,
+        "PUT",
+        "/v1/_office/memberships",
+        Some(&admin),
+        Some(json!({"email": "boss@example.com", "app": "notes", "roles": []})),
+    )
+    .await;
+    for _ in 0..3 {
+        let (s, _) = call(
+            &e,
+            "POST",
+            "/v1/_office/token",
+            Some(&admin),
+            Some(json!({"audience": "notes"})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+    }
+
+    let (s, v) = call(&e, "GET", "/v1/_office/stats?days=7", Some(&admin), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["days"], 7);
+    assert_eq!(v["series"]["sign_in"].as_array().unwrap().len(), 7);
+    assert_eq!(v["totals"]["sign_in"], 1);
+    assert_eq!(v["totals"]["sign_in_failed"], 1);
+    assert_eq!(v["totals"]["app_token"], 3);
+    assert_eq!(v["series"]["app_token"][6], 3, "today is the last day");
+    assert_eq!(v["previous"]["app_token"], 0);
+    assert_eq!(v["new_people_7d"], 1);
+    let app = &v["apps"][0];
+    assert_eq!((&app["name"], &app["tokens"]), (&json!("notes"), &json!(3)));
+
+    // A window outside 7 to 90 days falls back to 14. Ordinary people cannot read it.
+    let (_, v) = call(&e, "GET", "/v1/_office/stats?days=500", Some(&admin), None).await;
+    assert_eq!(v["days"], 14);
+    let (s, _) = call(&e, "GET", "/v1/_office/stats", None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+}

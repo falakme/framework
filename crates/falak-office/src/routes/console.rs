@@ -369,3 +369,112 @@ pub async fn set_address(State(o): State<Shared>, headers: HeaderMap, body: Byte
         Err(e) => fail(&e, inst, &rid),
     }
 }
+
+const KINDS: [&str; 4] = ["sign_in", "sign_in_provider", "sign_in_failed", "app_token"];
+
+/// Numbers for the overview: what happened each day in a window (7 to 90 days), the
+/// window before it for comparison, and what each app has been doing.
+pub async fn stats(
+    State(o): State<Shared>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let (rid, inst) = (extract_request_id(&headers), "/v1/_office/stats");
+    let run = async {
+        o.admin(&headers)?;
+        let days: i64 = q
+            .get("days")
+            .and_then(|d| d.parse().ok())
+            .filter(|d| (7..=90).contains(d))
+            .unwrap_or(14);
+        let today = now() / 86_400;
+        let first = today - days + 1;
+        let before = first - days;
+        let rows =
+            o.db.rows(
+                "SELECT day, kind, app, n FROM office_stats WHERE day >= ?",
+                vec![Value::Int64(before)],
+            )
+            .await?;
+        let width = usize::try_from(days).unwrap_or(14);
+        let mut series: std::collections::BTreeMap<&str, Vec<i64>> =
+            KINDS.iter().map(|k| (*k, vec![0; width])).collect();
+        let mut previous: std::collections::BTreeMap<&str, i64> =
+            KINDS.iter().map(|k| (*k, 0)).collect();
+        let mut apps: std::collections::BTreeMap<String, (i64, i64)> =
+            std::collections::BTreeMap::new();
+        for r in &rows {
+            let (day, kind, app, n) = (
+                int(r.first()),
+                text(r.get(1)),
+                text(r.get(2)),
+                int(r.get(3)),
+            );
+            let Some(k) = KINDS.iter().find(|k| **k == kind) else {
+                if kind == "app_sync" && day >= first {
+                    apps.entry(app).or_default().1 += n;
+                }
+                continue;
+            };
+            if day >= first {
+                if let Some(slot) = usize::try_from(day - first)
+                    .ok()
+                    .and_then(|i| series.get_mut(k)?.get_mut(i))
+                {
+                    *slot += n;
+                }
+                if *k == "app_token" {
+                    apps.entry(app).or_default().0 += n;
+                }
+            } else {
+                *previous.entry(k).or_default() += n;
+            }
+        }
+        let last_seen =
+            o.db.rows(
+                "SELECT app, MAX(day) FROM office_stats WHERE kind = 'app_sync' GROUP BY app",
+                vec![],
+            )
+            .await?;
+        let seen: std::collections::HashMap<String, i64> = last_seen
+            .iter()
+            .map(|r| (text(r.first()), int(r.get(1))))
+            .collect();
+        let listed =
+            o.db.rows(
+                "SELECT name, tier, status FROM office_apps ORDER BY name",
+                vec![],
+            )
+            .await?;
+        let new_people = count(
+            &o.db
+                .rows(
+                    "SELECT COUNT(*) FROM falak_auth_users WHERE created_at >= ?",
+                    vec![Value::Int64(now() - 7 * 86_400)],
+                )
+                .await?,
+        );
+        let totals: std::collections::BTreeMap<&str, i64> =
+            series.iter().map(|(k, v)| (*k, v.iter().sum())).collect();
+        Ok::<_, Error>(json!({
+            "days": days,
+            "first_day": first,
+            "series": series,
+            "totals": totals,
+            "previous": previous,
+            "new_people_7d": new_people,
+            "apps": listed.iter().map(|r| {
+                let name = text(r.first());
+                let (tokens, syncs) = apps.get(&name).copied().unwrap_or_default();
+                json!({
+                    "name": name, "tier": int(r.get(1)), "status": text(r.get(2)),
+                    "tokens": tokens, "syncs": syncs, "last_seen_day": seen.get(&name),
+                })
+            }).collect::<Vec<_>>(),
+        }))
+    };
+    match run.await {
+        Ok(v) => json_response(StatusCode::OK, &v, &rid),
+        Err(e) => fail(&e, inst, &rid),
+    }
+}

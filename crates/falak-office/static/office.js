@@ -182,6 +182,113 @@ logoutButton.addEventListener("click", async () => {
   signOut("Signed out.");
 });
 
+
+// ------------------------------------------------------------------ charts (plain SVG)
+
+let rangeDays = 14;
+const NS = "http://www.w3.org/2000/svg";
+
+function svg(tag, attrs, ...kids) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, String(v));
+  for (const kid of kids) e.append(kid);
+  return e;
+}
+
+// A top value that splits into four even steps with whole numbers.
+function niceMax(v) {
+  if (v <= 4) return 4;
+  const unit = v <= 40 ? 4 : 4 * 10 ** Math.floor(Math.log10(v / 4));
+  return Math.ceil(v / unit) * unit;
+}
+
+function dayLabel(day, short) {
+  const d = new Date(day * 86400000);
+  return short ? String(d.getUTCDate()).padStart(2, "0") : d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+const W = 640, H = 250, PL = 34, PB = 26, PT = 8, PR = 6;
+
+function frame(max) {
+  const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img" });
+  const plotH = H - PB - PT;
+  for (let i = 0; i <= 4; i++) {
+    const y = PT + plotH - (plotH * i) / 4;
+    s.append(svg("line", { class: "grid", x1: PL, x2: W - PR, y1: y, y2: y }));
+    const t = svg("text", { class: "axis", x: PL - 8, y: y + 4, "text-anchor": "end" });
+    t.textContent = String((max * i) / 4);
+    s.append(t);
+  }
+  return { s, plotH };
+}
+
+function barChart(values, firstDay) {
+  const max = niceMax(Math.max(...values, 0));
+  const { s, plotH } = frame(max);
+  s.setAttribute("aria-label", "App tokens per day");
+  const grad = svg("linearGradient", { id: "bars", x1: 0, x2: 0, y1: 0, y2: 1 },
+    svg("stop", { offset: "0%", "stop-color": "#3a4f62" }), svg("stop", { offset: "100%", "stop-color": "#b9c3cc" }));
+  s.prepend(svg("defs", {}, grad));
+  const slot = (W - PL - PR) / values.length;
+  const bw = Math.min(26, slot * 0.58);
+  const every = values.length > 16 ? Math.ceil(values.length / 10) : 1;
+  values.forEach((v, i) => {
+    const x = PL + slot * i + (slot - bw) / 2;
+    const h = v === 0 ? 6 : Math.max(8, (v / max) * plotH);
+    const bar = svg("rect", { x, y: PT + plotH - h, width: bw, height: h, rx: Math.min(bw / 2, h / 2), class: v === 0 ? "bar-zero" : "", fill: v === 0 ? "" : "url(#bars)" });
+    const tip = svg("title"); tip.textContent = `${dayLabel(firstDay + i)}: ${v}`;
+    bar.append(tip); s.append(bar);
+    if (i % every === 0) {
+      const t = svg("text", { class: "axis", x: x + bw / 2, y: H - 8, "text-anchor": "middle" });
+      t.textContent = dayLabel(firstDay + i, true); s.append(t);
+    }
+  });
+  return s;
+}
+
+function lineChart(a, b, firstDay) {
+  const max = niceMax(Math.max(...a, ...b, 0));
+  const { s, plotH } = frame(max);
+  s.setAttribute("aria-label", "Sign-ins per day");
+  const n = a.length;
+  const px = (i) => PL + ((W - PL - PR - 8) * i) / Math.max(1, n - 1) + 4;
+  const py = (v) => PT + plotH - (v / max) * plotH;
+  const every = Math.ceil(n / 6);
+  for (let i = 0; i < n; i += every) {
+    const t = svg("text", { class: "axis", x: px(i), y: H - 8, "text-anchor": "middle" });
+    t.textContent = dayLabel(firstDay + i); s.append(t);
+  }
+  for (const [vals, cls] of [[a, "a"], [b, "b"]]) {
+    const d = vals.map((v, i) => `${i ? "L" : "M"}${px(i).toFixed(1)} ${py(v).toFixed(1)}`).join(" ");
+    s.append(svg("path", { class: "line " + cls, d }));
+    if (n <= 16) vals.forEach((v, i) => {
+      const dot = svg("circle", { class: "dot " + cls, cx: px(i), cy: py(v), r: 3 });
+      const tip = svg("title"); tip.textContent = `${dayLabel(firstDay + i)}: ${v}`;
+      dot.append(tip); s.append(dot);
+    });
+  }
+  return s;
+}
+
+function delta(cur, prev, goodWhenUp) {
+  if (cur === 0 && prev === 0) return el("span", { class: "delta" }, "no change");
+  if (prev === 0) return el("span", { class: "delta " + (goodWhenUp ? "up" : "down") }, "↑ new");
+  const pct = Math.round(((cur - prev) / prev) * 100);
+  const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
+  const cls = pct === 0 ? "" : (pct > 0) === goodWhenUp ? " up" : " down";
+  return el("span", { class: "delta" + cls }, `${arrow} ${Math.abs(pct)}%`);
+}
+
+function kpi(label, value, deltaNode) {
+  return el("div", { class: "card kpi" }, el("div", { class: "label" }, label), el("div", { class: "value" }, el("b", {}, String(value)), deltaNode));
+}
+
+function seen(day, today) {
+  if (day === null || day === undefined) return el("span", { class: "muted" }, "never");
+  const ago = today - day;
+  return ago <= 0 ? "today" : ago === 1 ? "yesterday" : `${ago} days ago`;
+}
+
 // ------------------------------------------------------------------ console
 
 const TABS = [
@@ -214,25 +321,65 @@ function banner() {
 const views = {
   async overview(first) {
     await reload();
+    const st = await api("GET", `/v1/_office/stats?days=${rangeDays}`);
     const c = overview.counts;
+    const T = st.totals, P = st.previous, S = st.series;
+    const signins = T.sign_in + T.sign_in_provider;
+    const prevSignins = P.sign_in + P.sign_in_provider;
+    const okSeries = S.sign_in.map((n, i) => n + S.sign_in_provider[i]);
+    const today = S.app_token.length - 1;
+    const busiest = Math.max(...S.app_token);
+    const quiet = signins + T.app_token + T.sign_in_failed === 0;
+
+    const range = el("select", { class: "chipselect", "aria-label": "Time range", on: { change: (ev) => { rangeDays = Number(ev.target.value); go("overview"); } } },
+      el("option", { value: "7" }, "Last week"), el("option", { value: "14" }, "Last 2 weeks"), el("option", { value: "30" }, "Last 30 days"));
+    range.value = String(rangeDays);
+
     const next = [];
     if (!c.apps) next.push("Connect your first app (Apps).");
     if (c.people < 2) next.push("Add the people who will use your apps (People).");
     if (c.apps && !c.memberships) next.push("Give people access to an app (Access).");
     if (!overview.oidc) next.push("Optional: sign in through Clerk, Auth0 or another provider (Sign-in).");
+
     show(
       first === "welcome" ? el("div", { class: "banner" }, "Office is set up. You are signed in as its administrator.") : "",
       first === "restart" ? el("div", { class: "banner" }, `Saved the public address ${overview.saved_issuer}. Restart Office to use it.`) : "",
       banner(),
-      el("h1", {}, "Overview"),
-      el("div", { class: "cards" },
-        stat(c.apps, "apps"), stat(c.people, "people"), stat(c.memberships, "memberships"), stat(overview.signing_keys, "signing keys")),
+      el("div", { class: "kpis" },
+        kpi("Sign-ins", signins, delta(signins, prevSignins, true)),
+        kpi("App tokens", T.app_token, delta(T.app_token, P.app_token, true)),
+        kpi("Failed sign-ins", T.sign_in_failed, delta(T.sign_in_failed, P.sign_in_failed, false)),
+        kpi("People", c.people, el("span", { class: "delta" + (st.new_people_7d ? " up" : "") }, st.new_people_7d ? `↑ ${st.new_people_7d} this week` : "none new"))),
+      el("div", { class: "charts" },
+        el("div", { class: "card" },
+          el("div", { class: "chart-head" }, el("h2", {}, "App tokens"), range),
+          el("div", { class: "trio" },
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(T.app_token)), delta(T.app_token, P.app_token, true)), el("span", {}, `In ${rangeDays} days`)),
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(S.app_token[today]))), el("span", {}, "Today")),
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(busiest))), el("span", {}, "Busiest day"))),
+          barChart(S.app_token, st.first_day),
+          quiet ? el("p", { class: "chart-note" }, "Nothing yet. This fills in as people sign in and apps ask for tokens.") : ""),
+        el("div", { class: "card" },
+          el("div", { class: "chart-head" }, el("h2", {}, "Sign-ins"),
+            el("div", { class: "legend" },
+              el("span", {}, el("i", { class: "dot-a" }), "Succeeded"), el("span", {}, el("i", { class: "dot-b" }), "Failed"))),
+          el("div", { class: "trio" },
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(signins)), delta(signins, prevSignins, true)), el("span", {}, `In ${rangeDays} days`)),
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(T.sign_in_provider))), el("span", {}, "Through a provider")),
+            el("div", {}, el("p", { class: "tv" }, el("b", {}, String(T.sign_in_failed))), el("span", {}, "Failed"))),
+          lineChart(okSeries, S.sign_in_failed, st.first_day))),
       el("div", { class: "two" },
-        el("div", { class: "card" }, el("h2", {}, "Public address"), el("code", {}, overview.issuer),
-          el("p", { class: "note" }, "Key set"), el("code", {}, overview.jwks_url)),
-        el("div", { class: "card" }, el("h2", {}, next.length ? "Next" : "All set"),
-          next.length ? el("ul", {}, ...next.map((n) => el("li", {}, n))) : el("p", {}, "Apps, people and access are in place."))),
-      el("p", { class: "note" }, `Falak Office ${overview.version}`));
+        el("div", {}, el("h2", {}, `Apps (${c.apps})`),
+          st.apps.length ? table(["App", "Tier", `Tokens, ${rangeDays} days`, "Last heard from", ""], st.apps.map((a) => [
+            el("span", { class: "approw" }, el("span", { class: "pill" + (a.status === "active" ? "" : " bad") }), el("span", { class: "name" }, a.name)),
+            el("span", { class: "chip" }, `Tier ${a.tier}`), String(a.tokens), seen(a.last_seen_day, st.first_day + rangeDays - 1), ""]))
+            : el("div", { class: "empty" }, "No apps yet. Connect one in Apps.")),
+        el("div", {}, el("h2", {}, next.length ? "Next" : "All set"),
+          el("div", { class: "card" },
+            next.length ? el("ul", {}, ...next.map((n) => el("li", {}, n))) : el("p", {}, "Apps, people and access are in place."),
+            el("p", { class: "note" }, "Public address"), el("code", {}, overview.issuer),
+            el("p", { class: "note" }, "Key set"), el("code", {}, overview.jwks_url),
+            el("p", { class: "note" }, `Falak Office ${overview.version}`)))));
   },
 
   async apps() {
@@ -403,7 +550,6 @@ const views = {
   },
 };
 
-function stat(n, label) { return el("div", { class: "card stat" }, el("b", {}, String(n)), el("span", {}, label)); }
 
 function table(head, rows) {
   return el("table", {}, el("thead", {}, el("tr", {}, ...head.map((h) => el("th", {}, h)))),

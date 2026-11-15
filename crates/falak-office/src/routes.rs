@@ -40,15 +40,25 @@ const STEP_UP_SECS: i64 = 300;
 
 /// Everything Office serves. `login` is the sign-in service behind `/v1/auth/*`.
 pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
-    let auth = auth_router(login, Arc::new(|_, _| {})).layer(axum::middleware::from_fn(
+    let auth = auth_router(login, Arc::new(|_, _| {})).layer(axum::middleware::from_fn_with_state(
+        office.clone(),
         // Accounts are made by an administrator. There is no sign-up and no self-service
-        // reset in Office.
-        |req: Request, next: Next| async move {
-            let p = req.uri().path();
+        // reset in Office. Sign-ins are counted for the console.
+        |State(o): State<Shared>, req: Request, next: Next| async move {
+            let p = req.uri().path().to_owned();
             if p.ends_with("/signup") || p.contains("/password-reset") {
                 return StatusCode::NOT_FOUND.into_response();
             }
-            next.run(req).await
+            let is_login = req.method() == Method::POST && p.ends_with("/login");
+            let res = next.run(req).await;
+            if is_login {
+                if res.status().is_success() {
+                    o.tally("sign_in", "-").await;
+                } else {
+                    o.tally("sign_in_failed", "-").await;
+                }
+            }
+            res
         },
     ));
     Router::new()
@@ -60,6 +70,7 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/overview", get(console::overview))
         .route("/v1/_office/users", get(console::people).post(make_user))
         .route("/v1/_office/audit", get(console::audit_log))
+        .route("/v1/_office/stats", get(console::stats))
         .route("/v1/_office/settings/oidc", put(console::set_oidc))
         .route("/v1/_office/settings/address", put(console::set_address))
         .route("/healthz", get(|| async { "ok" }))
@@ -157,6 +168,19 @@ fn tier_lifetime(tier: i64) -> i64 {
 }
 
 impl Office {
+    /// Count one event for today (`day` is days since 1970, UTC). The console draws these.
+    /// A failure to count never stops what is being counted.
+    pub async fn tally(&self, kind: &str, app: &str) {
+        let _ = self
+            .db
+            .run(
+                "INSERT INTO office_stats (day, kind, app, n) VALUES (?, ?, ?, 1) \
+                 ON CONFLICT (day, kind, app) DO UPDATE SET n = office_stats.n + 1",
+                vec![Value::Int64(now() / 86_400), t(kind), t(app)],
+            )
+            .await;
+    }
+
     /// The caller, from an Office session token.
     fn session(&self, headers: &HeaderMap) -> Result<Principal> {
         let token = bearer_token(headers).ok_or_else(Error::unauthenticated)?;
@@ -607,6 +631,7 @@ async fn app_token(o: &Office, subject: &str, audience: &str, step_up: bool) -> 
             token_id: new_id(),
         },
     );
+    o.tally("app_token", audience).await;
     Ok(json!({"access_token": access, "token_type": "Bearer", "expires_in": lifetime}))
 }
 
@@ -744,8 +769,14 @@ async fn oidc_exchange(State(o): State<Shared>, headers: HeaderMap, body: Bytes)
         }))
     };
     match run.await {
-        Ok(v) => json_response(StatusCode::OK, &v, &rid),
-        Err(e) => fail(&e, inst, &rid),
+        Ok(v) => {
+            o.tally("sign_in_provider", "-").await;
+            json_response(StatusCode::OK, &v, &rid)
+        }
+        Err(e) => {
+            o.tally("sign_in_failed", "-").await;
+            fail(&e, inst, &rid)
+        }
     }
 }
 
@@ -809,8 +840,10 @@ async fn feed(State(o): State<Shared>, req: Request) -> Response {
     let inst = "/v1/_office/revocations";
     let bytes = axum::body::to_bytes(body, 1024).await.unwrap_or_default();
     let run = async {
-        o.app_request(&parts.method, &parts.uri, &parts.headers, &bytes)
+        let who = o
+            .app_request(&parts.method, &parts.uri, &parts.headers, &bytes)
             .await?;
+        o.tally("app_sync", &who.name).await;
         let since: i64 = parts
             .uri
             .query()
