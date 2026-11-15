@@ -7,6 +7,7 @@
 //!   app's database.
 //! * [`identity`]: sign-up, login, refresh, logout and reset (T1.12).
 //!
+//! * [`ratelimit`]: per-key request limits with the standard headers (T2.10).
 //! * [`jwks`]: a cached key set for verifying tokens on the edge (T2.9).
 //!
 //! Verification of tokens (`token::Verifier`) uses no randomness and no database, so
@@ -22,6 +23,7 @@ pub mod jwks;
 pub mod keys;
 #[cfg(feature = "native")]
 pub mod password;
+pub mod ratelimit;
 #[cfg(feature = "native")]
 pub mod store;
 pub mod token;
