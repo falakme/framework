@@ -19,3 +19,4 @@ all = { level = "warn", priority = -1 }
 [workspace.dependencies]
 falak-contracts = { path = "crates/falak-contracts" }
 falak-core = { path = "crates/falak-core" }
+serde = { version = "1", features = ["derive"] }

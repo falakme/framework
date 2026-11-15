@@ -32,11 +32,11 @@ An agent changes only the directories it owns. A change needed elsewhere is requ
 
 ## 3. Rules for working in parallel
 
-1. One branch per task, named `devN/t<id>-<slug>` (for example `dev2/t1.6-sqlite-driver`). Open a pull request to `main`. Never push to `main` directly and never force-push it.
+1. Push small commits directly to `main`, as the project owner instructed. Run `git pull --rebase origin main` immediately before each push, and never force-push `main`. Commit only your own area (see §2).
 2. `crates/falak-contracts` holds the provider traits, capability profile, IR types and error taxonomy. It is the interface between agents. Only Dev1 merges changes to it. Propose a change as a pull request labelled `contract` and wait for it before depending on it.
 3. Code against the contract, not against another agent's unfinished crate. If a dependency is not ready, build against the trait with a stub and swap later.
-4. Rebase on `main` before opening a pull request. On a `Cargo.lock` or `pnpm-lock.yaml` conflict, take `main`'s version and regenerate.
-5. Keep pull requests to one task. A task that grows is split, and the new task is added here by Dev1.
+4. Rebase on `main` before each push. On a `Cargo.lock` or `pnpm-lock.yaml` conflict, take `main`'s version and regenerate.
+5. Keep commits to one task. A task that grows is split, and the new task is added here by Dev1.
 6. Commit messages describe the change and carry no co-author trailers.
 7. Do not start a phase's tasks before the previous phase's gate is ticked, except tasks marked *early start*.
 8. The crate stubs declare no dependencies, because unused dependencies are a warning and CI treats warnings as errors. Add a dependency (including on another `falak-*` crate, via `workspace = true`) in the same pull request that first uses it. The Rust toolchain is pinned in `rust-toolchain.toml`; install it with `rustup` and run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo build --workspace` before opening a pull request.
@@ -64,7 +64,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 **Dev1**
 - [x] **T0.1** Monorepo skeleton: Cargo workspace with the crates in §2 as stubs, `packages/`, `office/`, `examples/`, `scripts/smoke/`, and CI. *Works when:* CI is green building every crate for native, and `falak-contracts` and `falak-core` for `wasm32`.
 - [ ] **T0.2** Write the eight ADRs into `specifications/adr/` as accepted or changed by the owner. *Needs:* owner decision. *Works when:* ARCHITECTURE §3 links to eight ADR files and no item is marked *Proposed*.
-- [ ] **T0.3** `falak-contracts`: provider traits, capability profile, IR types, error taxonomy. *Needs:* T0.1. *Works when:* every other crate compiles against it with stub implementations.
+- [x] **T0.3** `falak-contracts`: provider traits, capability profile, IR types, error taxonomy. *Needs:* T0.1. *Works when:* every other crate compiles against it with stub implementations.
 - [ ] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor.
 
 **Dev2**
