@@ -133,7 +133,7 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 
 **Dev1**
 - [ ] **T2.1** Build-time capability validator: reject an app whose needs exceed the driver's profile or limits. *Works when:* a command needing an interactive transaction fails to build for D1 with a clear message.
-- [ ] **T2.2** Compile read-then-write commands to a conditional batch with a version column. *Needs:* T2.1.
+- [x] **T2.2** Compile read-then-write commands to a conditional batch with a version column. *Needs:* T2.1.
 - [ ] **T2.3** Freeze SCHEMA, AUTHORIZATION, DRIVER and API specs at 1.0. *Needs:* Phase 2 smoke passing.
 
 **Dev2**
@@ -321,6 +321,7 @@ Use these instead of writing your own. All live in `falak-core` and build for `w
 * `falak_core::policy::authorize(entity, action, principal)` returns `Access::{Denied, Unrestricted, OwnedBy(subject)}`.
 * `falak_core::sql::{get, list, insert, update, delete}` take a `Request { ir, entity, dialect, access, scope }` and return `Ok(None)` when access is denied. Run nothing in that case: list gives an empty page, get/update/delete give `NotFound`, create gives `Forbidden`. `Scope` carries the verified tenant and subject. Placeholders are `?N` for SQLite and D1, `$N` for PostgreSQL. UUIDs are `Value::Uuid`; the driver converts them.
 * `falak_core::sql::{resolve_sort, cursor_from_row}` support keyset paging. The runtime signs and encodes the cursor.
+* `falak_core::command::plan(req, command, input, if_version, ctx)` turns a declarative command and its input into one conditional statement (`Plan::Run`) or `Plan::Denied`. Use it for `create`, `update` and `delete` commands; `custom` commands go to their handler.
 * `falak_core::ddl::create_all(ir, dialect)` returns the `CREATE TABLE` and index statements in dependency order (T1.8).
 * `falak_core::values::{parse_uuid, format_uuid, parse_timestamp, coerce_text, check_value}` convert and validate values.
 * The IR is `falak_contracts::ir::Ir` (v1). It serialises with serde; `falak_core::build::verify_hash` checks it has not been altered.
