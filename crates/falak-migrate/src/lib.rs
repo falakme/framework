@@ -7,6 +7,7 @@ pub mod diff;
 pub mod history;
 pub mod lock;
 pub mod plan;
+pub mod rls;
 pub mod runner;
 
 pub use diff::{IndexSpec, SchemaDiff, diff_ir};

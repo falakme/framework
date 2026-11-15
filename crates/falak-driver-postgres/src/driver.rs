@@ -102,11 +102,18 @@ async fn set_session_context(
         .map(|p| p.subject.as_str())
         .unwrap_or("");
 
+    let roles = ctx
+        .principal
+        .as_ref()
+        .map(|p| p.roles.join(","))
+        .unwrap_or_default();
+
     sqlx::query(
-        "SELECT set_config('falak.tenant_id', $1, true), set_config('falak.subject', $2, true);",
+        "SELECT set_config('falak.tenant_id', $1, true), set_config('falak.subject', $2, true), set_config('falak.roles', $3, true);",
     )
     .bind(tenant)
     .bind(subject)
+    .bind(roles)
     .execute(&mut **conn)
     .await
     .map_err(map_sqlx_error)?;

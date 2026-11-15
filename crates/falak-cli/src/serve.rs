@@ -120,10 +120,26 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
         .map_err(|e| format!("cannot open the postgres database: {e}"))?;
 
         let store = SqlStore::new(driver.clone(), Placeholders::Numbered);
-        store
-            .migrate()
-            .await
-            .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
+        // The identity tables are made by the owner role when there is one: the runtime
+        // role (`falak_app`) owns nothing and cannot create tables.
+        match std::env::var("FALAK_MIGRATE_URL") {
+            Ok(url) => {
+                let owner = PostgresDriver::open(PostgresConfig {
+                    url,
+                    ..PostgresConfig::default()
+                })
+                .await
+                .map_err(|e| format!("cannot open the migration database: {e}"))?;
+                SqlStore::new(owner, Placeholders::Numbered)
+                    .migrate()
+                    .await
+                    .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
+            }
+            Err(_) => store
+                .migrate()
+                .await
+                .map_err(|e| format!("cannot prepare the identity tables: {e}"))?,
+        }
 
         let identity = LocalIdentity::new(
             store,
@@ -184,7 +200,23 @@ async fn prepare_tables(stack: &Stack, ir: &Ir, dev: bool) -> Result<(), String>
     };
     let result = match &stack.driver_stack {
         DriverStack::Sqlite { driver, .. } => migrate(&**driver, &ctx, ir, options).await,
-        DriverStack::Postgres { driver, .. } => migrate(&**driver, &ctx, ir, options).await,
+        DriverStack::Postgres { driver, .. } => {
+            // With `FALAK_MIGRATE_URL` the schema is changed by the owner role, and the
+            // runtime connects as `falak_app` (no ownership, no BYPASSRLS). The owner's
+            // credentials are then needed only here, not by the request path.
+            match std::env::var("FALAK_MIGRATE_URL") {
+                Ok(url) => match PostgresDriver::open(PostgresConfig {
+                    url,
+                    ..PostgresConfig::default()
+                })
+                .await
+                {
+                    Ok(owner) => migrate(&owner, &ctx, ir, options).await,
+                    Err(e) => Err(e),
+                },
+                Err(_) => migrate(&**driver, &ctx, ir, options).await,
+            }
+        }
     };
     result
         .map(|_| ())

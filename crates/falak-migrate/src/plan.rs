@@ -447,6 +447,19 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
         statements.sort_by_key(|s| s.phase == MigrationPhase::Contract);
     }
 
+    // Row-level security on PostgreSQL, from the same rules the runtime applies.
+    if dialect == Dialect::Postgres {
+        for sql in crate::rls::rls_statements(to) {
+            statements.push(stmt(
+                sql,
+                MigrationPhase::Expand,
+                LockImpact::ShareUpdateExclusive,
+                Destructiveness::Safe,
+                "Row-level security and runtime role".to_owned(),
+            ));
+        }
+    }
+
     let checksum = compute_checksum(&statements);
     MigrationPlan {
         from_hash: from.map(|ir| ir.content_hash.clone()),
