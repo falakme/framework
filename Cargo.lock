@@ -300,6 +300,12 @@ dependencies = [
 [[package]]
 name = "falak-audit"
 version = "0.0.0"
+dependencies = [
+ "falak-contracts",
+ "falak-driver-sqlite",
+ "sha2",
+ "tokio",
+]
 
 [[package]]
 name = "falak-auth"

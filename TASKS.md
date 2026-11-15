@@ -183,7 +183,7 @@ Target: Falak.me, a multi-tenant app with file uploads.
 **Dev4**
 - [ ] **T3.11** Object storage: presigned upload and download, size and type conditions, quarantine prefix, magic-byte check, server-generated tenant-prefixed keys.
 - [ ] **T3.12** Outbound allow-list with private and metadata addresses blocked after DNS resolution.
-- [ ] **T3.13** Hash-chained, append-only audit log. *Works when:* editing a stored entry makes verification fail.
+- [x] **T3.13** Hash-chained, append-only audit log. *Works when:* editing a stored entry makes verification fail.
 
 **Dev5**
 - [ ] **T3.14** Falak.me app in `examples/falakme/`: portal, profiles, file assets, `row` tenancy.

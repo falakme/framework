@@ -1,6 +1,6 @@
 [package]
 name = "falak-audit"
-description = "Hash-chained audit log."
+description = "Hash-chained, append-only audit log."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,3 +12,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+falak-contracts.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+tokio = { version = "1", features = ["rt", "macros"] }
