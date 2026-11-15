@@ -12,6 +12,7 @@
 pub mod db;
 pub mod oidc;
 mod routes;
+pub mod settings;
 pub mod users;
 
 use std::{
@@ -51,8 +52,14 @@ pub struct Office {
     /// Verifies Office's own session tokens (audience `office`).
     session: Verifier,
     pub users: Arc<dyn Users>,
-    /// Sign-in through an outside OpenID Connect provider, when one is configured.
-    pub oidc: Option<Arc<oidc::Oidc>>,
+    /// Sign-in through an outside OpenID Connect provider, when one is configured. It can
+    /// be changed while Office runs.
+    oidc: RwLock<Option<Arc<oidc::Oidc>>>,
+    /// Where `settings.json` lives (`None` in tests: settings are not saved).
+    data_dir: Option<PathBuf>,
+    /// While nobody has an account, the one-time token that lets the first person set
+    /// Office up from a browser. Printed on the console, never sent anywhere.
+    setup_token: std::sync::Mutex<Option<String>>,
 }
 
 pub fn now() -> i64 {
@@ -77,15 +84,85 @@ impl Office {
             keys_path,
             session,
             users,
-            oidc: None,
+            oidc: RwLock::new(None),
+            data_dir: None,
+            setup_token: std::sync::Mutex::new(None),
         }
     }
 
     /// Accept ID tokens from this provider at `POST /v1/auth/oidc/exchange`.
     #[must_use]
-    pub fn with_oidc(mut self, oidc: oidc::OidcConfig) -> Self {
-        self.oidc = Some(Arc::new(oidc::Oidc::new(oidc)));
+    pub fn with_oidc(self, oidc: oidc::OidcConfig) -> Self {
+        self.set_oidc(Some(oidc));
         self
+    }
+
+    /// Where settings are saved (`settings.json`).
+    #[must_use]
+    pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
+        self.data_dir = Some(dir);
+        self
+    }
+
+    /// The configured identity provider, if any.
+    pub fn oidc(&self) -> Option<Arc<oidc::Oidc>> {
+        self.oidc.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// Turn sign-in through a provider on, change it, or (`None`) off.
+    pub fn set_oidc(&self, cfg: Option<oidc::OidcConfig>) {
+        *self.oidc.write().unwrap_or_else(|p| p.into_inner()) =
+            cfg.map(|c| Arc::new(oidc::Oidc::new(c)));
+    }
+
+    /// Make the one-time setup token, if nobody has an account yet.
+    pub async fn arm_setup(&self) -> Result<Option<String>> {
+        let n = self
+            .db
+            .rows("SELECT COUNT(*) FROM falak_auth_users", vec![])
+            .await?;
+        if db::int(n.first().and_then(|r| r.first())) > 0 {
+            return Ok(None);
+        }
+        let mut b = [0u8; 18];
+        rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut b);
+        let token = hex::encode(b);
+        *self.setup_token.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
+        Ok(Some(token))
+    }
+
+    /// Spend the setup token: true once, for the right token.
+    pub(crate) fn take_setup_token(&self, given: &str) -> bool {
+        let mut t = self.setup_token.lock().unwrap_or_else(|p| p.into_inner());
+        let ok = t.as_deref().is_some_and(|want| {
+            want.len() == given.len()
+                && want
+                    .bytes()
+                    .zip(given.bytes())
+                    .fold(0u8, |a, (x, y)| a | (x ^ y))
+                    == 0
+        });
+        if ok {
+            *t = None;
+        }
+        ok
+    }
+
+    /// Give the token back after a failed setup (for example a weak password), so the
+    /// person can try again.
+    pub(crate) fn return_setup_token(&self, token: &str) {
+        *self.setup_token.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.to_owned());
+    }
+
+    pub fn setup_open(&self) -> bool {
+        self.setup_token
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some()
+    }
+
+    pub fn data_dir(&self) -> Option<&std::path::Path> {
+        self.data_dir.as_deref()
     }
 
     pub fn session_verifier(&self) -> &Verifier {

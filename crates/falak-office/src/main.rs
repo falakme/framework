@@ -1,6 +1,7 @@
 //! `falak-office`: run Office.
 //!
 //!   falak-office serve [--port 8788] [--data DIR] [--issuer URL]
+//!   falak-office setup --email E --password-env VAR [--issuer URL]   (the first administrator)
 //!   falak-office user add --email E --password-env VAR [--role office_admin]...
 //!
 //! `DATABASE_URL` selects PostgreSQL; without it Office keeps a SQLite file in the data
@@ -80,9 +81,11 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
     let keys = LocalKeys::load_or_create(&keys_path).map_err(|e| e.public_message().to_owned())?;
     let session_keys =
         LocalKeys::load_or_create(&session_path).map_err(|e| e.public_message().to_owned())?;
+    let settings = falak_office::settings::Settings::load(&a.data)?;
     let issuer = a
         .issuer
         .clone()
+        .or_else(|| settings.issuer.clone())
         .unwrap_or_else(|| format!("http://127.0.0.1:{}", a.port));
 
     let session_config = TokenConfig {
@@ -127,8 +130,15 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
         .migrate()
         .await
         .map_err(|e| e.public_message().to_owned())?;
-    let mut office = Office::new(issuer, db, keys, Some(keys_path), verifier, users);
+    let mut office = Office::new(issuer, db, keys, Some(keys_path), verifier, users)
+        .with_data_dir(a.data.clone());
+    // The environment wins over what the web setup saved.
     if let Some(cfg) = falak_office::oidc::OidcConfig::from_env()? {
+        println!("sign-in through {} is on", cfg.issuer);
+        office = office.with_oidc(cfg);
+    } else if let Some(saved) = &settings.oidc {
+        let cfg = saved.config();
+        cfg.validate()?;
         println!("sign-in through {} is on", cfg.issuer);
         office = office.with_oidc(cfg);
     }
@@ -167,12 +177,60 @@ async fn run(a: Args) -> Result<(), String> {
                 "falak-office on http://{}:{} (issuer {})",
                 a.host, a.port, office.issuer
             );
+            // Nobody has an account yet: say how to set Office up from a browser.
+            if let Some(code) = office
+                .arm_setup()
+                .await
+                .map_err(|e| e.public_message().to_owned())?
+            {
+                let shown = if a.host == "0.0.0.0" { "localhost" } else { a.host.as_str() };
+                println!();
+                println!("  Office is not set up yet. Open this in your browser:");
+                println!("    http://{shown}:{}/?setup={code}", a.port);
+                println!("  (or set up from the terminal: falak-office setup --email you@example.com --password-env PASSWORD_VAR)");
+                println!();
+            }
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
                     let _ = tokio::signal::ctrl_c().await;
                 })
                 .await
                 .map_err(|e| e.to_string())
+        }
+        ["setup"] => {
+            // The same as the browser setup, for scripts and servers: the first
+            // administrator, and optionally the public address.
+            let (office, _) = open(&a).await?;
+            let email = a.email.as_deref().ok_or("`--email` is required")?;
+            let var = a.password_env.as_deref().ok_or(
+                "`--password-env <VAR>` is required (the password is read from that variable)",
+            )?;
+            let password = std::env::var(var).map_err(|_| format!("`{var}` is not set"))?;
+            if office
+                .arm_setup()
+                .await
+                .map_err(|e| e.public_message().to_owned())?
+                .is_none()
+            {
+                return Err("Office is already set up (it has accounts). Add people with `falak-office user add`.".into());
+            }
+            let id = office
+                .users
+                .create(email, &password, &["office_admin".to_owned()])
+                .await
+                .map_err(|e| e.public_message().to_owned())?;
+            if let Some(addr) = &a.issuer {
+                if !falak_office::settings::valid_address(addr) {
+                    return Err("the public address is https (or http to this machine) with no trailing slash".into());
+                }
+                let mut s = falak_office::settings::Settings::load(&a.data)?;
+                s.issuer = Some(addr.clone());
+                s.save(&a.data)?;
+            }
+            println!("created the administrator {email} ({id})");
+            println!("Start Office with: falak-office serve");
+            println!("Then open it in a browser and sign in.");
+            Ok(())
         }
         ["user", "add"] => {
             let (office, _) = open(&a).await?;
@@ -190,7 +248,7 @@ async fn run(a: Args) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: falak-office serve | user add --email E --password-env VAR [--role R]".into(),
+            "usage: falak-office serve | setup --email E --password-env VAR [--issuer URL] | user add --email E --password-env VAR [--role R]".into(),
         ),
     }
 }

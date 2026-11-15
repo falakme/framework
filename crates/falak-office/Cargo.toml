@@ -31,7 +31,7 @@ jsonwebtoken = "9"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-ureq = "2"
+ureq = { version = "2", features = ["json"] }
 
 [dev-dependencies]
 falak-federation = { path = "../falak-federation" }

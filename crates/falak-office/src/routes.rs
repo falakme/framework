@@ -30,6 +30,8 @@ use crate::{
     now,
 };
 
+mod console;
+
 type Shared = Arc<Office>;
 
 /// The role a step-up token carries, and how long the proof and the token last.
@@ -50,6 +52,16 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         },
     ));
     Router::new()
+        .route("/", get(console::page))
+        .route("/office.js", get(console::script))
+        .route("/office.css", get(console::style))
+        .route("/v1/_office/status", get(console::status))
+        .route("/v1/_office/setup", post(console::setup))
+        .route("/v1/_office/overview", get(console::overview))
+        .route("/v1/_office/users", get(console::people).post(make_user))
+        .route("/v1/_office/audit", get(console::audit_log))
+        .route("/v1/_office/settings/oidc", put(console::set_oidc))
+        .route("/v1/_office/settings/address", put(console::set_address))
         .route("/healthz", get(|| async { "ok" }))
         .route("/readyz", get(ready))
         .route("/.well-known/jwks.json", get(jwks))
@@ -59,14 +71,19 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/auth/oidc/exchange", post(oidc_exchange))
         .route("/v1/_office/token", post(token))
         .route("/v1/_office/stepup", post(step_up))
-        .route("/v1/_office/users", post(make_user))
-        .route("/v1/_office/memberships", put(membership))
+        .route(
+            "/v1/_office/memberships",
+            get(console::memberships)
+                .put(membership)
+                .delete(console::remove_membership),
+        )
         .route("/v1/_office/revocations", get(feed).post(revoke))
         .route("/v1/_office/keys/rotate", post(rotate))
         .route("/v1/_office/keys/retire", post(retire))
         .route("/v1/_office/apps", get(apps))
         .route("/v1/_office/apps/{name}/revoke", post(revoke_app))
         .with_state(office)
+        .layer(axum::middleware::from_fn(console::secure_headers))
         // Sign-in routes come last: Office's own `/.well-known/jwks.json` (the keys it
         // signs app tokens with) must win over the session keys' set.
         .fallback_service(auth)
@@ -599,7 +616,7 @@ async fn app_token(o: &Office, subject: &str, audience: &str, step_up: bool) -> 
 /// provider identity (`auth_time` within five minutes).
 async fn step_up(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/stepup");
-    let Some(oidc) = o.oidc.clone() else {
+    let Some(oidc) = o.oidc() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let run = async {
@@ -669,7 +686,7 @@ async fn make_user(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> 
 /// Every refusal looks the same from outside.
 async fn oidc_exchange(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/auth/oidc/exchange");
-    let Some(oidc) = o.oidc.clone() else {
+    let Some(oidc) = o.oidc() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let run = async {

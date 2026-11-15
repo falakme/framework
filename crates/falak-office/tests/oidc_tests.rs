@@ -75,12 +75,7 @@ async fn env(oidc: Option<OidcConfig>) -> Env {
     );
     if let Some(cfg) = oidc {
         office = office.with_oidc(cfg);
-        office
-            .oidc
-            .as_ref()
-            .unwrap()
-            .load_jwks(JWKS, now())
-            .unwrap();
+        office.oidc().unwrap().load_jwks(JWKS, now()).unwrap();
     }
     let office = Arc::new(office);
     Env {
