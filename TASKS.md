@@ -103,7 +103,7 @@ Target: the Notebook app runs as one binary with no external service.
 
 **Dev2**
 - [x] **T1.6** SQLite driver (WAL, `busy_timeout`, `BEGIN IMMEDIATE`, one writer and a reader pool). *Needs:* T0.3.
-- [ ] **T1.7** Native runtime: REST CRUD and commands served from the IR, input validation, error format, keyset pagination, `ETag`, idempotency keys. *Needs:* T1.5, T1.6.
+- [x] **T1.7** Native runtime: REST CRUD and commands served from the IR, input validation, error format, keyset pagination, `ETag`, idempotency keys. *Needs:* T1.5, T1.6.
 - [x] **T1.8** Create tables from the IR on first run (minimal `falak migrate`). *Needs:* T1.3, T1.6.
 - [ ] **T1.9** Structured logs, traces, liveness and readiness endpoints, and a Litestream config. *Works when:* a restore from the Litestream replica brings back the Notebook data.
 

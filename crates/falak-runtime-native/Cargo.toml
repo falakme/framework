@@ -12,3 +12,23 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+falak-contracts.workspace = true
+falak-core.workspace = true
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1", "json", "query"] }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+serde = { workspace = true }
+serde_json = "1"
+tower = "0.5"
+tower-http = { version = "0.6", default-features = false, features = ["cors", "trace"] }
+tracing = "0.1"
+hex = "0.4"
+sha2 = "0.10"
+unicode-normalization = "0.1.26"
+
+[dev-dependencies]
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-migrate = { path = "../falak-migrate" }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

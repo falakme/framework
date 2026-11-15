@@ -82,7 +82,13 @@ pub fn rows_from_sqlite(sqlite_rows: Vec<SqliteRow>) -> Result<Rows> {
                     }
                     "BLOB" => {
                         let b: Vec<u8> = row.try_get(i).map_err(map_sqlx_error)?;
-                        Value::Bytes(b)
+                        if b.len() == 16 {
+                            let mut u = [0u8; 16];
+                            u.copy_from_slice(&b);
+                            Value::Uuid(u)
+                        } else {
+                            Value::Bytes(b)
+                        }
                     }
                     "BOOLEAN" | "BOOL" => {
                         let b: bool = row.try_get(i).map_err(map_sqlx_error)?;
@@ -93,7 +99,13 @@ pub fn rows_from_sqlite(sqlite_rows: Vec<SqliteRow>) -> Result<Rows> {
                         if let Ok(s) = row.try_get::<String, _>(i) {
                             Value::Text(s)
                         } else if let Ok(b) = row.try_get::<Vec<u8>, _>(i) {
-                            Value::Bytes(b)
+                            if b.len() == 16 {
+                                let mut u = [0u8; 16];
+                                u.copy_from_slice(&b);
+                                Value::Uuid(u)
+                            } else {
+                                Value::Bytes(b)
+                            }
                         } else if let Ok(i) = row.try_get::<i64, _>(i) {
                             Value::Int64(i)
                         } else if let Ok(f) = row.try_get::<f64, _>(i) {
