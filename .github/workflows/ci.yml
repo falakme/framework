@@ -33,6 +33,10 @@ jobs:
           git diff --exit-code -- examples/notebook
       - name: Build token verification (wasm32)
         run: cargo build --locked --target wasm32-unknown-unknown -p falak-auth --no-default-features
+      - name: Build the edge runtime (wasm32)
+        run: cargo build --locked --target wasm32-unknown-unknown -p falak-runtime-edge
+      - name: Edge runtime WASM size budget
+        run: bash scripts/check-wasm-size.sh
 
   web:
     runs-on: ubuntu-latest

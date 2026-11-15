@@ -125,7 +125,7 @@ impl LocalKeys {
         })
     }
 
-    fn from_json(text: &str) -> Result<Self> {
+    pub fn from_json(text: &str) -> Result<Self> {
         let bad = |why: &str| Error::internal(format!("key file is not valid: {why}"));
         let v: Value = serde_json::from_str(text).map_err(|_| bad("not JSON"))?;
         let active = v["active"].as_str().ok_or_else(|| bad("no active key"))?;

@@ -7,8 +7,7 @@ use serde::Serialize;
 /// The one hard-coded entity.
 pub const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS notes (\
     id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL)";
-pub const SEED_SQL: &str =
-    "INSERT OR REPLACE INTO notes (id, title, body) VALUES (1, 'hello', 'same row on D1 and SQLite')";
+pub const SEED_SQL: &str = "INSERT OR REPLACE INTO notes (id, title, body) VALUES (1, 'hello', 'same row on D1 and SQLite')";
 pub const SELECT_SQL: &str = "SELECT id, title, body FROM notes WHERE id = ?1";
 
 #[derive(Debug, Serialize)]
@@ -65,7 +64,11 @@ mod tests {
 
     #[test]
     fn json_shape_is_stable() {
-        let n = Note { id: 1, title: "hello".into(), body: "b".into() };
+        let n = Note {
+            id: 1,
+            title: "hello".into(),
+            body: "b".into(),
+        };
         assert_eq!(note_json(&n), r#"{"id":1,"title":"hello","body":"b"}"#);
     }
 

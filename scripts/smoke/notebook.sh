@@ -9,6 +9,11 @@
 #   scripts/smoke/notebook.sh
 #
 # Set FALAK_BIN to use an already built binary.
+#
+# Set FALAK_URL to run the same checks against an app that is already deployed (for
+# example on Workers after `falak deploy`) instead of serving one here:
+#
+#   FALAK_URL=https://notebook.example.workers.dev scripts/smoke/notebook.sh
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -19,6 +24,11 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+
+if [ -n "${FALAK_URL:-}" ]; then
+  python3 "$root/scripts/smoke/notebook.py" "$FALAK_URL"
+  exit $?
+fi
 
 if [ -z "${FALAK_BIN:-}" ]; then
   (cd "$root" && cargo build --locked -q -p falak-cli)

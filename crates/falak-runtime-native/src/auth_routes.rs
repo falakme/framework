@@ -21,26 +21,30 @@
 
 use std::{
     future::Future,
-    net::SocketAddr,
+    net::IpAddr,
     pin::Pin,
     sync::{Arc, Mutex},
 };
 
 use axum::{
     Router,
-    extract::{ConnectInfo, DefaultBodyLimit, Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
 };
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+use falak_auth::store::SqlStore;
 use falak_auth::{
     identity::{LocalIdentity, Tokens},
     ratelimit::{Limiter, Rate},
-    store::{MemoryStore, SqlStore},
+    store::MemoryStore,
     system::{RandomIds, SystemClock},
 };
 use falak_contracts::{Error, ErrorKind, Result, support::Clock};
+#[cfg(feature = "postgres")]
 use falak_driver_postgres::PostgresDriver;
+#[cfg(feature = "sqlite")]
 use falak_driver_sqlite::SqliteDriver;
 use serde_json::{Value, json};
 
@@ -89,7 +93,9 @@ macro_rules! impl_auth_service {
     };
 }
 
+#[cfg(feature = "sqlite")]
 impl_auth_service!(SqlStore<SqliteDriver>);
+#[cfg(feature = "postgres")]
 impl_auth_service!(SqlStore<PostgresDriver>);
 impl_auth_service!(MemoryStore);
 
@@ -146,18 +152,34 @@ fn too_many() -> Error {
     )
 }
 
+/// The client address, set by whatever sits in front of the router: [`PeerAddr`] on the
+/// edge, Axum's connect info for `falak serve`.
+#[derive(Debug, Clone, Copy)]
+pub struct PeerAddr(pub IpAddr);
+
+fn peer_ip(req: &Request) -> Option<IpAddr> {
+    if let Some(p) = req.extensions().get::<PeerAddr>() {
+        return Some(p.0);
+    }
+    #[cfg(feature = "server")]
+    if let Some(c) = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    {
+        return Some(c.0.ip());
+    }
+    None
+}
+
 /// Rate limit, then read the JSON object body.
 async fn read(
     state: &AuthState,
     req: Request,
     instance: &'static str,
 ) -> std::result::Result<(Call, Value), Response> {
-    let peer = req
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0);
+    let peer = peer_ip(&req);
     let request_id = extract_request_id(req.headers());
-    let key = peer.map_or_else(|| "unknown".to_owned(), |p| p.ip().to_string());
+    let key = peer.map_or_else(|| "unknown".to_owned(), |ip| ip.to_string());
     let decision = state
         .limiter
         .lock()

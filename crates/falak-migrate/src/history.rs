@@ -1,7 +1,5 @@
 //! Migration history tracking and drift detection.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use falak_contracts::{
     Error, ErrorKind, Result,
     driver::{Statement, StorageDriver, Value},
@@ -147,10 +145,7 @@ pub fn record_migration_statement(
     checksum: &str,
     dialect: Dialect,
 ) -> Statement {
-    let now_micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as i64;
+    let now_micros = falak_contracts::support::wall_clock_micros();
 
     let (insert_sql, val) = match dialect {
         Dialect::Postgres => (

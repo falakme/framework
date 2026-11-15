@@ -2,13 +2,17 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+use falak_contracts::driver::StorageDriver;
 use falak_contracts::{
     Result,
     capability::CapabilityProfile,
-    driver::{Outcome, Rows, Statement, StorageDriver},
+    driver::{Outcome, Rows, Statement},
     identity::RequestContext,
 };
+#[cfg(feature = "postgres")]
 use falak_driver_postgres::PostgresDriver;
+#[cfg(feature = "sqlite")]
 use falak_driver_sqlite::SqliteDriver;
 
 /// Trait for storage drivers in the native runtime, ensuring returned futures
@@ -29,6 +33,7 @@ pub trait NativeDriver: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<Outcome>>> + Send + 'a>>;
 }
 
+#[cfg(feature = "sqlite")]
 impl NativeDriver for SqliteDriver {
     fn profile(&self) -> &CapabilityProfile {
         <Self as StorageDriver>::profile(self)
@@ -51,6 +56,7 @@ impl NativeDriver for SqliteDriver {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl NativeDriver for PostgresDriver {
     fn profile(&self) -> &CapabilityProfile {
         <Self as StorageDriver>::profile(self)

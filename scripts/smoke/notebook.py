@@ -23,6 +23,8 @@ def call(method, path, body=None, token=None, headers=None):
     """Return (status, parsed JSON or None, response headers)."""
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(BASE + path, data=data, method=method)
+    # Cloudflare refuses Python's default user agent (error 1010) on workers.dev.
+    request.add_header("User-Agent", "falak-smoke/1")
     if data is not None:
         request.add_header("Content-Type", "application/json")
     if token:

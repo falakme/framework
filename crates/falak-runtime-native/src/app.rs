@@ -31,14 +31,25 @@ pub fn create_router<D: NativeDriver>(
     driver: Arc<D>,
     auth: Arc<dyn Authenticator>,
 ) -> Router {
+    create_router_with(ir, driver, auth, IdempotencyStore::new())
+}
+
+/// Like [`create_router`], with the idempotency store to use. The edge runtime passes a
+/// durable one, because its isolates share no memory.
+pub fn create_router_with<D: NativeDriver>(
+    ir: Arc<Ir>,
+    driver: Arc<D>,
+    auth: Arc<dyn Authenticator>,
+    idempotency: IdempotencyStore,
+) -> Router {
     let state = Arc::new(AppState {
         ir,
         driver,
-        idempotency: IdempotencyStore::new(),
+        idempotency,
         auth,
     });
 
-    Router::<Arc<AppState<D>>>::new()
+    let router = Router::<Arc<AppState<D>>>::new()
         .route("/healthz", get(|| async { "ok" }))
         .route(
             "/readyz",
@@ -88,6 +99,9 @@ pub fn create_router<D: NativeDriver>(
                 vec![],
             )
         })
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(state)
+        .with_state(state);
+    // `TraceLayer` reads `Instant::now`, which panics on `wasm32-unknown-unknown`.
+    #[cfg(feature = "server")]
+    let router = router.layer(tower_http::trace::TraceLayer::new_for_http());
+    router
 }

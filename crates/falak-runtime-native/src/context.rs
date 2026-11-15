@@ -114,13 +114,6 @@ pub fn make_scope(principal: Option<&Principal>) -> Scope {
 }
 
 fn generate_uuid() -> [u8; 16] {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let mut b = [0u8; 16];
-    b[..8].copy_from_slice(&(now as u64).to_be_bytes());
-    b[8..].copy_from_slice(&((now >> 64) as u64 ^ 0x0123_4567_89ab_cdef).to_be_bytes());
-    b
+    use falak_contracts::support::IdGenerator;
+    falak_auth::system::RandomIds.new_id()
 }

@@ -142,9 +142,9 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 - [x] **T2.5** Docker image and compose file for Notebook on PostgreSQL. *Needs:* T2.4.
 
 **Dev3**
-- [ ] **T2.6** D1 driver: atomic batches, read-replica bookmarks. *early start*
-- [ ] **T2.7** Edge runtime: `workers-rs` router serving the IR. *Needs:* T2.6.
-- [ ] **T2.8** `falak deploy` for Workers, and a WASM size check in CI. *Needs:* T2.7.
+- [x] **T2.6** D1 driver: atomic batches, read-replica bookmarks. *early start*
+- [x] **T2.7** Edge runtime: `workers-rs` router serving the IR. *Needs:* T2.6.
+- [x] **T2.8** `falak deploy` for Workers, and a WASM size check in CI. *Needs:* T2.7.
 
 **Dev4**
 - [ ] **T2.9** Token verification on the edge with a cached JWKS, using WASM-compatible crypto. *Needs:* T2.7.
@@ -316,7 +316,12 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * `falak-core`: new modules `openapi` and `typescript`.
   * `ci.yml`: a `web` job, the Notebook smoke test, a check that generated files are current, and a wasm32 build of the auth crate's verification code.
 - **Phase 1 gate measurements (Dev3, 2026-11-15, macOS arm64).** `falak serve` on the Notebook app: release binary 7.2 MB; peak resident memory after start-up and one health check 7.6 MB (measured with `getrusage`, so it is a peak, not a steady idle figure). One process, no external service. Still open before the gate: T1.9 (Dev2: logs, traces, readiness, Litestream restore).
-- **T2.6 (Dev3), status.** The D1 driver is written in `crates/falak-driver-d1` against the `falak-contracts` traits: batch, limits checks, error mapping, session bookmarks, and a `workers-rs` binding for `wasm32`. 25 unit tests pass against a fake binding and the crate lints clean for native and `wasm32`. It has not run against a real or local D1 database, so the box stays unticked until T2.7 can run it.
+- **T2.6, T2.7, T2.8 (Dev3), done 2026-11-15.** The D1 driver now runs against a real D1 database through the edge runtime. `falak-runtime-edge` serves the same router as `falak serve` on Workers, with D1, token auth, sign-up and login. `falak deploy examples/notebook --account <id>` built it, created the D1 database, published it and set the signing keys: the Notebook runs at https://notebook.falakme.workers.dev (Falak account). `scripts/smoke/notebook.py` passes all 28 checks against it. WASM is 1.7 MiB raw, 555 KiB gzip; `scripts/check-wasm-size.sh` holds it under 800 KiB gzip in CI. Not done: a CI job that deploys and runs the smoke test on Workers (needs a Cloudflare token as a CI secret); that is the Workers part of T2.11.
+- **Changes Dev3 made in other agents' areas, edge round (for Dev1 and Dev2 to review).**
+  * `falak-runtime-native`: new features `server`, `sqlite`, `postgres` (all default), so the crate builds for `wasm32` with `default-features = false`. `IdempotencyStore` methods are now `async`, and there is a durable variant that keeps keys in the database (`_falak_idempotency`); `falak serve` still uses the in-memory one. New `create_router_with` and `auth_routes::PeerAddr`. Request ids are random now.
+  * `falak-contracts`: `support::wall_clock_micros()`, because `SystemTime::now` panics on Workers. `falak-auth` and `falak-migrate` use it. `LocalKeys::from_json` is public.
+  * `falak-cli`: new `deploy` command and `--account`.
+- **Limits of the edge runtime.** The auth rate limiter lives in isolate memory (T2.10 moves it). Argon2id runs inside the Worker; sign-up worked on the account used here, but a plan with a low CPU limit may refuse it. The D1 migration for a changed app is still create-only (T3.8).
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

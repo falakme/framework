@@ -204,6 +204,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -421,6 +431,7 @@ dependencies = [
  "ed25519-dalek",
  "falak-contracts",
  "falak-driver-sqlite",
+ "getrandom",
  "rand_core",
  "serde_json",
  "sha2",
@@ -448,6 +459,7 @@ dependencies = [
 name = "falak-contracts"
 version = "0.0.0"
 dependencies = [
+ "js-sys",
  "serde",
 ]
 
@@ -517,6 +529,21 @@ dependencies = [
 [[package]]
 name = "falak-runtime-edge"
 version = "0.0.0"
+dependencies = [
+ "axum",
+ "console_error_panic_hook",
+ "falak-auth",
+ "falak-contracts",
+ "falak-core",
+ "falak-driver-d1",
+ "falak-migrate",
+ "falak-runtime-native",
+ "getrandom",
+ "http",
+ "serde_json",
+ "tower-service",
+ "worker",
+]
 
 [[package]]
 name = "falak-runtime-native"
@@ -700,8 +727,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2476,6 +2505,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d055db1ea6baa6c329730897f63ff7b6ac93c46a9f053804e497e5960eb98e3"
 dependencies = [
  "async-trait",
+ "axum",
  "bytes",
  "chrono",
  "futures-channel",

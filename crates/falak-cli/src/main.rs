@@ -1,6 +1,7 @@
 //! The `falak` command line.
 
 mod args;
+mod deploy;
 mod doctor;
 mod init;
 mod project;
@@ -25,11 +26,13 @@ COMMANDS:
     sync [dir] [--out <file>]    Write the TypeScript client (default .falak/client.ts)
     serve [dir] [options]        Serve the app
     dev [dir] [options]          Serve, and rebuild and reload when a file changes
+    deploy [dir] [options]       Publish to Cloudflare Workers with a D1 database
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
     --port <n>     Port to listen on (default 8787)
-    --name <name>  App name for `init` (default: the directory name)
+    --name <name>  App name for `init`, or the Worker name for `deploy`
+    --account <id> Cloudflare account for `deploy` (or CLOUDFLARE_ACCOUNT_ID)
     -h, --help     Show this help
     -V, --version  Show the version
 ";
@@ -43,7 +46,14 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match run(args.command, &args.dir, args.port, args.name, args.out) {
+    match run(
+        args.command,
+        &args.dir,
+        args.port,
+        args.name,
+        args.out,
+        args.account,
+    ) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("error: {e}");
@@ -58,6 +68,7 @@ fn run(
     port: u16,
     name: Option<String>,
     out: Option<PathBuf>,
+    account: Option<String>,
 ) -> Result<u8, String> {
     match command {
         Command::Help => {
@@ -142,6 +153,7 @@ fn run(
         }
         Command::Serve => serve::run(dir, port, false),
         Command::Dev => serve::run(dir, port, true),
+        Command::Deploy => deploy::run(dir, &deploy::Options { name, account }),
     }
 }
 

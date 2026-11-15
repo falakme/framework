@@ -1,10 +1,6 @@
 //! Request handlers for entity CRUD and commands.
 
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     body::Bytes,
@@ -40,10 +36,8 @@ use crate::{
 };
 
 fn now_micros() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as i64
+    use falak_contracts::support::Clock;
+    falak_auth::system::SystemClock.now_micros()
 }
 
 fn fresh_uuid() -> [u8; 16] {
@@ -403,7 +397,11 @@ pub async fn create_handler<D: NativeDriver>(
         });
 
     if let Some(ref iscope) = idempotency_scope {
-        match state.idempotency.check_or_start(iscope, &payload_hash) {
+        match state
+            .idempotency
+            .check_or_start(iscope, &payload_hash)
+            .await
+        {
             Ok(CheckResult::Proceed) => {}
             Ok(CheckResult::Replay(cached)) => {
                 let json_val =
@@ -418,7 +416,7 @@ pub async fn create_handler<D: NativeDriver>(
         Ok(v) => v,
         Err(_) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(
                 &Error::invalid_input("invalid_input", "Malformed JSON body"),
@@ -431,7 +429,7 @@ pub async fn create_handler<D: NativeDriver>(
 
     let Some(map) = json_body.as_object() else {
         if let Some(ref iscope) = idempotency_scope {
-            state.idempotency.release(iscope);
+            state.idempotency.release(iscope).await;
         }
         return problem_response(
             &Error::invalid_input("invalid_input", "JSON body must be an object"),
@@ -445,7 +443,7 @@ pub async fn create_handler<D: NativeDriver>(
     for (key, val) in map {
         let Some(f) = entity.field(key) else {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(
                 &Error::invalid_input("invalid_field", format!("unknown field `{key}`")),
@@ -458,7 +456,7 @@ pub async fn create_handler<D: NativeDriver>(
             Ok(v) => fields.push((key.clone(), v)),
             Err(e) => {
                 if let Some(ref iscope) = idempotency_scope {
-                    state.idempotency.release(iscope);
+                    state.idempotency.release(iscope).await;
                 }
                 return problem_response(&e, &instance, &req_id, vec![]);
             }
@@ -468,7 +466,7 @@ pub async fn create_handler<D: NativeDriver>(
     let access = authorize(entity, IrAction::Create, principal.as_ref());
     if access.is_denied() {
         if let Some(ref iscope) = idempotency_scope {
-            state.idempotency.release(iscope);
+            state.idempotency.release(iscope).await;
         }
         return problem_response(&Error::forbidden(), &instance, &req_id, vec![]);
     }
@@ -490,13 +488,13 @@ pub async fn create_handler<D: NativeDriver>(
         Ok(Some(s)) => s,
         Ok(None) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&Error::forbidden(), &instance, &req_id, vec![]);
         }
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&e, &instance, &req_id, vec![]);
         }
@@ -506,7 +504,7 @@ pub async fn create_handler<D: NativeDriver>(
         Ok(o) => o,
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&e, &instance, &req_id, vec![]);
         }
@@ -537,15 +535,18 @@ pub async fn create_handler<D: NativeDriver>(
     }
 
     if let Some(iscope) = idempotency_scope {
-        state.idempotency.complete(
-            iscope,
-            payload_hash,
-            CachedResponse {
-                status: StatusCode::CREATED,
-                etag: Some("1".to_string()),
-                body: response_json.to_string().into_bytes(),
-            },
-        );
+        state
+            .idempotency
+            .complete(
+                iscope,
+                payload_hash,
+                CachedResponse {
+                    status: StatusCode::CREATED,
+                    etag: Some("1".to_string()),
+                    body: response_json.to_string().into_bytes(),
+                },
+            )
+            .await;
     }
 
     res
@@ -588,7 +589,11 @@ pub async fn update_handler<D: NativeDriver>(
         });
 
     if let Some(ref iscope) = idempotency_scope {
-        match state.idempotency.check_or_start(iscope, &payload_hash) {
+        match state
+            .idempotency
+            .check_or_start(iscope, &payload_hash)
+            .await
+        {
             Ok(CheckResult::Proceed) => {}
             Ok(CheckResult::Replay(cached)) => {
                 let json_val =
@@ -603,7 +608,7 @@ pub async fn update_handler<D: NativeDriver>(
         Ok(v) => v,
         Err(_) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(
                 &Error::invalid_input("invalid_input", "Malformed JSON body"),
@@ -616,7 +621,7 @@ pub async fn update_handler<D: NativeDriver>(
 
     let Some(map) = json_body.as_object() else {
         if let Some(ref iscope) = idempotency_scope {
-            state.idempotency.release(iscope);
+            state.idempotency.release(iscope).await;
         }
         return problem_response(
             &Error::invalid_input("invalid_input", "JSON body must be an object"),
@@ -630,7 +635,7 @@ pub async fn update_handler<D: NativeDriver>(
     for (key, val) in map {
         let Some(f) = entity.field(key) else {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(
                 &Error::invalid_input("invalid_field", format!("unknown field `{key}`")),
@@ -643,7 +648,7 @@ pub async fn update_handler<D: NativeDriver>(
             Ok(v) => changes.push((key.clone(), v)),
             Err(e) => {
                 if let Some(ref iscope) = idempotency_scope {
-                    state.idempotency.release(iscope);
+                    state.idempotency.release(iscope).await;
                 }
                 return problem_response(&e, &instance, &req_id, vec![]);
             }
@@ -653,7 +658,7 @@ pub async fn update_handler<D: NativeDriver>(
     let access = authorize(entity, IrAction::Update, principal.as_ref());
     if access.is_denied() {
         if let Some(ref iscope) = idempotency_scope {
-            state.idempotency.release(iscope);
+            state.idempotency.release(iscope).await;
         }
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     }
@@ -675,13 +680,13 @@ pub async fn update_handler<D: NativeDriver>(
         Ok(Some(s)) => s,
         Ok(None) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
         }
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&e, &instance, &req_id, vec![]);
         }
@@ -691,7 +696,7 @@ pub async fn update_handler<D: NativeDriver>(
         Ok(o) => o,
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
-                state.idempotency.release(iscope);
+                state.idempotency.release(iscope).await;
             }
             return problem_response(&e, &instance, &req_id, vec![]);
         }
@@ -700,7 +705,7 @@ pub async fn update_handler<D: NativeDriver>(
     let outcome = outcomes.into_iter().next().unwrap_or_default();
     if outcome.rows_affected == 0 {
         if let Some(ref iscope) = idempotency_scope {
-            state.idempotency.release(iscope);
+            state.idempotency.release(iscope).await;
         }
         return nothing_changed(
             &state,
@@ -736,15 +741,18 @@ pub async fn update_handler<D: NativeDriver>(
     );
 
     if let Some(iscope) = idempotency_scope {
-        state.idempotency.complete(
-            iscope,
-            payload_hash,
-            CachedResponse {
-                status: StatusCode::OK,
-                etag: new_version,
-                body: updated_json.to_string().into_bytes(),
-            },
-        );
+        state
+            .idempotency
+            .complete(
+                iscope,
+                payload_hash,
+                CachedResponse {
+                    status: StatusCode::OK,
+                    etag: new_version,
+                    body: updated_json.to_string().into_bytes(),
+                },
+            )
+            .await;
     }
 
     res

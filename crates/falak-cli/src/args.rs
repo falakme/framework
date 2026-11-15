@@ -12,6 +12,7 @@ pub enum Command {
     Sync,
     Serve,
     Dev,
+    Deploy,
     Doctor,
     Help,
     Version,
@@ -24,6 +25,7 @@ pub struct Args {
     pub port: u16,
     pub name: Option<String>,
     pub out: Option<PathBuf>,
+    pub account: Option<String>,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -40,6 +42,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         Some("sync") => Command::Sync,
         Some("serve") => Command::Serve,
         Some("dev") => Command::Dev,
+        Some("deploy") => Command::Deploy,
         Some("doctor") => Command::Doctor,
         Some(other) => return Err(format!("unknown command `{other}`")),
     };
@@ -49,6 +52,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         port: DEFAULT_PORT,
         name: None,
         out: None,
+        account: None,
     };
     let mut dir_set = false;
     while let Some(arg) = it.next() {
@@ -63,6 +67,9 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--name" => {
                 args.name = Some(it.next().ok_or("`--name` needs a value")?.clone());
+            }
+            "--account" => {
+                args.account = Some(it.next().ok_or("`--account` needs a value")?.clone());
             }
             "--out" => {
                 args.out = Some(PathBuf::from(it.next().ok_or("`--out` needs a value")?));
@@ -123,6 +130,7 @@ mod tests {
             "serve --port 99999",
             "serve --port abc",
             "sync --out",
+            "deploy --account",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
