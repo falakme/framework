@@ -39,7 +39,8 @@ An agent changes only the directories it owns. A change needed elsewhere is requ
 5. Keep pull requests to one task. A task that grows is split, and the new task is added here by Dev1.
 6. Commit messages describe the change and carry no co-author trailers.
 7. Do not start a phase's tasks before the previous phase's gate is ticked, except tasks marked *early start*.
-8. Blocked for more than one working session: write the blocker under §6 and move to your next unblocked task.
+8. The crate stubs declare no dependencies, because unused dependencies are a warning and CI treats warnings as errors. Add a dependency (including on another `falak-*` crate, via `workspace = true`) in the same pull request that first uses it. The Rust toolchain is pinned in `rust-toolchain.toml`; install it with `rustup` and run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo build --workspace` before opening a pull request.
+9. Blocked for more than one working session: write the blocker under §6 and move to your next unblocked task.
 
 ## 4. Decisions needed from the project owner
 
@@ -61,7 +62,7 @@ Agents cannot do these. Phase 0 cannot close without the first two.
 Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on specs and spikes meanwhile.
 
 **Dev1**
-- [ ] **T0.1** Monorepo skeleton: Cargo workspace with the crates in §2 as stubs, `packages/`, `office/`, `examples/`, `scripts/smoke/`, and CI. *Works when:* CI is green building every crate for native, and `falak-contracts` and `falak-core` for `wasm32`.
+- [x] **T0.1** Monorepo skeleton: Cargo workspace with the crates in §2 as stubs, `packages/`, `office/`, `examples/`, `scripts/smoke/`, and CI. *Works when:* CI is green building every crate for native, and `falak-contracts` and `falak-core` for `wasm32`.
 - [ ] **T0.2** Write the eight ADRs into `specifications/adr/` as accepted or changed by the owner. *Needs:* owner decision. *Works when:* ARCHITECTURE §3 links to eight ADR files and no item is marked *Proposed*.
 - [ ] **T0.3** `falak-contracts`: provider traits, capability profile, IR types, error taxonomy. *Needs:* T0.1. *Works when:* every other crate compiles against it with stub implementations.
 - [ ] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor.
