@@ -17,6 +17,9 @@ pub enum Command {
     MigratePlan,
     MigrateApply,
     TenantAdd,
+    OfficeEnroll,
+    OfficeStatus,
+    OfficeRotateKey,
     Doctor,
     Help,
     Version,
@@ -47,6 +50,11 @@ pub struct Extra {
     pub roles: Vec<String>,
     pub tenant: Option<String>,
     pub anonymous: bool,
+    pub office: Option<String>,
+    pub token: Option<String>,
+    pub email: Option<String>,
+    pub password_env: Option<String>,
+    pub retire: bool,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -76,6 +84,12 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             Some("plan") => Command::MigratePlan,
             Some("apply") => Command::MigrateApply,
             _ => return Err("`migrate` needs a subcommand: plan or apply".into()),
+        },
+        Some("office") => match it.next().map(String::as_str) {
+            Some("enroll") => Command::OfficeEnroll,
+            Some("status") => Command::OfficeStatus,
+            Some("rotate-key") => Command::OfficeRotateKey,
+            _ => return Err("`office` needs a subcommand: enroll, status or rotate-key".into()),
         },
         Some("doctor") => Command::Doctor,
         Some(other) => return Err(format!("unknown command `{other}`")),
@@ -134,6 +148,20 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             "--tenant" => {
                 args.extra.tenant = Some(it.next().ok_or("`--tenant` needs a value")?.clone());
             }
+            "--office" => {
+                args.extra.office = Some(it.next().ok_or("`--office` needs a value")?.clone());
+            }
+            "--token" => {
+                args.extra.token = Some(it.next().ok_or("`--token` needs a value")?.clone());
+            }
+            "--email" => {
+                args.extra.email = Some(it.next().ok_or("`--email` needs a value")?.clone());
+            }
+            "--password-env" => {
+                args.extra.password_env =
+                    Some(it.next().ok_or("`--password-env` needs a value")?.clone());
+            }
+            "--retire" => args.extra.retire = true,
             "--jwks-url" => {
                 args.jwks_url = Some(it.next().ok_or("`--jwks-url` needs a value")?.clone());
             }
@@ -183,6 +211,22 @@ mod tests {
     }
 
     #[test]
+    fn office_commands() {
+        let a = p("office enroll app --office https://o.test --token abc --name nb").unwrap();
+        assert_eq!(a.command, Command::OfficeEnroll);
+        assert_eq!(a.extra.office.as_deref(), Some("https://o.test"));
+        assert_eq!(a.extra.token.as_deref(), Some("abc"));
+        assert_eq!(a.name.as_deref(), Some("nb"));
+        assert_eq!(p("office status").unwrap().command, Command::OfficeStatus);
+        let r =
+            p("office rotate-key --office https://o.test --email a@b.c --password-env PW --retire")
+                .unwrap();
+        assert_eq!(r.command, Command::OfficeRotateKey);
+        assert!(r.extra.retire);
+        assert_eq!(r.extra.password_env.as_deref(), Some("PW"));
+    }
+
+    #[test]
     fn no_arguments_shows_help() {
         assert_eq!(p("").unwrap().command, Command::Help);
         assert_eq!(p("check --help").unwrap().command, Command::Help);
@@ -206,6 +250,10 @@ mod tests {
             "deploy --account",
             "deploy --jwks-url",
             "deploy --issuer",
+            "office",
+            "office nope",
+            "office enroll --office",
+            "office enroll --token",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }

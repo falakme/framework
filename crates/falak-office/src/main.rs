@@ -112,6 +112,10 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
     db.migrate()
         .await
         .map_err(|e| e.public_message().to_owned())?;
+    users
+        .migrate()
+        .await
+        .map_err(|e| e.public_message().to_owned())?;
     let office = Arc::new(Office::new(
         issuer,
         db,

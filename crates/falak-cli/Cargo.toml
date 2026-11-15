@@ -22,9 +22,11 @@ serde.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
 falak-driver-postgres = { path = "../falak-driver-postgres" }
+falak-federation = { path = "../falak-federation" }
 falak-migrate = { path = "../falak-migrate" }
 falak-runtime-native = { path = "../falak-runtime-native" }
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
 serde_json.workspace = true
-tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "time", "macros", "sync"] }
 tower = "0.5"
+ureq = { version = "2", features = ["json"] }

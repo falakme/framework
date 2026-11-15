@@ -209,15 +209,15 @@ Target: three apps share one login and one admin interface.
 
 **Dev2**
 - [ ] **T4.4** Office skeleton: one binary, one PostgreSQL database, built on Falak Core, deployed on Coolify.
-- [ ] **T4.5** Registry: single-use enrollment tokens, asymmetric app keys, signed App Passports, `GET /v1/_office/manifest`, passport revocation. *Needs:* T4.4.
+- [x] **T4.5** Registry: single-use enrollment tokens, asymmetric app keys, signed App Passports, `GET /v1/_office/manifest`, passport revocation. *Needs:* T4.4.
 
 **Dev3**
 - [ ] **T4.6** Federation client in both runtimes: enroll, present passport, fetch JWKS, consume the revocation feed, apply the per-tier outage behaviour. *Needs:* T4.5.
-- [ ] **T4.7** CLI: `office enroll`, `office rotate-key`, `office status`. *Needs:* T4.6.
+- [x] **T4.7** CLI: `office enroll`, `office rotate-key`, `office status`. *Needs:* T4.6.
 
 **Dev4**
 - [ ] **T4.8** Office Identity wrapping the chosen OIDC provider: passkeys, per-app audiences, PKCE, refresh rotation with reuse detection. *Needs:* owner decision, T4.4.
-- [ ] **T4.9** Signing-key rotation with overlap. *Works when:* a key is rotated under load with no failed request.
+- [x] **T4.9** Signing-key rotation with overlap. *Works when:* a key is rotated under load with no failed request.
 - [ ] **T4.10** Signed, versioned revocation feed and step-up authentication. *Needs:* T4.8.
 
 **Dev5**
@@ -338,6 +338,11 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * **T3.11** `crates/falak-storage` (SigV4 presigning that reproduces the AWS documented signature, tenant prefixed server-made keys, type and size signed into the upload URL, quarantine, magic-byte check, attachment-only downloads) and the routes `POST /v1/_files`, `POST /v1/_files/{id}/complete`, `GET /v1/_files/{id}` (API §9). Checked against a real Cloudflare R2 bucket: `s3_live` and `scripts/smoke/files.py` (an upload by presigned URL, publish, download of the same bytes, an executable renamed `.png` refused and removed, another person gets 404), also as the PostgreSQL `falak_app` role. The R2 run used a one-hour token and a bucket that are now deleted. **Not on Workers:** `/v1/_files` answers 501 there; the edge needs an R2 binding backend. The file records table `_falak_files` is made by every migration plan.
   * **Changes in other agents' areas (Dev1, Dev2 to review):** IR gains `IrRule.when/fields` and `queries`; `Access::Grants`; the list SQL no longer emits an empty `WHERE` (it broke an unrestricted caller on an app with no tenancy or soft delete); `falak-migrate` plan, diff and runner rewritten around snapshots; PostgreSQL driver sets `falak.roles`; local identity gives each user a tenant of their own (`tenant_of`), because shared tenants need membership (Office, Phase 4).
   * **Cost:** the edge WASM is 738 KiB gzip, close to its 800 KiB budget.
+- **Phase 4, first part (Dev3, 2026-11-16).** Office is `crates/falak-office` (its own binary, SQLite or PostgreSQL) and the app side is `crates/falak-federation`. `falak serve` follows Office when `.falak/office.json` exists. `scripts/smoke/office.sh` (real processes) passes on SQLite and with Office on PostgreSQL 16. It checks: sign in once, a token per app, revocation reaching apps in seconds, key rotation under load with no failed request, tier 1 working with Office stopped, tier 2 reading but pausing writes after the staleness limit (default 300 s), and recovery when Office returns.
+  * **Ticked:** T4.5 (registry, single-use enrollment, app keys, passports, manifest, revocation), T4.7 (`falak office enroll|status|rotate-key`), T4.9 (rotation with overlap, `--retire`).
+  * **Not ticked, and why.** **T4.4:** no Coolify deployment yet. **T4.6:** the native runtime is done; the edge runtime (Workers) only verifies Office tokens through the JWKS mode of T2.9, with no revocation feed or read-only behaviour. **T4.3:** the spec stays a draft until Studio and the OIDC choice settle. **T4.8, T4.10:** wait for the owner's OIDC decision (ADR-0004); Office signs in with Falak's local identity meanwhile (no passkeys, no PKCE). **T4.1, T4.2, T4.11, T4.12, T4.13, T4.14:** not started. Office refuses tier 3 apps.
+  * **Design:** Office has two key sets. Session keys sign its own sign-in (audience `office`). Signing keys sign app tokens, passports and the feed, and are the only keys in `/.well-known/jwks.json`. There is no self sign-up or password reset: an administrator makes accounts (`falak-office user add`, `POST /v1/_office/users`). An app fetches the key set again after 60 s, or at once (at most every 2 s) for an unknown `kid`.
+  * **Changes in other agents' areas:** `falak-auth::token::token_id`; `falak-cli` gains `office` commands and a federated mode in `serve`.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

@@ -33,11 +33,14 @@ use falak_auth::{
 use falak_contracts::{identity::RequestContext, ir::Ir};
 use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
+use falak_federation::{
+    AppKey, DEFAULT_MAX_STALENESS_SECS, FederatedAuthenticator, Federation, OfficeConfig,
+};
 use falak_migrate::{MigrateOptions, migrate};
 use falak_runtime_native::{
     NativeDriver, RouterOptions,
     auth_routes::{ResetSink, auth_router},
-    context::TokenAuthenticator,
+    context::{Authenticator, TokenAuthenticator},
     create_router_with,
     files::{FileApi, S3Files},
     tenants::{SqliteTenants, TenantRouter},
@@ -75,8 +78,19 @@ struct Stack {
     driver_stack: DriverStack,
     /// Where `tenancy: database` keeps one database file per tenant.
     tenant_dir: PathBuf,
-    authenticator: Arc<TokenAuthenticator<SystemClock>>,
+    authenticator: Arc<dyn Authenticator>,
     reset_sink: ResetSink,
+    /// Set when the app is enrolled with Falak Office: sign-in is Office's.
+    office: Option<Office>,
+}
+
+#[derive(Clone)]
+struct Office {
+    fed: Arc<Federation>,
+    config: OfficeConfig,
+    key: Arc<AppKey>,
+    /// One key set fetch at a time when a rotation reaches many requests at once.
+    fetching: Arc<tokio::sync::Mutex<()>>,
 }
 
 fn request_context() -> RequestContext {
@@ -198,11 +212,35 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
         }
     };
 
+    let office = match crate::office_cmd::load(dir)? {
+        Some((config, key)) => {
+            if config.app != ir.app.name {
+                return Err(format!(
+                    "this app is enrolled with Office as `{}` but is named `{}`",
+                    config.app, ir.app.name
+                ));
+            }
+            let staleness = env_secs("FALAK_OFFICE_MAX_STALENESS", DEFAULT_MAX_STALENESS_SECS);
+            Some(Office {
+                fed: Arc::new(Federation::new(&config, staleness)),
+                config,
+                key: Arc::new(key),
+                fetching: Arc::default(),
+            })
+        }
+        None => None,
+    };
+    let authenticator: Arc<dyn Authenticator> = match &office {
+        Some(o) => Arc::new(FederatedAuthenticator(o.fed.clone())),
+        None => Arc::new(TokenAuthenticator::new(verifier, SystemClock)),
+    };
+
     Ok(Stack {
         tenant_dir: data.join("tenants"),
         driver_stack,
-        authenticator: Arc::new(TokenAuthenticator::new(verifier, SystemClock)),
+        authenticator,
         reset_sink,
+        office,
     })
 }
 
@@ -259,10 +297,79 @@ fn options() -> RouterOptions {
     }
 }
 
+/// The app's own sign-in routes, unless Office does sign-in.
+fn local_auth<S: falak_runtime_native::auth_routes::AuthService>(
+    federated: bool,
+    identity: Arc<S>,
+    sink: &ResetSink,
+) -> Router {
+    if federated {
+        Router::new()
+    } else {
+        auth_router(identity, sink.clone())
+    }
+}
+
+fn env_secs(name: &str, default: i64) -> i64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
+}
+
+/// Fetch Office's key set at once when a token names a key the app has not seen.
+async fn follow_keys(
+    axum::extract::State(o): axum::extract::State<Office>,
+    req: Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let token = falak_runtime_native::context::bearer_token(req.headers()).map(str::to_owned);
+    if let Some(token) = token {
+        let t = falak_federation::now();
+        if o.fed.wants_jwks_for(&token, t) {
+            let _one_at_a_time = o.fetching.lock().await;
+            // Another request may have fetched while this one waited.
+            if !o.fed.wants_jwks_for(&token, falak_federation::now()) {
+                return next.run(req).await;
+            }
+            let (fed, config) = (o.fed.clone(), o.config.clone());
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(text) = falak_federation::http::fetch_jwks(&config) {
+                    let _ = fed.load_jwks(&text, falak_federation::now());
+                }
+            })
+            .await;
+        }
+    }
+    next.run(req).await
+}
+
+/// Keep up with Office: once now (so the first request works), then on a timer.
+async fn sync_office(o: Office) {
+    let every = env_secs("FALAK_OFFICE_SYNC_SECS", 20);
+    let mut first = true;
+    loop {
+        let (fed, config, key) = (o.fed.clone(), o.config.clone(), o.key.clone());
+        let result = tokio::task::spawn_blocking(move || {
+            falak_federation::http::sync_once(&fed, &config, &key)
+        })
+        .await;
+        match result {
+            Ok(Ok(())) if first => eprintln!("office: linked to {}", o.config.office_url),
+            Ok(Err(e)) if first => eprintln!("office: not reachable yet ({e})"),
+            _ => {}
+        }
+        first = false;
+        tokio::time::sleep(Duration::from_secs(u64::try_from(every).unwrap_or(20))).await;
+    }
+}
+
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
     let ir_arc = Arc::new(ir.clone());
     let openapi = falak_core::openapi::generate(ir).to_string();
 
+    let federated = stack.office.is_some();
     let router = match &stack.driver_stack {
         DriverStack::Sqlite { driver, identity } => {
             let data = if ir.app.tenancy == falak_contracts::ir::Tenancy::Database {
@@ -278,7 +385,7 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
                 stack.authenticator.clone(),
                 options(),
             )
-            .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
+            .merge(local_auth(federated, identity.clone(), &stack.reset_sink))
         }
         DriverStack::Postgres { driver, identity } => create_router_with(
             ir_arc,
@@ -286,7 +393,19 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
             stack.authenticator.clone(),
             options(),
         )
-        .merge(auth_router(identity.clone(), stack.reset_sink.clone())),
+        .merge(local_auth(federated, identity.clone(), &stack.reset_sink)),
+    };
+    // Enrolled: sign-in is Office's. Keys follow Office (an unknown `kid` fetches the
+    // key set at once, so a rotation costs no request), and a tier 2 app that has lost
+    // Office for too long only reads.
+    let router = match &stack.office {
+        Some(o) => router
+            .layer(axum::middleware::from_fn_with_state(
+                o.fed.clone(),
+                falak_federation::read_only_gate,
+            ))
+            .layer(axum::middleware::from_fn_with_state(o.clone(), follow_keys)),
+        None => router,
     };
 
     router.route(
@@ -328,6 +447,22 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
 
     let stack = open_stack(&dir, &first.ir, dev).await?;
     prepare_tables(&stack, &first.ir, dev).await?;
+
+    if let Some(o) = &stack.office {
+        // Learn the key set before the first request, then keep following.
+        let (fed, config) = (o.fed.clone(), o.config.clone());
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(text) = falak_federation::http::fetch_jwks(&config) {
+                let _ = fed.load_jwks(&text, falak_federation::now());
+            }
+        })
+        .await;
+        tokio::spawn(sync_office(o.clone()));
+        println!(
+            "  Office:  {} (tier {}); sign-in is Office's",
+            o.config.office_url, o.config.tier
+        );
+    }
 
     let current: Arc<RwLock<Router>> = Arc::new(RwLock::new(build_router(&stack, &first.ir)));
     let app = {

@@ -472,12 +472,14 @@ dependencies = [
  "falak-core",
  "falak-driver-postgres",
  "falak-driver-sqlite",
+ "falak-federation",
  "falak-migrate",
  "falak-runtime-native",
  "serde",
  "serde_json",
  "tokio",
  "tower",
+ "ureq",
 ]
 
 [[package]]
@@ -539,6 +541,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "falak-federation"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64",
+ "ed25519-dalek",
+ "falak-auth",
+ "falak-contracts",
+ "falak-runtime-native",
+ "hex",
+ "rand_core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
 name = "falak-migrate"
 version = "0.0.0"
 dependencies = [
@@ -551,6 +571,28 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+]
+
+[[package]]
+name = "falak-office"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64",
+ "ed25519-dalek",
+ "falak-auth",
+ "falak-contracts",
+ "falak-driver-postgres",
+ "falak-driver-sqlite",
+ "falak-federation",
+ "falak-runtime-native",
+ "hex",
+ "http-body-util",
+ "rand_core",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
@@ -2339,6 +2381,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]

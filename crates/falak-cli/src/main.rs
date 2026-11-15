@@ -5,6 +5,7 @@ mod deploy;
 mod doctor;
 mod init;
 mod migrate_cmd;
+mod office_cmd;
 mod policy_cmd;
 mod project;
 mod serve;
@@ -37,6 +38,11 @@ COMMANDS:
                                  Show what bringing a database to this version would run
     migrate apply [dir] [--driver <d>] [--database-url <u>] [--allow-destructive]
                                  Run it, atomically, under the migration lock
+    office enroll [dir] --office <url> --token <t> [--name <app>]
+                                 Join the app to Falak Office (sign in once, many apps)
+    office status [dir]          Check the link to Office
+    office rotate-key --office <url> --email <e> --password-env <VAR> [--retire]
+                                 Rotate Office's signing key (--retire drops the old one)
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
@@ -200,6 +206,27 @@ fn run(
             deploy_options.name = name;
             let tenant = extra.tenant.ok_or("`--tenant <uuid>` is required")?;
             deploy::add_tenant(dir, &deploy_options, &tenant)
+        }
+        Command::OfficeEnroll | Command::OfficeStatus | Command::OfficeRotateKey => {
+            let options = office_cmd::Options {
+                office: extra.office,
+                token: extra.token,
+                name: name.clone(),
+                email: extra.email,
+                password_env: extra.password_env,
+                retire: extra.retire,
+            };
+            match command {
+                Command::OfficeEnroll => {
+                    let default = match &name {
+                        Some(n) => n.clone(),
+                        None => default_name(dir)?,
+                    };
+                    office_cmd::enroll(dir, &options, &default)
+                }
+                Command::OfficeStatus => office_cmd::status(dir),
+                _ => office_cmd::rotate_key(&options),
+            }
         }
         Command::Deploy => {
             deploy_options.name = name;

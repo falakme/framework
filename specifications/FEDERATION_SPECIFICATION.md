@@ -63,7 +63,7 @@ Office MUST refuse a request whose timestamp is more than 60 seconds off, whose 
 1. A person signs in to Office: `POST /v1/auth/login {email, password}` (the same routes as local identity, with audience `office`). Refresh tokens rotate on every use; presenting a used refresh token ends the whole family.
 2. For each app, the client asks Office for a token: `POST /v1/_office/token {audience}` with the Office access token. Office issues it only if the app is enrolled and not revoked, and the person has a membership for it.
 3. The access token is an EdDSA JWT with `iss`, `aud` (the app), `sub`, `exp`, `iat`, `jti`, `kid`, and `tenant` and `roles` for that app from the membership. Lifetime: 15 minutes for tier 1, 5 minutes for tiers 2 and 3.
-4. The app verifies it locally with the cached key set. It trusts only keys from the configured issuer's JWKS, fetched over `https` (or a loopback address in development). An unknown `kid` may cause one refetch, at most every 30 seconds.
+4. The app verifies it locally with the cached key set. It trusts only keys from the configured issuer's JWKS, fetched over `https` (or a loopback address in development). The set is fetched again after 60 seconds. A token with an unknown `kid` fetches it at once, before the token is checked, but at most once every 2 seconds, so made-up key ids cannot become a stream of requests to Office.
 
 A person with no membership for an app gets `403` from Office and cannot obtain a token for it. Memberships are made by an administrator (`PUT /v1/_office/memberships`). Office is the source of the tenant: a tenant or role in a request is never trusted.
 

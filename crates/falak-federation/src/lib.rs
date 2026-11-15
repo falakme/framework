@@ -42,6 +42,13 @@ use sha2::{Digest, Sha256};
 /// only. Five minutes.
 pub const DEFAULT_MAX_STALENESS_SECS: i64 = 300;
 
+/// How long the app trusts the key set it fetched before it fetches again.
+pub const KEY_SET_TTL_SECS: i64 = 60;
+
+/// A token with a key id the app does not know fetches the key set, but never more often
+/// than this, so a stream of made-up key ids cannot become a stream of requests to Office.
+pub const UNKNOWN_KEY_COOLDOWN_SECS: i64 = 2;
+
 // ---------------------------------------------------------------- key and config
 
 /// The app's Ed25519 key. The private half never leaves the app.
@@ -318,7 +325,13 @@ impl Federation {
             tier: cfg.tier,
             max_staleness_secs,
             inner: RwLock::new(Inner {
-                jwks: JwksCache::new(config, CachePolicy::default()),
+                jwks: JwksCache::new(
+                    config,
+                    CachePolicy {
+                        ttl_secs: KEY_SET_TTL_SECS,
+                        min_refresh_secs: UNKNOWN_KEY_COOLDOWN_SECS,
+                    },
+                ),
                 keys: Vec::new(),
                 revoked_tokens: HashSet::new(),
                 revoked_subjects: HashSet::new(),
