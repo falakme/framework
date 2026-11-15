@@ -951,3 +951,122 @@ pub async fn command_handler<D: NativeDriver>(
 
     build_response(StatusCode::OK, updated_json, new_version, &req_id, false)
 }
+
+/// `GET /v1/_queries/{name}`: run a level 2 query (ARCHITECTURE §4.7). The SQL is fixed
+/// in the app; the caller supplies only the declared parameters, as query-string values.
+pub async fn query_handler<D: NativeDriver>(
+    State(state): State<Arc<AppState<D>>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let req_id = extract_request_id(&headers);
+    let instance = format!("/v1/_queries/{name}");
+
+    let Some(query) = state.ir.queries.iter().find(|q| q.name == name) else {
+        return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
+    };
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
+    let ctx = make_context(req_id.clone(), principal.clone());
+    let scope = make_scope(principal.as_ref());
+
+    let bad = |why: String| {
+        problem_response(
+            &Error::invalid_input("invalid_query_parameter", why),
+            &instance,
+            &req_id,
+            vec![],
+        )
+    };
+    if let Some(extra) = params
+        .keys()
+        .find(|k| !query.params.iter().any(|p| &p.name == *k))
+    {
+        return bad(format!("unknown parameter `{extra}`"));
+    }
+    let mut args: Vec<(String, Value)> = Vec::new();
+    for p in &query.params {
+        let Some(raw) = params.get(&p.name) else {
+            return bad(format!("the parameter `{}` is required", p.name));
+        };
+        let value = match p.ty {
+            falak_contracts::ir::FieldType::Text => {
+                let normalised: String = raw.nfc().collect();
+                let max = p.max_length.unwrap_or(1024) as usize;
+                if normalised.chars().count() > max {
+                    return bad(format!("`{}` is too long", p.name));
+                }
+                Value::Text(normalised)
+            }
+            falak_contracts::ir::FieldType::Int64
+            | falak_contracts::ir::FieldType::DecimalMinor => match raw.parse::<i64>() {
+                Ok(n) => Value::Int64(n),
+                Err(_) => return bad(format!("`{}` must be a whole number", p.name)),
+            },
+            falak_contracts::ir::FieldType::Bool => match raw.as_str() {
+                "true" => Value::Bool(true),
+                "false" => Value::Bool(false),
+                _ => return bad(format!("`{}` must be true or false", p.name)),
+            },
+            falak_contracts::ir::FieldType::Uuid => match parse_uuid(raw) {
+                Some(u) => Value::Uuid(u),
+                None => return bad(format!("`{}` must be a uuid", p.name)),
+            },
+            _ => return bad(format!("`{}` has a type a query cannot take", p.name)),
+        };
+        args.push((p.name.clone(), value));
+    }
+
+    let mut accesses = Vec::new();
+    for entity_name in &query.entities {
+        let Some(entity) = find_entity(&state.ir, entity_name) else {
+            return problem_response(
+                &Error::internal("query names a missing entity"),
+                &instance,
+                &req_id,
+                vec![],
+            );
+        };
+        accesses.push((
+            entity,
+            authorize(entity, IrAction::Read, principal.as_ref()),
+        ));
+    }
+    let statement = match sql::query(sql::QueryCall {
+        ir: &state.ir,
+        query,
+        dialect: dialect_for_driver(&*state.driver),
+        accesses: &accesses,
+        scope: &scope,
+        args: &args,
+    }) {
+        Ok(s) => s,
+        Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+    };
+    let rows = match state.driver.query(&ctx, statement).await {
+        Ok(r) => r,
+        Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+    };
+    let truncated = rows.rows.len() > sql::QUERY_MAX_ROWS as usize;
+    let data: Vec<serde_json::Value> = rows
+        .rows
+        .iter()
+        .take(sql::QUERY_MAX_ROWS as usize)
+        .map(|r| row_to_json_object(None, &rows.columns, r))
+        .collect();
+    let body = serde_json::json!({ "data": data, "meta": { "truncated": truncated } });
+    let mut res = (StatusCode::OK, body.to_string()).into_response();
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if let Ok(v) = HeaderValue::from_str(&req_id) {
+        res.headers_mut().insert("x-request-id", v);
+    }
+    res
+}

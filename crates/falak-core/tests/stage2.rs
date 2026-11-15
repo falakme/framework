@@ -83,3 +83,43 @@ fn stage_one_apps_keep_their_ir_hash() {
     assert!(!json.contains("\"when\""));
     assert!(!json.contains("\"fields\":null"));
 }
+
+fn with_query(sql: &str) -> Vec<SourceFile> {
+    let mut f = files("      authenticated: true\n");
+    f.push(SourceFile {
+        path: "queries/q.yaml".into(),
+        text: format!("schema_version: 1\nquery: q\nsql: {sql}\n"),
+    });
+    f
+}
+
+#[test]
+fn a_query_over_an_entity_compiles_into_the_ir() {
+    let (out, diags) = compile(&with_query("SELECT title FROM doc"), "0.0.0");
+    assert!(
+        diags.iter().all(|d| d.severity != Severity::Error),
+        "{diags:#?}"
+    );
+    let ir = out.unwrap().ir;
+    assert_eq!(ir.queries.len(), 1);
+    assert_eq!(ir.queries[0].entities, ["doc"]);
+}
+
+#[test]
+fn a_query_that_names_a_table_or_writes_does_not_build() {
+    for sql in [
+        "SELECT * FROM docs",
+        "DELETE FROM doc",
+        "SELECT pg_sleep(1) FROM doc",
+        "SELECT * FROM sqlite_master",
+    ] {
+        let (out, diags) = compile(&with_query(sql), "0.0.0");
+        assert!(out.is_none(), "{sql}");
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.to_string().contains("invalid_query")),
+            "{sql}: {diags:?}"
+        );
+    }
+}

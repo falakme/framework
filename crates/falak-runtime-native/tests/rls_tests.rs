@@ -63,7 +63,10 @@ fn insert(tenant: &str, owner: &str, id: &str, title: &str) -> Statement {
 async fn titles(db: &PostgresDriver, c: &RequestContext) -> Vec<String> {
     // Raw SQL, no tenant or owner predicate: only the database stands in the way.
     let rows = db
-        .query(c, Statement::new("SELECT \"title\" FROM \"rlsdocs\" ORDER BY 1", vec![]))
+        .query(
+            c,
+            Statement::new("SELECT \"title\" FROM \"rlsdocs\" ORDER BY 1", vec![]),
+        )
         .await
         .unwrap();
     rows.rows
@@ -121,7 +124,10 @@ async fn the_database_refuses_other_tenants_and_other_owners() {
     // Conformance: every entity table has RLS enabled and forced, and the runtime role
     // is not a superuser and cannot bypass.
     let unprotected = admin
-        .query(&admin_ctx, Statement::new(unprotected_tables_sql(&ir), vec![]))
+        .query(
+            &admin_ctx,
+            Statement::new(unprotected_tables_sql(&ir), vec![]),
+        )
         .await
         .unwrap();
     assert!(unprotected.rows.is_empty(), "{:?}", unprotected.rows);
@@ -143,9 +149,18 @@ async fn the_database_refuses_other_tenants_and_other_owners() {
     let (alice, bob) = (uuid(0xc1), uuid(0xc2));
     let tag = format!("run{}", std::process::id());
     let (id_a, id_b, id_c) = (
-        format!("{}-aaaa-4000-8000-0000000000a1", &format!("{:08x}", std::process::id())),
-        format!("{}-bbbb-4000-8000-0000000000b1", &format!("{:08x}", std::process::id())),
-        format!("{}-cccc-4000-8000-0000000000c1", &format!("{:08x}", std::process::id())),
+        format!(
+            "{}-aaaa-4000-8000-0000000000a1",
+            &format!("{:08x}", std::process::id())
+        ),
+        format!(
+            "{}-bbbb-4000-8000-0000000000b1",
+            &format!("{:08x}", std::process::id())
+        ),
+        format!(
+            "{}-cccc-4000-8000-0000000000c1",
+            &format!("{:08x}", std::process::id())
+        ),
     );
 
     let as_alice_t1 = ctx(Some(&t1), Some(&alice), &[]);
@@ -166,9 +181,19 @@ async fn the_database_refuses_other_tenants_and_other_owners() {
     .unwrap();
 
     // Each caller sees only their own row.
-    let mine = |all: Vec<String>| all.into_iter().filter(|t| t.starts_with(&tag)).collect::<Vec<_>>();
-    assert_eq!(mine(titles(&app, &as_alice_t1).await), [format!("{tag} alice t1")]);
-    assert_eq!(mine(titles(&app, &as_bob_t2).await), [format!("{tag} bob t2")]);
+    let mine = |all: Vec<String>| {
+        all.into_iter()
+            .filter(|t| t.starts_with(&tag))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        mine(titles(&app, &as_alice_t1).await),
+        [format!("{tag} alice t1")]
+    );
+    assert_eq!(
+        mine(titles(&app, &as_bob_t2).await),
+        [format!("{tag} bob t2")]
+    );
     // Same tenant, another owner: not visible.
     assert!(mine(titles(&app, &as_bob_t1).await).is_empty());
     // No principal: nothing, not an error.
@@ -176,21 +201,30 @@ async fn the_database_refuses_other_tenants_and_other_owners() {
 
     // Writing into another tenant, or as another owner, fails the WITH CHECK.
     assert!(
-        app.batch(&as_alice_t1, vec![insert(&t2, &alice, &id_c, "cross tenant")])
-            .await
-            .is_err(),
+        app.batch(
+            &as_alice_t1,
+            vec![insert(&t2, &alice, &id_c, "cross tenant")]
+        )
+        .await
+        .is_err(),
         "a row for another tenant must be refused"
     );
     assert!(
-        app.batch(&as_alice_t1, vec![insert(&t1, &bob, &id_c, "as someone else")])
-            .await
-            .is_err(),
+        app.batch(
+            &as_alice_t1,
+            vec![insert(&t1, &bob, &id_c, "as someone else")]
+        )
+        .await
+        .is_err(),
         "a row owned by someone else must be refused"
     );
 
     // An auditor reads every row of their own tenant, and nothing of another's.
     let auditor_t1 = ctx(Some(&t1), Some(&uuid(0xc9)), &["auditor"]);
-    assert_eq!(mine(titles(&app, &auditor_t1).await), [format!("{tag} alice t1")]);
+    assert_eq!(
+        mine(titles(&app, &auditor_t1).await),
+        [format!("{tag} alice t1")]
+    );
     // ... but may not change them.
     let changed = app
         .batch(
@@ -215,5 +249,8 @@ async fn the_database_refuses_other_tenants_and_other_owners() {
             .unwrap();
         assert_eq!(out[0].rows_affected, 0, "{sql}");
     }
-    assert_eq!(mine(titles(&app, &as_alice_t1).await), [format!("{tag} alice t1")]);
+    assert_eq!(
+        mine(titles(&app, &as_alice_t1).await),
+        [format!("{tag} alice t1")]
+    );
 }

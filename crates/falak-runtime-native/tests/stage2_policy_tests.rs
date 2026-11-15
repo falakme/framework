@@ -47,6 +47,8 @@ rules:
       fields: [title, body, status]
 ";
 
+const QUERY: &str = "schema_version: 1\nquery: by_status\nparams:\n  status: { type: text }\nsql: SELECT title, body, owner_id FROM doc WHERE status = :status ORDER BY title\n";
+
 async fn app() -> Router {
     let f = |p: &str, t: &str| SourceFile {
         path: p.into(),
@@ -56,6 +58,7 @@ async fn app() -> Router {
         f("app.yaml", APP),
         f("entities/doc.yaml", ENTITY),
         f("policies/doc.yaml", POLICY),
+        f("queries/by_status.yaml", QUERY),
     ]);
     assert!(!falak_core::diagnostics::has_errors(&diags), "{diags:?}");
     let ir = Arc::new(build_ir(&project.unwrap()));
@@ -291,4 +294,104 @@ async fn a_user_without_a_matching_rule_sees_nothing() {
     assert!(list["data"].as_array().unwrap().is_empty());
     let (s, _) = call(&app, "GET", &format!("/v1/docs/{draft}"), &dave, None).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_level_2_query_sees_only_what_its_caller_could_read() {
+    let (app, _, _) = seeded().await;
+
+    // The owner sees her own published row, with the body.
+    let alice = token(ALICE, &[]);
+    let (s, out) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=published",
+        &alice,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{out}");
+    let rows = out["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["body"], "secret body");
+
+    // A reviewer sees it through the reviewer rule: the mask hides the body and owner.
+    let bob = token(BOB, &["reviewer"]);
+    let (s, out) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=published",
+        &bob,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{out}");
+    let rows = out["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["title"], "public one");
+    assert!(
+        rows[0]["body"].is_null(),
+        "the query leaked a masked field: {out}"
+    );
+    assert!(rows[0]["owner_id"].is_null());
+
+    // Drafts are not reachable by the reviewer, whatever the parameter says.
+    let (_, out) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=draft",
+        &bob,
+        None,
+    )
+    .await;
+    assert!(out["data"].as_array().unwrap().is_empty(), "{out}");
+
+    // A user with no rule on the entity gets an empty set, not an error.
+    let dave = token("00000000-0000-0000-0000-00000000000d", &[]);
+    let (s, out) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=published",
+        &dave,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(out["data"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_level_2_query_checks_its_arguments_and_its_caller() {
+    let (app, _, _) = seeded().await;
+    let alice = token(ALICE, &[]);
+    let (s, _) = call(&app, "GET", "/v1/_queries/by_status", &alice, None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=x&sql=DROP",
+        &alice,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = call(&app, "GET", "/v1/_queries/nope?status=x", &alice, None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    // An injection attempt is only a value.
+    let (s, out) = call(
+        &app,
+        "GET",
+        "/v1/_queries/by_status?status=published%27%20OR%20%271%27%3D%271",
+        &alice,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(out["data"].as_array().unwrap().is_empty(), "{out}");
+    let req = Request::builder()
+        .uri("/v1/_queries/by_status?status=published")
+        .body(Body::empty())
+        .unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 }

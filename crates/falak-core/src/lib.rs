@@ -12,6 +12,7 @@ pub mod openapi;
 pub mod policy;
 pub mod reader;
 pub mod requirements;
+pub mod restricted;
 pub mod schema;
 pub mod sql;
 pub mod typescript;

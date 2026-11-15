@@ -186,6 +186,17 @@ pub struct Command {
     pub position: Position,
 }
 
+/// A level 2 query file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Query {
+    pub name: String,
+    pub params: Vec<falak_contracts::ir::IrInput>,
+    pub sql: String,
+    /// Entities the SQL reads, filled in by the checker.
+    pub entities: Vec<String>,
+    pub position: Position,
+}
+
 /// A fully validated app.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Project {
@@ -193,6 +204,7 @@ pub struct Project {
     pub entities: Vec<Entity>,
     pub policies: Vec<Policy>,
     pub commands: Vec<Command>,
+    pub queries: Vec<Query>,
 }
 
 impl Project {

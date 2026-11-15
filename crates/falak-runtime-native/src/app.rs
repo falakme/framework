@@ -14,7 +14,8 @@ use crate::{
     driver::NativeDriver,
     error::problem_response,
     handlers::{
-        command_handler, create_handler, delete_handler, get_handler, list_handler, update_handler,
+        command_handler, create_handler, delete_handler, get_handler, list_handler, query_handler,
+        update_handler,
     },
     idempotency::IdempotencyStore,
     limits::Limits,
@@ -90,6 +91,7 @@ pub fn create_router_with<D: NativeDriver>(
                 },
             ),
         )
+        .route("/v1/_queries/{name}", get(query_handler::<D>))
         .route(
             "/v1/{entity}",
             get(list_handler::<D>).post(create_handler::<D>),

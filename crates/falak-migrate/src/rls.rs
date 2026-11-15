@@ -52,7 +52,11 @@ fn value(entity: &IrEntity, field: &str, v: &IrCondValue) -> String {
 
 fn cond(entity: &IrEntity, c: &IrCondition) -> String {
     let col = q(&c.field);
-    let vals: Vec<String> = c.values.iter().map(|v| value(entity, &c.field, v)).collect();
+    let vals: Vec<String> = c
+        .values
+        .iter()
+        .map(|v| value(entity, &c.field, v))
+        .collect();
     match c.cmp {
         IrCmp::Eq => format!("{col} = {}", vals[0]),
         IrCmp::Ne => format!("{col} <> {}", vals[0]),
@@ -101,7 +105,9 @@ pub fn rls_statements(ir: &Ir) -> Vec<String> {
         ),
         format!("GRANT USAGE ON SCHEMA public TO {RUNTIME_ROLE}"),
         // Identity and idempotency tables, which the runtime creates before the app's.
-        format!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {RUNTIME_ROLE}"),
+        format!(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {RUNTIME_ROLE}"
+        ),
         // The runtime never touches the migration history.
         format!("REVOKE ALL ON \"_falak_migrations\", \"_falak_schema\" FROM {RUNTIME_ROLE}"),
     ];
@@ -114,7 +120,10 @@ pub fn rls_statements(ir: &Ir) -> Vec<String> {
             "GRANT SELECT, INSERT, UPDATE, DELETE ON {t} TO {RUNTIME_ROLE}"
         ));
 
-        out.push(format!("DROP POLICY IF EXISTS {} ON {t}", q("falak_tenant")));
+        out.push(format!(
+            "DROP POLICY IF EXISTS {} ON {t}",
+            q("falak_tenant")
+        ));
         if tenant_scoped {
             let same = format!("{} = {TENANT}::uuid", q("tenant_id"));
             out.push(format!(

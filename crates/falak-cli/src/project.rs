@@ -16,10 +16,11 @@ pub const FRAMEWORK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Directories whose files are app sources. `workflows`, `events` and `jobs` are
 /// reserved: they are read so the compiler can reject anything placed in them.
-const SOURCE_DIRS: [&str; 6] = [
+const SOURCE_DIRS: [&str; 7] = [
     "entities",
     "policies",
     "commands",
+    "queries",
     "workflows",
     "events",
     "jobs",

@@ -216,6 +216,17 @@ pub struct IrCommand {
     pub idempotent: bool,
 }
 
+/// A level 2 query (ARCHITECTURE §4.7): fixed SQL over entities, with bound parameters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrQuery {
+    pub name: String,
+    pub params: Vec<IrInput>,
+    /// The SQL as written, with `:name` parameters. Reads entities by name.
+    pub sql: String,
+    /// The entities it reads, sorted.
+    pub entities: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IrApp {
     pub name: String,
@@ -238,6 +249,10 @@ pub struct Ir {
     pub entities: Vec<IrEntity>,
     /// Sorted by name.
     pub commands: Vec<IrCommand>,
+    /// Sorted by name. Omitted from the IR when empty, so apps without queries keep
+    /// their hash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queries: Vec<IrQuery>,
 }
 
 impl Ir {

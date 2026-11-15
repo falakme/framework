@@ -189,6 +189,17 @@ pub fn build_ir(project: &Project) -> Ir {
     entities.sort_by(|a, b| a.name.cmp(&b.name));
     let mut commands: Vec<IrCommand> = project.commands.iter().map(convert_command).collect();
     commands.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut queries: Vec<falak_contracts::ir::IrQuery> = project
+        .queries
+        .iter()
+        .map(|q| falak_contracts::ir::IrQuery {
+            name: q.name.clone(),
+            params: q.params.clone(),
+            sql: q.sql.clone(),
+            entities: q.entities.clone(),
+        })
+        .collect();
+    queries.sort_by(|a, b| a.name.cmp(&b.name));
     let mut drivers: Vec<String> = project
         .app
         .drivers
@@ -213,6 +224,7 @@ pub fn build_ir(project: &Project) -> Ir {
         },
         entities,
         commands,
+        queries,
     };
     ir.content_hash = compute_hash(&ir);
     ir

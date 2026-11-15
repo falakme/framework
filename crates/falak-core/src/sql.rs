@@ -949,6 +949,71 @@ pub fn delete(
     b.finish(sql).map(Some)
 }
 
+// ------------------------------------------------------------------ level 2 queries
+
+/// Most rows a query returns. One more is fetched, so the caller can tell it was cut.
+pub const QUERY_MAX_ROWS: u32 = 1000;
+
+/// What a level 2 query needs to run for one caller.
+pub struct QueryCall<'a> {
+    pub ir: &'a Ir,
+    pub query: &'a falak_contracts::ir::IrQuery,
+    pub dialect: Dialect,
+    /// For each entity the query reads: the caller's read access to it.
+    pub accesses: &'a [(&'a IrEntity, Access)],
+    pub scope: &'a Scope,
+    /// A value for each declared parameter.
+    pub args: &'a [(String, Value)],
+}
+
+/// The statement for a level 2 query. Every entity the query reads becomes a CTE of the
+/// same name that applies the tenant, soft-delete, policy and field-mask conditions a
+/// generated read would, so the developer's SQL sees only what the caller could read
+/// through the API. An entity the caller cannot read is an empty set, not an error.
+/// The parameters are bound, in the order the SQL uses them.
+pub fn query(call: QueryCall) -> Result<Statement> {
+    let QueryCall {
+        ir,
+        query,
+        dialect,
+        accesses,
+        scope,
+        args,
+    } = call;
+    let mut b = Builder::new(dialect);
+    let mut ctes = Vec::new();
+    for (entity, access) in accesses {
+        let table = q(&entity.table);
+        let body = if access.is_denied() {
+            format!("SELECT {} FROM {table} WHERE 1 = 0", columns(entity))
+        } else {
+            let list = select_list(entity, access, &mut b);
+            match base_conditions(ir, entity, access, scope, &mut b) {
+                Some(conds) if conds.is_empty() => format!("SELECT {list} FROM {table}"),
+                Some(conds) => format!("SELECT {list} FROM {table} WHERE {}", conds.join(" AND ")),
+                None => format!("SELECT {} FROM {table} WHERE 1 = 0", columns(entity)),
+            }
+        };
+        ctes.push(format!("{} AS ({body})", q(&entity.name)));
+    }
+    let user_sql = crate::restricted::replace_params(&query.sql, |name| {
+        let value = args
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.clone())
+            .ok_or_else(|| format!("missing parameter `{name}`"))?;
+        Ok(b.bind(value))
+    })
+    .map_err(|m| Error::invalid_input("invalid_query_parameter", m))?;
+    let sql = format!(
+        "WITH {} SELECT * FROM ({user_sql}) AS {} LIMIT {}",
+        ctes.join(", "),
+        q("falak_q"),
+        QUERY_MAX_ROWS + 1
+    );
+    b.finish(sql)
+}
+
 /// The action an access decision was made for, for callers building error responses.
 pub fn denial_for(action: IrAction) -> Error {
     match action {

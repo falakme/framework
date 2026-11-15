@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use falak_contracts::{
     capability::Capability,
     identity::TrustTier,
-    ir::{FieldType, IrCmp, IrCondValue, IrCondition, Tenancy},
+    ir::{FieldType, IrCmp, IrCondValue, IrCondition, IrInput, Tenancy},
 };
 
 use crate::{
@@ -121,6 +121,7 @@ enum Kind<'a> {
     Entity(&'a str),
     Policy(&'a str),
     Command(&'a str),
+    Query(&'a str),
 }
 
 fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
@@ -157,6 +158,7 @@ fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
         "entities" => Ok(Kind::Entity(stem)),
         "policies" => Ok(Kind::Policy(stem)),
         "commands" => Ok(Kind::Command(stem)),
+        "queries" => Ok(Kind::Query(stem)),
         _ => Err((
             "unexpected_file",
             format!("`{path}` is not in a recognised directory"),
@@ -176,6 +178,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     let mut entities: Vec<(String, Entity)> = Vec::new();
     let mut policies: Vec<(String, Policy)> = Vec::new();
     let mut commands: Vec<(String, Command)> = Vec::new();
+    let mut queries: Vec<(String, Query)> = Vec::new();
 
     for f in files {
         let kind = match classify(&f.path) {
@@ -213,6 +216,11 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
                     commands.push((f.path.clone(), c));
                 }
             }
+            Kind::Query(stem) => {
+                if let Some(q) = read_query(&mut ctx, &node, stem) {
+                    queries.push((f.path.clone(), q));
+                }
+            }
         }
     }
 
@@ -232,6 +240,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     let tenancy = app.as_ref().map_or(Tenancy::None, |a| a.tenancy);
     validate_policies(&mut diags, tenancy, &entities, &policies);
     validate_commands(&mut diags, &entities, &mut commands);
+    validate_queries(&mut diags, &entities, &mut queries);
 
     if entities.len() > MAX_ENTITIES {
         diags.push(Diagnostic::error(
@@ -267,6 +276,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
         entities: entities.into_iter().map(|(_, e)| e).collect(),
         policies: policies.into_iter().map(|(_, p)| p).collect(),
         commands: commands.into_iter().map(|(_, c)| c).collect(),
+        queries: queries.into_iter().map(|(_, q)| q).collect(),
     };
     (Some(project), diags)
 }
@@ -1873,6 +1883,117 @@ fn validate_commands(
                     pos,
                     format!("input `{}` is never used", i.name),
                 );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- queries
+
+fn read_query(ctx: &mut Ctx, node: &Node, stem: &str) -> Option<Query> {
+    let mut m = MapReader::new(
+        ctx,
+        node,
+        "a query file",
+        &["schema_version", "query", "params", "sql"],
+    )?;
+    check_version(ctx, &mut m);
+    let name_node = m.require(ctx, "query");
+    let name = name_node.and_then(|n| read_name(ctx, n, "query"));
+    if let (Some(c), Some(n)) = (&name, name_node)
+        && c != stem
+    {
+        ctx.error_help(
+            "name_mismatch",
+            n.position,
+            format!("query `{c}` must be defined in `queries/{c}.yaml`"),
+            format!("rename the file or change `query` to `{stem}`"),
+        );
+    }
+    let mut params = Vec::new();
+    if let Some(n) = m.take("params")
+        && let Some(pm) = MapReader::new(ctx, n, "params", &[])
+    {
+        for e in pm.entries() {
+            if !crate::reader::is_name(&e.key) {
+                ctx.error(
+                    "invalid_name",
+                    e.key_position,
+                    format!("parameter name `{}` is not valid", e.key),
+                );
+                continue;
+            }
+            let Some(mut fm) = MapReader::new(
+                ctx,
+                &e.value,
+                &format!("parameter `{}`", e.key),
+                &["type", "max_length"],
+            ) else {
+                continue;
+            };
+            let ty = fm.require(ctx, "type").and_then(|n| parse_type(ctx, n));
+            let max_length = fm
+                .take("max_length")
+                .and_then(|n| read_u32(ctx, n, "max_length", 1, 1_048_576));
+            fm.finish(ctx);
+            if let Some(ty) = ty {
+                if matches!(ty, FieldType::Json | FieldType::Bytes) {
+                    ctx.error(
+                        "invalid_param_type",
+                        e.value.position,
+                        "a query parameter cannot be json or bytes",
+                    );
+                    continue;
+                }
+                params.push(IrInput {
+                    name: e.key.clone(),
+                    ty,
+                    required: true,
+                    max_length,
+                });
+            }
+        }
+    }
+    let sql = m
+        .require(ctx, "sql")
+        .and_then(|n| read_str(ctx, n, "sql").map(str::to_owned));
+    m.finish(ctx);
+    Some(Query {
+        name: name?,
+        params,
+        sql: sql?.trim().to_owned(),
+        entities: Vec::new(),
+        position: node.position,
+    })
+}
+
+fn validate_queries(
+    diags: &mut Vec<Diagnostic>,
+    entities: &[(String, Entity)],
+    queries: &mut [(String, Query)],
+) {
+    let names: Vec<&str> = entities.iter().map(|(_, e)| e.name.as_str()).collect();
+    let mut seen = HashSet::new();
+    for (path, q) in queries.iter_mut() {
+        let mut ctx = Ctx { file: path, diags };
+        if !seen.insert(q.name.clone()) {
+            ctx.error(
+                "duplicate_query",
+                q.position,
+                format!("query `{}` is defined twice", q.name),
+            );
+        }
+        let declared: Vec<&str> = q.params.iter().map(|p| p.name.as_str()).collect();
+        match crate::restricted::check(&q.sql, &names, &declared) {
+            Ok(checked) => q.entities = checked.entities,
+            Err(problems) => {
+                for p in problems {
+                    ctx.error(
+                        "invalid_query",
+                        q.position,
+                        format!("query `{}`: {p}", q.name),
+                    );
+                }
             }
         }
     }
