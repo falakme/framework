@@ -96,7 +96,7 @@ Target: the Notebook app runs as one binary with no external service.
 **Dev1**
 - [x] **T1.1** *(early start: depends only on the schema spec)* Strict YAML parser with file, line and column diagnostics. *Works when:* a deliberately broken Notebook file reports the exact location and a suggested fix.
 - [x] **T1.2** *(early start: depends only on the schema spec)* Typed AST and validation (types, relations, unknown and duplicate keys rejected). *Needs:* T1.1.
-- [ ] **T1.3** *(early start: depends only on the schema spec)* IR compile (`falak build`) with content hash, and `falak.lock`. *Needs:* T1.2. *Works when:* building Notebook twice gives the same hash.
+- [x] **T1.3** *(early start: depends only on the schema spec)* IR compile (`falak build`) with content hash, and `falak.lock`. *Needs:* T1.2. *Works when:* building Notebook twice gives the same hash.
 - [ ] **T1.4** *(early start: depends only on the schema spec)* Policy compiler for ownership and roles, producing SQL predicates, default deny. *Needs:* T1.2. *Works when:* an entity with no policy compiles to a query that returns nothing.
 - [ ] **T1.5** *(early start: depends only on the schema spec)* Query AST to parameterized SQL templates, with page-size, include-depth and filter limits. *Needs:* T1.3, T1.4.
 

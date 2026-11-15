@@ -14,3 +14,6 @@ workspace = true
 [dependencies]
 falak-contracts.workspace = true
 saphyr-parser = "0.3.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

@@ -156,7 +156,7 @@ Commands are explicit mutations beyond plain create, read, update and delete.
 3. **Resolve** built-in fields, tenancy fields and defaults.
 4. **Infer requirements** (§10) and check them against every driver in `drivers`.
 5. **Emit the IR** (`falak-contracts::ir`): entities with resolved fields, compiled SQL templates per driver, policy predicates and the OpenAPI document inputs.
-6. **Hash** the canonical serialisation (keys sorted, no insignificant whitespace) with SHA-256 and record it in the IR and in `falak.lock`. Building the same sources twice MUST give the same hash.
+6. **Hash** the IR's canonical JSON (struct fields in declaration order, entities and commands sorted by name, no insignificant whitespace, `content_hash` blank) with SHA-256, and record it in the IR and in `falak.lock`. Building the same sources twice MUST give the same hash, regardless of the order files are supplied in.
 
 A diagnostic has a severity, a stable code, the file, line and column, a one-line message that says what is wrong, and a suggested fix where one exists. Warnings never fail a build; errors always do.
 

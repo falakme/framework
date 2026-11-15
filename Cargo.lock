@@ -226,6 +226,9 @@ version = "0.0.0"
 dependencies = [
  "falak-contracts",
  "saphyr-parser",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
