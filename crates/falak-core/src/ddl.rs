@@ -26,6 +26,16 @@ fn column_type(ty: &FieldType, dialect: Dialect) -> &'static str {
     }
 }
 
+/// The column definition used in `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN`.
+pub fn column_definition(ir: &Ir, entity: &IrEntity, f: &IrField, dialect: Dialect) -> String {
+    column(ir, f, dialect, entity)
+}
+
+/// The database type name for a field type.
+pub fn column_type_name(ty: &FieldType, dialect: Dialect) -> &'static str {
+    column_type(ty, dialect)
+}
+
 fn column(ir: &Ir, f: &IrField, dialect: Dialect, entity: &IrEntity) -> String {
     let mut s = format!("{} {}", q(&f.name), column_type(&f.ty, dialect));
     if f.name == "id" && f.builtin {

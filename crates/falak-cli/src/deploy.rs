@@ -33,6 +33,8 @@ pub struct Options {
     pub jwks_url: Option<String>,
     /// The `iss` those tokens carry.
     pub issuer: Option<String>,
+    /// Let this deploy rebuild, drop or retype data to match a changed app.
+    pub allow_destructive: bool,
 }
 
 /// How the Worker identifies callers.
@@ -94,6 +96,7 @@ pub fn wrangler_config(
     database: &str,
     database_id: &str,
     identity: &Identity,
+    allow_destructive: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str("# Written by `falak deploy`. Changes are overwritten.\n");
@@ -121,12 +124,16 @@ pub fn wrangler_config(
         "\n[[ratelimits]]\nname = \"AUTH_RATE_LIMITER\"\nnamespace_id = \"1002\"\n\
          [ratelimits.simple]\nlimit = {AUTH_LIMIT}\nperiod = 60\n"
     ));
+    let mut vars = Vec::new();
     if let Identity::KeySet { jwks_url, issuer } = identity {
-        out.push_str(&format!(
-            "\n[vars]\nFALAK_JWKS_URL = {}\nFALAK_ISSUER = {}\n",
-            toml_string(jwks_url),
-            toml_string(issuer)
-        ));
+        vars.push(format!("FALAK_JWKS_URL = {}", toml_string(jwks_url)));
+        vars.push(format!("FALAK_ISSUER = {}", toml_string(issuer)));
+    }
+    if allow_destructive {
+        vars.push("FALAK_ALLOW_DESTRUCTIVE = \"1\"".to_owned());
+    }
+    if !vars.is_empty() {
+        out.push_str(&format!("\n[vars]\n{}\n", vars.join("\n")));
     }
     out
 }
@@ -292,6 +299,7 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
             &database,
             &database_id,
             &identity,
+            options.allow_destructive,
         ),
     )
     .map_err(|e| format!("cannot write `{}`: {e}", config_path.display()))?;
@@ -366,6 +374,7 @@ mod tests {
             "notebook-db",
             "uuid-1",
             &Identity::Local,
+            false,
         );
         assert!(text.contains("name = \"notebook\""));
         assert!(text.contains("account_id = \"acc123\""));
@@ -384,7 +393,7 @@ mod tests {
             jwks_url: "https://a.example/.well-known/jwks.json".into(),
             issuer: "falak-local".into(),
         };
-        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u", &id);
+        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u", &id, false);
         assert!(text.contains("FALAK_JWKS_URL = \"https://a.example/.well-known/jwks.json\""));
         assert!(text.contains("FALAK_ISSUER = \"falak-local\""));
     }
@@ -395,6 +404,7 @@ mod tests {
             account: None,
             jwks_url: url.map(str::to_owned),
             issuer: iss.map(str::to_owned),
+            allow_destructive: false,
         }
     }
 
@@ -417,6 +427,7 @@ mod tests {
             "a-db",
             "u",
             &Identity::Local,
+            false,
         );
         assert!(!text.contains("account_id"));
     }

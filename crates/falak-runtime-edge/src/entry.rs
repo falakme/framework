@@ -98,9 +98,15 @@ async fn build_app(env: &Env) -> Result<App, String> {
         .migrate()
         .await
         .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
-    falak_migrate::apply_initial_migration(&driver, &ctx, &ir)
+    // A changed app is migrated here, when the first request reaches a new version. A
+    // change that rebuilds, drops or retypes data waits for `falak deploy
+    // --allow-destructive`, which sets `FALAK_ALLOW_DESTRUCTIVE` for that deploy.
+    let options = falak_migrate::MigrateOptions {
+        allow_destructive: var(env, "FALAK_ALLOW_DESTRUCTIVE").is_some(),
+    };
+    falak_migrate::migrate(&driver, &ctx, &ir, options)
         .await
-        .map_err(|e| format!("cannot create the tables: {e}"))?;
+        .map_err(|e| format!("cannot update the tables: {}", e.public_message()))?;
     // Fail early, with a clear message, if the database is not reachable.
     StorageDriver::query(
         &driver,

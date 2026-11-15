@@ -127,6 +127,66 @@ pub fn authorize(entity: &IrEntity, action: IrAction, principal: Option<&Princip
     Access::Grants(grants)
 }
 
+/// Why a rule did or did not apply (`falak policy explain`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleOutcome {
+    pub rule: String,
+    pub applies: bool,
+    /// What the rule asks for, and why it applies or not.
+    pub detail: String,
+}
+
+/// A decision with the reasoning behind it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Explanation {
+    pub access: Access,
+    pub rules: Vec<RuleOutcome>,
+}
+
+/// [`authorize`], plus a line per rule saying why it applied or not. For developers:
+/// the detail must never reach a response (AUTHORIZATION §6.7).
+pub fn explain(entity: &IrEntity, action: IrAction, principal: Option<&Principal>) -> Explanation {
+    let access = authorize(entity, action, principal);
+    let mut rules = Vec::new();
+    for rule in &entity.policy.rules {
+        let (applies, detail) = if !rule.actions.contains(&action) {
+            (false, format!("does not list `{action:?}`").to_lowercase())
+        } else {
+            match (&rule.allow, principal) {
+                (_, None) => (false, "no verified principal".to_owned()),
+                (IrAllow::Authenticated, Some(_)) => (true, "any verified principal".to_owned()),
+                (IrAllow::Role(r), Some(p)) if p.roles.iter().any(|x| x == r) => {
+                    (true, format!("principal holds role `{r}`"))
+                }
+                (IrAllow::Role(r), Some(_)) => (false, format!("principal lacks role `{r}`")),
+                (IrAllow::Owner, Some(_)) if entity.owner.is_some() => (
+                    true,
+                    format!(
+                        "rows where `{}` equals the subject",
+                        entity.owner.as_deref().unwrap_or_default()
+                    ),
+                ),
+                (IrAllow::Owner, Some(_)) => (false, "entity has no owner field".to_owned()),
+            }
+        };
+        let mut detail = detail;
+        if applies {
+            for c in &rule.when {
+                detail.push_str(&format!("; where {} {:?} {:?}", c.field, c.cmp, c.values));
+            }
+            if let Some(f) = &rule.fields {
+                detail.push_str(&format!("; fields {}", f.join(", ")));
+            }
+        }
+        rules.push(RuleOutcome {
+            rule: rule.id.clone(),
+            applies,
+            detail,
+        });
+    }
+    Explanation { access, rules }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

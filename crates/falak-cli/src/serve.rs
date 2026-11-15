@@ -30,14 +30,10 @@ use falak_auth::{
     system::{RandomIds, SystemClock},
     token::{TokenConfig, Verifier},
 };
-use falak_contracts::{
-    driver::{Statement, StorageDriver, Value},
-    identity::RequestContext,
-    ir::Ir,
-};
+use falak_contracts::{identity::RequestContext, ir::Ir};
 use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
-use falak_migrate::apply_initial_migration;
+use falak_migrate::{MigrateOptions, migrate};
 use falak_runtime_native::{
     auth_routes::{ResetSink, auth_router},
     context::TokenAuthenticator,
@@ -177,58 +173,22 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
     })
 }
 
-/// Create the app's tables if this version of the app has not been applied. Warns when
-/// the database was built for a different version, since those tables are not altered.
-async fn prepare_tables(stack: &Stack, ir: &Ir) -> Result<(), String> {
+/// Bring the database to this version of the app. The first version creates the tables;
+/// a later one applies the planned change. In `falak dev` anything goes, since the data
+/// is a scratch copy; in `falak serve` a change that rebuilds, drops or retypes data
+/// stops the server and says how to apply it on purpose (`falak migrate apply`).
+async fn prepare_tables(stack: &Stack, ir: &Ir, dev: bool) -> Result<(), String> {
     let ctx = request_context();
-    match &stack.driver_stack {
-        DriverStack::Sqlite { driver, .. } => {
-            let earlier = driver
-                .query(
-                    &ctx,
-                    Statement::new(
-                        "SELECT COUNT(*) FROM _falak_migrations WHERE content_hash <> ?",
-                        vec![Value::Text(ir.content_hash.clone())],
-                    ),
-                )
-                .await
-                .ok()
-                .and_then(|r| r.rows.first().and_then(|row| row.first().cloned()));
-            let created = apply_initial_migration(&**driver, &ctx, ir)
-                .await
-                .map_err(|e| format!("cannot create the tables: {e}"))?;
-            if created && matches!(earlier, Some(Value::Int64(n)) if n > 0) {
-                eprintln!(
-                    "warning: the data model changed. New tables were created, but existing tables \
-                     are not altered (migrations are not available yet). Delete .falak/data.db to \
-                     start again with an empty database."
-                );
-            }
-        }
-        DriverStack::Postgres { driver, .. } => {
-            let earlier = driver
-                .query(
-                    &ctx,
-                    Statement::new(
-                        "SELECT COUNT(*) FROM \"_falak_migrations\" WHERE \"content_hash\" <> $1",
-                        vec![Value::Text(ir.content_hash.clone())],
-                    ),
-                )
-                .await
-                .ok()
-                .and_then(|r| r.rows.first().and_then(|row| row.first().cloned()));
-            let created = apply_initial_migration(&**driver, &ctx, ir)
-                .await
-                .map_err(|e| format!("cannot create the tables: {e}"))?;
-            if created && matches!(earlier, Some(Value::Int64(n)) if n > 0) {
-                eprintln!(
-                    "warning: the data model changed. New tables were created, but existing tables \
-                     are not altered (migrations are not available yet)."
-                );
-            }
-        }
-    }
-    Ok(())
+    let options = MigrateOptions {
+        allow_destructive: dev,
+    };
+    let result = match &stack.driver_stack {
+        DriverStack::Sqlite { driver, .. } => migrate(&**driver, &ctx, ir, options).await,
+        DriverStack::Postgres { driver, .. } => migrate(&**driver, &ctx, ir, options).await,
+    };
+    result
+        .map(|_| ())
+        .map_err(|e| format!("cannot update the tables: {}", e.public_message()))
 }
 
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
@@ -284,7 +244,7 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
     let first = compiled.ok_or("internal: no compiled app")?;
 
     let stack = open_stack(&dir, &first.ir, dev).await?;
-    prepare_tables(&stack, &first.ir).await?;
+    prepare_tables(&stack, &first.ir, dev).await?;
 
     let current: Arc<RwLock<Router>> = Arc::new(RwLock::new(build_router(&stack, &first.ir)));
     let app = {
@@ -351,7 +311,7 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
                 if built.ir.content_hash == hash {
                     continue;
                 }
-                if let Err(e) = prepare_tables(&stack, &built.ir).await {
+                if let Err(e) = prepare_tables(&stack, &built.ir, dev).await {
                     eprintln!("error: {e}");
                     continue;
                 }

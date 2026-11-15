@@ -4,6 +4,8 @@ mod args;
 mod deploy;
 mod doctor;
 mod init;
+mod migrate_cmd;
+mod policy_cmd;
 mod project;
 mod serve;
 mod watch;
@@ -27,6 +29,12 @@ COMMANDS:
     serve [dir] [options]        Serve the app
     dev [dir] [options]          Serve, and rebuild and reload when a file changes
     deploy [dir] [options]       Publish to Cloudflare Workers with a D1 database
+    policy explain [dir] --entity <e> [--action <a>] [--subject <id>] [--role <r>]...
+                                 Show the decision, the matching rules and the SQL
+    migrate plan [dir] [--driver <d>] [--database-url <u>]
+                                 Show what bringing a database to this version would run
+    migrate apply [dir] [--driver <d>] [--database-url <u>] [--allow-destructive]
+                                 Run it, atomically, under the migration lock
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
@@ -59,7 +67,9 @@ fn main() -> ExitCode {
             account: args.account,
             jwks_url: args.jwks_url,
             issuer: args.issuer,
+            allow_destructive: args.extra.allow_destructive,
         },
+        args.extra,
     ) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
@@ -76,6 +86,7 @@ fn run(
     name: Option<String>,
     out: Option<PathBuf>,
     mut deploy_options: deploy::Options,
+    extra: args::Extra,
 ) -> Result<u8, String> {
     match command {
         Command::Help => {
@@ -160,6 +171,29 @@ fn run(
         }
         Command::Serve => serve::run(dir, port, false),
         Command::Dev => serve::run(dir, port, true),
+        Command::PolicyExplain => policy_cmd::run(
+            dir,
+            &policy_cmd::Options {
+                entity: extra.entity,
+                action: extra.action,
+                subject: extra.subject,
+                roles: extra.roles,
+                tenant: extra.tenant,
+                dialect: extra.driver,
+                anonymous: extra.anonymous,
+            },
+        ),
+        Command::MigratePlan | Command::MigrateApply => migrate_cmd::run(
+            dir,
+            &migrate_cmd::Options {
+                driver: extra.driver,
+                database_url: extra.database_url,
+                allow_destructive: extra.allow_destructive,
+                apply: command == Command::MigrateApply,
+                account: deploy_options.account.clone(),
+                name,
+            },
+        ),
         Command::Deploy => {
             deploy_options.name = name;
             deploy::run(dir, &deploy_options)

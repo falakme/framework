@@ -13,6 +13,9 @@ pub enum Command {
     Serve,
     Dev,
     Deploy,
+    PolicyExplain,
+    MigratePlan,
+    MigrateApply,
     Doctor,
     Help,
     Version,
@@ -28,6 +31,21 @@ pub struct Args {
     pub account: Option<String>,
     pub jwks_url: Option<String>,
     pub issuer: Option<String>,
+    pub extra: Extra,
+}
+
+/// Options for `policy explain` and `migrate`.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Extra {
+    pub driver: Option<String>,
+    pub database_url: Option<String>,
+    pub allow_destructive: bool,
+    pub entity: Option<String>,
+    pub action: Option<String>,
+    pub subject: Option<String>,
+    pub roles: Vec<String>,
+    pub tenant: Option<String>,
+    pub anonymous: bool,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -45,6 +63,15 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         Some("serve") => Command::Serve,
         Some("dev") => Command::Dev,
         Some("deploy") => Command::Deploy,
+        Some("policy") => match it.next().map(String::as_str) {
+            Some("explain") => Command::PolicyExplain,
+            _ => return Err("`policy` needs a subcommand: explain".into()),
+        },
+        Some("migrate") => match it.next().map(String::as_str) {
+            Some("plan") => Command::MigratePlan,
+            Some("apply") => Command::MigrateApply,
+            _ => return Err("`migrate` needs a subcommand: plan or apply".into()),
+        },
         Some("doctor") => Command::Doctor,
         Some(other) => return Err(format!("unknown command `{other}`")),
     };
@@ -57,6 +84,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         account: None,
         jwks_url: None,
         issuer: None,
+        extra: Extra::default(),
     };
     let mut dir_set = false;
     while let Some(arg) = it.next() {
@@ -74,6 +102,32 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--account" => {
                 args.account = Some(it.next().ok_or("`--account` needs a value")?.clone());
+            }
+            "--driver" => {
+                args.extra.driver = Some(it.next().ok_or("`--driver` needs a value")?.clone());
+            }
+            "--database-url" => {
+                args.extra.database_url =
+                    Some(it.next().ok_or("`--database-url` needs a value")?.clone());
+            }
+            "--allow-destructive" => args.extra.allow_destructive = true,
+            "--anonymous" => args.extra.anonymous = true,
+            "--entity" => {
+                args.extra.entity = Some(it.next().ok_or("`--entity` needs a value")?.clone());
+            }
+            "--action" => {
+                args.extra.action = Some(it.next().ok_or("`--action` needs a value")?.clone());
+            }
+            "--subject" => {
+                args.extra.subject = Some(it.next().ok_or("`--subject` needs a value")?.clone());
+            }
+            "--role" => {
+                args.extra
+                    .roles
+                    .push(it.next().ok_or("`--role` needs a value")?.clone());
+            }
+            "--tenant" => {
+                args.extra.tenant = Some(it.next().ok_or("`--tenant` needs a value")?.clone());
             }
             "--jwks-url" => {
                 args.jwks_url = Some(it.next().ok_or("`--jwks-url` needs a value")?.clone());
@@ -140,6 +194,10 @@ mod tests {
             "serve --port 99999",
             "serve --port abc",
             "sync --out",
+            "policy",
+            "migrate",
+            "migrate nope",
+            "policy explain --entity",
             "deploy --account",
             "deploy --jwks-url",
             "deploy --issuer",

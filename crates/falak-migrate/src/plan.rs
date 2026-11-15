@@ -1,14 +1,14 @@
 //! Migration planning, expand-and-contract phase segregation, and checksum generation.
 
-use falak_contracts::ir::{FieldType, Ir};
+use falak_contracts::ir::{FieldType, Ir, IrDefault, IrEntity, IrField};
 use falak_core::{
-    ddl::{create_table, creation_order},
+    ddl::{column_definition, column_type_name, create_table, creation_order},
     sql::Dialect,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::diff::{SchemaDiff, diff_ir};
+use crate::diff::{IndexSpec, SchemaDiff, diff_ir};
 
 /// The phase of an expand-and-contract zero-downtime migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +52,10 @@ pub struct MigrationPlan {
     pub to_hash: String,
     pub statements: Vec<PlannedStatement>,
     pub checksum: String,
+    /// Changes the planner cannot make safely. A plan with any of these must not be
+    /// applied: the developer writes that migration by hand.
+    #[serde(default)]
+    pub unsupported: Vec<String>,
 }
 
 impl MigrationPlan {
@@ -72,6 +76,7 @@ impl MigrationPlan {
     }
 }
 
+#[allow(dead_code)]
 fn column_type_sql(ty: &FieldType, dialect: Dialect) -> &'static str {
     match (ty, dialect) {
         (FieldType::Uuid, Dialect::Postgres) => "uuid",
@@ -98,33 +103,298 @@ fn compute_checksum(statements: &[PlannedStatement]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// The SQL literal for a default the database can fill in for existing rows.
+fn default_literal(f: &IrField, dialect: Dialect) -> Option<String> {
+    match f.default.as_ref()? {
+        IrDefault::Bool(b) if dialect == Dialect::Postgres => Some(b.to_string()),
+        IrDefault::Bool(b) => Some(if *b { "1" } else { "0" }.to_owned()),
+        IrDefault::Int(i) => Some(i.to_string()),
+        IrDefault::Text(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+        IrDefault::Now | IrDefault::NewUuid => None,
+    }
+}
+
+fn stmt(
+    sql: String,
+    phase: MigrationPhase,
+    lock_impact: LockImpact,
+    destructiveness: Destructiveness,
+    description: String,
+) -> PlannedStatement {
+    PlannedStatement {
+        sql,
+        phase,
+        lock_impact,
+        destructiveness,
+        description,
+    }
+}
+
+fn create_stmts(to: &Ir, entity: &IrEntity, dialect: Dialect) -> Vec<PlannedStatement> {
+    create_table(to, entity, dialect)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, sql)| {
+            let is_create = idx == 0;
+            stmt(
+                sql,
+                MigrationPhase::Expand,
+                if is_create {
+                    LockImpact::AccessExclusive
+                } else {
+                    LockImpact::ShareUpdateExclusive
+                },
+                Destructiveness::Safe,
+                if is_create {
+                    format!("Create table `{}`", entity.table)
+                } else {
+                    format!("Create index for `{}`", entity.table)
+                },
+            )
+        })
+        .collect()
+}
+
+/// Rebuild a table in the SQLite family (SQLite and D1), which cannot change a column in
+/// place: make the new table, copy the rows across, swap. All in one atomic batch, with
+/// foreign key checks deferred to the end so tables that reference this one survive the
+/// swap. A row that does not fit the new definition fails the copy, and the whole batch
+/// rolls back.
+fn rebuild(
+    to: &Ir,
+    old: &IrEntity,
+    new: &IrEntity,
+    dialect: Dialect,
+    out: &mut Vec<PlannedStatement>,
+    unsupported: &mut Vec<String>,
+) {
+    let table = &new.table;
+    let temp = format!("{table}__rebuild");
+    let mut cols = Vec::new();
+    let mut exprs = Vec::new();
+    for f in &new.fields {
+        if old.field(&f.name).is_some() {
+            cols.push(format!("\"{}\"", f.name));
+            exprs.push(format!("\"{}\"", f.name));
+        } else if !f.nullable {
+            match default_literal(f, dialect) {
+                Some(lit) => {
+                    cols.push(format!("\"{}\"", f.name));
+                    exprs.push(lit);
+                }
+                None => {
+                    unsupported.push(format!(
+                        "`{table}.{}` is required and has no default the database can fill in for existing rows: make it optional or give it a default",
+                        f.name
+                    ));
+                    return;
+                }
+            }
+        }
+    }
+    let mut create = create_table(to, new, dialect);
+    let first = create.remove(0);
+    let create_temp = first.replacen(
+        &format!("CREATE TABLE IF NOT EXISTS \"{table}\""),
+        &format!("CREATE TABLE \"{temp}\""),
+        1,
+    );
+    let caution = |sql: String, what: String| {
+        stmt(
+            sql,
+            MigrationPhase::Expand,
+            LockImpact::AccessExclusive,
+            Destructiveness::Caution,
+            what,
+        )
+    };
+    out.push(caution(
+        "PRAGMA defer_foreign_keys = ON".to_owned(),
+        format!("Defer foreign key checks while `{table}` is rebuilt"),
+    ));
+    out.push(caution(
+        create_temp,
+        format!("Rebuild `{table}`: new table"),
+    ));
+    out.push(caution(
+        format!(
+            "INSERT INTO \"{temp}\" ({}) SELECT {} FROM \"{table}\"",
+            cols.join(", "),
+            exprs.join(", ")
+        ),
+        format!("Rebuild `{table}`: copy rows"),
+    ));
+    out.push(caution(
+        format!("DROP TABLE \"{table}\""),
+        format!("Rebuild `{table}`: drop the old table"),
+    ));
+    out.push(caution(
+        format!("ALTER TABLE \"{temp}\" RENAME TO \"{table}\""),
+        format!("Rebuild `{table}`: swap in the new table"),
+    ));
+    for sql in create {
+        out.push(caution(
+            sql,
+            format!("Rebuild `{table}`: recreate an index"),
+        ));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_alter(
+    to: &Ir,
+    dialect: Dialect,
+    old: &IrEntity,
+    new: &IrEntity,
+    add_fields: &[IrField],
+    drop_fields: &[String],
+    changed_fields: &[(IrField, IrField)],
+    add_indexes: &[IndexSpec],
+    drop_indexes: &[String],
+    out: &mut Vec<PlannedStatement>,
+    unsupported: &mut Vec<String>,
+) {
+    let table = &new.table;
+    let sqlite_family = dialect != Dialect::Postgres;
+
+    // SQLite cannot drop a column that is indexed, unique, referencing or the key, and
+    // cannot alter one in place at all.
+    let drop_needs_rebuild = drop_fields.iter().any(|n| {
+        old.field(n)
+            .is_some_and(|f| f.unique || f.indexed || f.references.is_some() || f.name == "id")
+    });
+    let add_needs_rebuild = add_fields
+        .iter()
+        .any(|f| !f.nullable && f.references.is_some());
+    if sqlite_family && (!changed_fields.is_empty() || drop_needs_rebuild || add_needs_rebuild) {
+        rebuild(to, old, new, dialect, out, unsupported);
+        return;
+    }
+
+    for f in add_fields {
+        let mut def = column_definition(to, new, f, dialect);
+        if !f.nullable {
+            match default_literal(f, dialect) {
+                Some(lit) => def.push_str(&format!(" DEFAULT {lit}")),
+                None => {
+                    unsupported.push(format!(
+                        "`{table}.{}` is required and has no default the database can fill in for existing rows: make it optional or give it a default",
+                        f.name
+                    ));
+                    continue;
+                }
+            }
+        }
+        out.push(stmt(
+            format!("ALTER TABLE \"{table}\" ADD COLUMN {def}"),
+            MigrationPhase::Expand,
+            LockImpact::AccessExclusive,
+            Destructiveness::Safe,
+            format!("Add column `{}` to `{table}`", f.name),
+        ));
+    }
+
+    if dialect == Dialect::Postgres {
+        for (o, n) in changed_fields {
+            if o.ty != n.ty {
+                let ty = column_type_name(&n.ty, dialect);
+                out.push(stmt(
+                    format!(
+                        "ALTER TABLE \"{table}\" ALTER COLUMN \"{0}\" TYPE {ty} USING \"{0}\"::{ty}",
+                        n.name
+                    ),
+                    MigrationPhase::Expand,
+                    LockImpact::AccessExclusive,
+                    Destructiveness::Caution,
+                    format!("Change the type of `{table}.{}`", n.name),
+                ));
+            }
+            if o.nullable != n.nullable {
+                let (verb, caution) = if n.nullable {
+                    ("DROP", Destructiveness::Safe)
+                } else {
+                    ("SET", Destructiveness::Caution)
+                };
+                out.push(stmt(
+                    format!(
+                        "ALTER TABLE \"{table}\" ALTER COLUMN \"{}\" {verb} NOT NULL",
+                        n.name
+                    ),
+                    MigrationPhase::Expand,
+                    LockImpact::AccessExclusive,
+                    caution,
+                    format!("Change nullability of `{table}.{}`", n.name),
+                ));
+            }
+            if o.max_length != n.max_length
+                || o.min != n.min
+                || o.max != n.max
+                || o.references != n.references
+            {
+                unsupported.push(format!(
+                    "changing the length, range or reference of `{table}.{}` needs a hand written migration",
+                    n.name
+                ));
+            }
+        }
+    }
+
+    // An index that changes (for example becomes unique) is dropped first, then made.
+    for idx in add_indexes {
+        if drop_indexes.contains(&idx.name) {
+            out.push(stmt(
+                format!("DROP INDEX IF EXISTS \"{}\"", idx.name),
+                MigrationPhase::Expand,
+                LockImpact::ShareUpdateExclusive,
+                Destructiveness::Safe,
+                format!("Replace index `{}`", idx.name),
+            ));
+        }
+        out.push(stmt(
+            format!(
+                "CREATE {}INDEX IF NOT EXISTS \"{}\" ON \"{table}\" (\"{}\")",
+                if idx.unique { "UNIQUE " } else { "" },
+                idx.name,
+                idx.column
+            ),
+            MigrationPhase::Expand,
+            LockImpact::ShareUpdateExclusive,
+            Destructiveness::Safe,
+            format!("Add index `{}` on `{table}`", idx.name),
+        ));
+    }
+    for name in drop_indexes {
+        if add_indexes.iter().any(|i| &i.name == name) {
+            continue;
+        }
+        out.push(stmt(
+            format!("DROP INDEX IF EXISTS \"{name}\""),
+            MigrationPhase::Contract,
+            LockImpact::ShareUpdateExclusive,
+            Destructiveness::Caution,
+            format!("Drop index `{name}`"),
+        ));
+    }
+    for field in drop_fields {
+        out.push(stmt(
+            format!("ALTER TABLE \"{table}\" DROP COLUMN \"{field}\""),
+            MigrationPhase::Contract,
+            LockImpact::AccessExclusive,
+            Destructiveness::Breaking,
+            format!("Drop column `{field}` from `{table}`"),
+        ));
+    }
+}
+
 /// Generate a migration plan between two IR versions.
 pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> MigrationPlan {
     let mut statements = Vec::new();
+    let mut unsupported = Vec::new();
 
     if from.is_none() {
-        // Initial migration: create all tables and indexes in Expand phase
         // Referenced tables first: PostgreSQL checks a foreign key when the table is made.
         for entity in creation_order(to) {
-            let entity_ddl = create_table(to, entity, dialect);
-            for (idx, sql) in entity_ddl.into_iter().enumerate() {
-                let is_create = idx == 0;
-                statements.push(PlannedStatement {
-                    sql,
-                    phase: MigrationPhase::Expand,
-                    lock_impact: if is_create {
-                        LockImpact::AccessExclusive
-                    } else {
-                        LockImpact::ShareUpdateExclusive
-                    },
-                    destructiveness: Destructiveness::Safe,
-                    description: if is_create {
-                        format!("Create table `{}`", entity.table)
-                    } else {
-                        format!("Create index for `{}`", entity.table)
-                    },
-                });
-            }
+            statements.extend(create_stmts(to, entity, dialect));
         }
     } else {
         let mut diffs = diff_ir(from, to);
@@ -137,110 +407,44 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
                 .unwrap_or(order.len()),
             _ => order.len() + 1,
         });
-
-        // 1. Process Expand changes
         for diff in &diffs {
             match diff {
                 SchemaDiff::CreateTable(entity) => {
-                    let entity_ddl = create_table(to, entity, dialect);
-                    for (idx, sql) in entity_ddl.into_iter().enumerate() {
-                        let is_create = idx == 0;
-                        statements.push(PlannedStatement {
-                            sql,
-                            phase: MigrationPhase::Expand,
-                            lock_impact: if is_create {
-                                LockImpact::AccessExclusive
-                            } else {
-                                LockImpact::ShareUpdateExclusive
-                            },
-                            destructiveness: Destructiveness::Safe,
-                            description: if is_create {
-                                format!("Create table `{}`", entity.table)
-                            } else {
-                                format!("Create index for `{}`", entity.table)
-                            },
-                        });
-                    }
+                    statements.extend(create_stmts(to, entity, dialect));
                 }
                 SchemaDiff::AlterTable {
-                    table,
+                    old,
+                    new,
                     add_fields,
-                    add_indexes,
-                    ..
-                } => {
-                    for f in add_fields {
-                        let ty_str = column_type_sql(&f.ty, dialect);
-                        let sql = format!(
-                            "ALTER TABLE \"{table}\" ADD COLUMN \"{}\" {ty_str};",
-                            f.name
-                        );
-                        statements.push(PlannedStatement {
-                            sql,
-                            phase: MigrationPhase::Expand,
-                            lock_impact: LockImpact::AccessExclusive,
-                            destructiveness: Destructiveness::Safe,
-                            description: format!("Add column `{}` to `{table}`", f.name),
-                        });
-                    }
-                    for idx_name in add_indexes {
-                        let sql =
-                            format!("CREATE INDEX IF NOT EXISTS \"{idx_name}\" ON \"{table}\";");
-                        statements.push(PlannedStatement {
-                            sql,
-                            phase: MigrationPhase::Expand,
-                            lock_impact: LockImpact::ShareUpdateExclusive,
-                            destructiveness: Destructiveness::Safe,
-                            description: format!("Add index `{idx_name}` on `{table}`"),
-                        });
-                    }
-                }
-                SchemaDiff::DropTable(_) => {}
-            }
-        }
-
-        // 2. Process Contract changes (drops)
-        for diff in &diffs {
-            match diff {
-                SchemaDiff::AlterTable {
-                    table,
                     drop_fields,
+                    changed_fields,
+                    add_indexes,
                     drop_indexes,
                     ..
-                } => {
-                    for idx_name in drop_indexes {
-                        let sql = format!("DROP INDEX IF EXISTS \"{idx_name}\";");
-                        statements.push(PlannedStatement {
-                            sql,
-                            phase: MigrationPhase::Contract,
-                            lock_impact: LockImpact::ShareUpdateExclusive,
-                            destructiveness: Destructiveness::Caution,
-                            description: format!("Drop index `{idx_name}`"),
-                        });
-                    }
-                    for field_name in drop_fields {
-                        let sql = format!("ALTER TABLE \"{table}\" DROP COLUMN \"{field_name}\";");
-                        statements.push(PlannedStatement {
-                            sql,
-                            phase: MigrationPhase::Contract,
-                            lock_impact: LockImpact::AccessExclusive,
-                            destructiveness: Destructiveness::Breaking,
-                            description: format!("Drop column `{field_name}` from `{table}`"),
-                        });
-                    }
-                }
-                SchemaDiff::DropTable(table) => {
-                    let sql = format!("DROP TABLE IF EXISTS \"{table}\";");
-                    statements.push(PlannedStatement {
-                        sql,
-                        phase: MigrationPhase::Contract,
-                        lock_impact: LockImpact::AccessExclusive,
-                        destructiveness: Destructiveness::Breaking,
-                        description: format!("Drop table `{table}`"),
-                    });
-                }
-                SchemaDiff::CreateTable(_) => {}
+                } => plan_alter(
+                    to,
+                    dialect,
+                    old,
+                    new,
+                    add_fields,
+                    drop_fields,
+                    changed_fields,
+                    add_indexes,
+                    drop_indexes,
+                    &mut statements,
+                    &mut unsupported,
+                ),
+                SchemaDiff::DropTable(table) => statements.push(stmt(
+                    format!("DROP TABLE IF EXISTS \"{table}\""),
+                    MigrationPhase::Contract,
+                    LockImpact::AccessExclusive,
+                    Destructiveness::Breaking,
+                    format!("Drop table `{table}`"),
+                )),
             }
         }
+        // Expand statements first, whatever order the tables came in.
+        statements.sort_by_key(|s| s.phase == MigrationPhase::Contract);
     }
 
     let checksum = compute_checksum(&statements);
@@ -249,5 +453,6 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
         to_hash: to.content_hash.clone(),
         statements,
         checksum,
+        unsupported,
     }
 }
