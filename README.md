@@ -16,6 +16,8 @@ It is built as three independently versioned products:
 
 [ARCHITECTURE.md](./ARCHITECTURE.md) is the single source of truth: products, runtimes, security boundaries, specifications, roadmap and glossary.
 
+[TASKS.md](./TASKS.md) is the build plan and checklist: every task, its owner and how it is checked.
+
 ## v1 Technology Stack
 
 * **Core:** Rust, portable across native targets and `wasm32`
