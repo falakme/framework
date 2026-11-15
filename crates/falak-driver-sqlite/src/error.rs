@@ -1,12 +1,15 @@
 //! Error mapping for SQLite and SQLx.
 
 use falak_contracts::{Error, ErrorKind};
-use sqlx::error::DatabaseError;
 
 /// Map a SQLx error to a standardized `falak_contracts::Error`.
 pub fn map_sqlx_error(err: sqlx::Error) -> Error {
     match err {
-        sqlx::Error::Database(ref db_err) => map_database_error(db_err.as_ref(), err),
+        sqlx::Error::Database(db_err) => {
+            let code = db_err.code().map(|s| s.to_string());
+            let message = db_err.message().to_string();
+            map_database_error(code.as_deref(), &message, sqlx::Error::Database(db_err))
+        }
         sqlx::Error::PoolTimedOut => Error::new(
             ErrorKind::Timeout,
             "sqlite_pool_timeout",
@@ -32,9 +35,8 @@ pub fn map_sqlx_error(err: sqlx::Error) -> Error {
 }
 
 /// Map a database-level error using SQLite error codes.
-fn map_database_error(db_err: &dyn DatabaseError, source: sqlx::Error) -> Error {
-    let code = db_err.code().unwrap_or_default();
-    let message = db_err.message();
+fn map_database_error(code_opt: Option<&str>, message: &str, source: sqlx::Error) -> Error {
+    let code = code_opt.unwrap_or_default();
 
     // SQLite primary and extended result codes:
     // 5 = SQLITE_BUSY, 6 = SQLITE_LOCKED, 261 = SQLITE_BUSY_RECOVERY, 517 = SQLITE_BUSY_SNAPSHOT

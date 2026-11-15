@@ -17,28 +17,28 @@ pub fn bind_statement(statement: &Statement) -> SqliteArguments<'static> {
     for param in &statement.params {
         match param {
             Value::Null => {
-                args.add(None::<String>);
+                let _ = args.add(None::<String>);
             }
             Value::Bool(b) => {
-                args.add(if *b { 1i64 } else { 0i64 });
+                let _ = args.add(if *b { 1i64 } else { 0i64 });
             }
             Value::Int64(i) => {
-                args.add(*i);
+                let _ = args.add(*i);
             }
             Value::Float64(f) => {
-                args.add(*f);
+                let _ = args.add(*f);
             }
             Value::Text(s) => {
-                args.add(s.clone());
+                let _ = args.add(s.clone());
             }
             Value::Bytes(b) => {
-                args.add(b.clone());
+                let _ = args.add(b.clone());
             }
             Value::Uuid(u) => {
-                args.add(u.to_vec());
+                let _ = args.add(u.to_vec());
             }
             Value::TimestampMicros(t) => {
-                args.add(*t);
+                let _ = args.add(*t);
             }
         }
     }
@@ -65,7 +65,8 @@ pub fn rows_from_sqlite(sqlite_rows: Vec<SqliteRow>) -> Result<Rows> {
             let value = if val_ref.is_null() {
                 Value::Null
             } else {
-                let type_name = val_ref.type_info().name();
+                let type_info = val_ref.type_info();
+                let type_name = type_info.name();
                 match type_name {
                     "INTEGER" | "INT" | "BIGINT" | "TINYINT" | "SMALLINT" => {
                         let i: i64 = row.try_get(i).map_err(map_sqlx_error)?;
