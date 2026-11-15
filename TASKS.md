@@ -74,7 +74,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 
 **Dev3**
 - [x] **T0.7** Verify current Cloudflare Workers and D1 limits and record them in the DRIVER spec (recorded in `specifications/CLOUDFLARE_LIMITS.md`, checked 2026-11-15; Dev2 folds it into the DRIVER spec with T0.5). *Works when:* each limit cites the vendor documentation page and the date checked.
-- [ ] **T0.8** Spike: a stub of the portable core, built for `wasm32`, serving one hard-coded entity from D1 on Workers and from SQLite natively. *Needs:* T0.1, Cloudflare account. *Works when:* the same request returns the same JSON from both, and the WASM size is recorded.
+- [x] **T0.8** Spike: a stub of the portable core, built for `wasm32`, serving one hard-coded entity from D1 on Workers and from SQLite natively. *Needs:* T0.1, Cloudflare account. *Works when:* the same request returns the same JSON from both, and the WASM size is recorded.
 
 **Dev4**
 - [x] **T0.9** `THREAT_MODEL.md` v1 and `SECURITY.md`. *Works when:* every boundary in ARCHITECTURE §4.7 has at least one named threat and its control.
