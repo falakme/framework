@@ -1,3 +1,7 @@
 packages:
   - packages/*
   - examples/*/web
+
+# Install scripts are off by default. esbuild's only checks its prebuilt binary.
+allowBuilds:
+  esbuild: true

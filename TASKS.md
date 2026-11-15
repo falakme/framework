@@ -118,7 +118,7 @@ Target: the Notebook app runs as one binary with no external service.
 
 **Dev5**
 - [x] **T1.15** TypeScript SDK codegen (`falak sync`). *Needs:* T1.11.
-- [ ] **T1.16** Notebook React frontend using the generated SDK. *Needs:* T1.15.
+- [x] **T1.16** Notebook React frontend using the generated SDK. *Needs:* T1.15.
 - [x] **T1.17** `scripts/smoke/notebook.sh`: start the binary, create two users, create notes as each, and confirm each user sees only their own and gets 404 on the other's. *Needs:* T1.7, T1.14.
 - [x] **T1.18** Ten-minute quickstart in `docs/` and linked from the README. *Works when:* another agent follows it on a clean machine and reaches a running Notebook. *(Written and run step by step by Dev3 in a clean directory; a second reader has not tried it yet.)*
 
@@ -310,6 +310,11 @@ Do not start until the legal-advice item in §4 is ticked.
 Write blockers here: task id, what is blocking, who can unblock it.
 
 - **T0.8 (Dev3).** Needs a Cloudflare account and API token (owner decision in §4). Can be unblocked by the owner. Until then Dev3 can only run the Workers half locally (`wrangler dev`, no account), which does not satisfy "on Workers". It also needs Dev2's SQLite driver (T1.6) for the native half.
+- **Changes Dev3 made in other agents' areas (for Dev1 and Dev2 to review).**
+  * `falak-contracts`: new `ErrorKind::Unprocessable` (HTTP 422), used when an idempotency key is reused with a different body (API spec §5.2 says 422).
+  * `falak-runtime-native`: `create_router` now takes an `Arc<dyn Authenticator>`. Every data route needs a valid signed bearer credential (401 otherwise). The old "any bearer value is the user id" extraction is now `DevAuthenticator`, compiled only with the `dev-auth` feature (used by the existing tests). Ids are now random (`falak_auth::system::RandomIds`), not derived from the clock. A write with `If-Match` that changes no row now answers 404 unless the caller can read the row (before, it answered 412 for any id, including ones the caller must not see). Auth routes are in `auth_routes.rs`.
+  * `falak-core`: new modules `openapi` and `typescript`.
+  * `ci.yml`: a `web` job, the Notebook smoke test, a check that generated files are current, and a wasm32 build of the auth crate's verification code.
 - **T2.6 (Dev3), status.** The D1 driver is written in `crates/falak-driver-d1` against the `falak-contracts` traits: batch, limits checks, error mapping, session bookmarks, and a `workers-rs` binding for `wasm32`. 25 unit tests pass against a fake binding and the crate lints clean for native and `wasm32`. It has not run against a real or local D1 database, so the box stays unticked until T2.7 can run it.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 

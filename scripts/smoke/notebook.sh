@@ -2,7 +2,9 @@
 # Notebook smoke test (T1.17).
 #
 # Builds the CLI, serves a copy of examples/notebook on a free port, runs the checks in
-# notebook.py against it, and stops the server. Exit code 0 means every check passed.
+# notebook.py against it, then runs the generated TypeScript client against the same
+# server (if Node and pnpm are installed), and stops the server. Exit code 0 means every
+# check passed.
 #
 #   scripts/smoke/notebook.sh
 #
@@ -43,8 +45,18 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 
-if ! python3 "$root/scripts/smoke/notebook.py" "http://127.0.0.1:$port"; then
+fail() {
   echo "--- server log ---" >&2
   cat "$work/server.log" >&2
   exit 1
+}
+
+python3 "$root/scripts/smoke/notebook.py" "http://127.0.0.1:$port" || fail
+
+if [ -d "$root/node_modules" ] && command -v pnpm >/dev/null 2>&1; then
+  echo
+  echo "generated TypeScript client:"
+  (cd "$root/examples/notebook/web" && FALAK_URL="http://127.0.0.1:$port" pnpm --silent test) || fail
+else
+  echo "(skipping the TypeScript client check: run 'pnpm install' first)"
 fi
