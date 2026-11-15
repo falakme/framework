@@ -29,6 +29,8 @@ COMMANDS:
     serve [dir] [options]        Serve the app
     dev [dir] [options]          Serve, and rebuild and reload when a file changes
     deploy [dir] [options]       Publish to Cloudflare Workers with a D1 database
+    tenant add [dir] --tenant <uuid> [--account <id>]
+                                 Give a tenant a D1 database of its own (`tenancy: database`)
     policy explain [dir] --entity <e> [--action <a>] [--subject <id>] [--role <r>]...
                                  Show the decision, the matching rules and the SQL
     migrate plan [dir] [--driver <d>] [--database-url <u>]
@@ -194,6 +196,11 @@ fn run(
                 name,
             },
         ),
+        Command::TenantAdd => {
+            deploy_options.name = name;
+            let tenant = extra.tenant.ok_or("`--tenant <uuid>` is required")?;
+            deploy::add_tenant(dir, &deploy_options, &tenant)
+        }
         Command::Deploy => {
             deploy_options.name = name;
             deploy::run(dir, &deploy_options)

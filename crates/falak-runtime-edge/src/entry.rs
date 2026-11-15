@@ -28,6 +28,7 @@ use falak_runtime_native::{
     context::{Authenticator, TokenAuthenticator, bearer_token},
     create_router_with,
     limits::{Limits, RateGate},
+    tenants::TenantRouter,
 };
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, event, send::SendWrapper};
@@ -37,6 +38,7 @@ use crate::{
     driver::EdgeDriver,
     gate::EdgeGate,
     jwks::JwksAuth,
+    tenants::EdgeTenants,
 };
 
 /// The compiled app, embedded by `build.rs`. Empty if the Worker was built without one.
@@ -104,9 +106,14 @@ async fn build_app(env: &Env) -> Result<App, String> {
     let options = falak_migrate::MigrateOptions {
         allow_destructive: var(env, "FALAK_ALLOW_DESTRUCTIVE").is_some(),
     };
-    falak_migrate::migrate(&driver, &ctx, &ir, options)
-        .await
-        .map_err(|e| format!("cannot update the tables: {}", e.public_message()))?;
+    let migrate_options = options;
+    // Under `database` tenancy the app's tables live in each tenant's own database, which
+    // is brought up to date on first use. The main database holds identity only.
+    if ir.app.tenancy != falak_contracts::ir::Tenancy::Database {
+        falak_migrate::migrate(&driver, &ctx, &ir, options)
+            .await
+            .map_err(|e| format!("cannot update the tables: {}", e.public_message()))?;
+    }
     // Fail early, with a clear message, if the database is not reachable.
     StorageDriver::query(
         &driver,
@@ -139,6 +146,16 @@ async fn build_app(env: &Env) -> Result<App, String> {
     };
     let openapi = falak_core::openapi::generate(&ir).to_string();
     let ir = Arc::new(ir);
+    let data: Arc<dyn NativeDriver> = if ir.app.tenancy == falak_contracts::ir::Tenancy::Database {
+        let map = var(env, "FALAK_TENANTS").unwrap_or_else(|| "{}".to_owned());
+        let tenants = EdgeTenants::from_env(env, &map, ir.clone(), migrate_options)?;
+        Arc::new(TenantRouter::new(
+            Arc::new(driver.clone()),
+            Arc::new(tenants),
+        ))
+    } else {
+        Arc::new(driver.clone())
+    };
 
     let (router, jwks) = if let Some(url) = var(env, "FALAK_JWKS_URL") {
         let issuer =
@@ -150,7 +167,7 @@ async fn build_app(env: &Env) -> Result<App, String> {
         };
         let auth = Arc::new(JwksAuth::new(&url, config)?);
         let authenticator: Arc<dyn Authenticator> = auth.clone();
-        let router = create_router_with(ir.clone(), Arc::new(driver), authenticator, options);
+        let router = create_router_with(ir.clone(), Arc::new(data.clone()), authenticator, options);
         (router, Some(auth))
     } else {
         let keys_text = env
@@ -177,7 +194,7 @@ async fn build_app(env: &Env) -> Result<App, String> {
         );
         let auth = Arc::new(EdgeAuth(SendWrapper::new(identity)));
         let authenticator = Arc::new(TokenAuthenticator::new(verifier, SystemClock));
-        let data = create_router_with(ir.clone(), Arc::new(driver), authenticator, options);
+        let data = create_router_with(ir.clone(), Arc::new(data.clone()), authenticator, options);
         let router = match auth_gate {
             Some(g) => data.merge(auth_router_with(auth, Arc::new(|_, _| {}), g)),
             None => data.merge(falak_runtime_native::auth_routes::auth_router(

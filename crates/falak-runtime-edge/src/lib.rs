@@ -24,3 +24,4 @@ mod driver;
 mod entry;
 mod gate;
 mod jwks;
+mod tenants;

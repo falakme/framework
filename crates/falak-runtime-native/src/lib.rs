@@ -11,6 +11,7 @@ pub mod json;
 pub mod limits;
 #[cfg(feature = "server")]
 pub mod telemetry;
+pub mod tenants;
 
 pub use app::{AppState, RouterOptions, create_router, create_router_with};
 pub use driver::NativeDriver;

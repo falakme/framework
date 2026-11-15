@@ -88,7 +88,40 @@ pub fn worker_name(app: &str) -> String {
     cleaned.trim_matches('-').to_string()
 }
 
+/// A tenant's own D1 database (`tenancy: database`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TenantDb {
+    pub tenant: String,
+    pub binding: String,
+    pub database_name: String,
+    pub database_id: String,
+}
+
+fn tenants_path(dir: &Path) -> PathBuf {
+    project::out_dir(dir).join("edge").join("tenants.json")
+}
+
+fn load_tenants(dir: &Path) -> Result<Vec<TenantDb>, String> {
+    match std::fs::read_to_string(tenants_path(dir)) {
+        Ok(text) => {
+            serde_json::from_str(&text).map_err(|e| format!("tenants.json is not valid: {e}"))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!("cannot read tenants.json: {e}")),
+    }
+}
+
+fn save_tenants(dir: &Path, tenants: &[TenantDb]) -> Result<(), String> {
+    let path = tenants_path(dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(tenants).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("cannot write `{}`: {e}", path.display()))
+}
+
 /// The wrangler configuration for one deploy.
+#[allow(clippy::too_many_arguments)]
 pub fn wrangler_config(
     worker: &str,
     main: &Path,
@@ -97,6 +130,7 @@ pub fn wrangler_config(
     database_id: &str,
     identity: &Identity,
     allow_destructive: bool,
+    tenants: &[TenantDb],
 ) -> String {
     let mut out = String::new();
     out.push_str("# Written by `falak deploy`. Changes are overwritten.\n");
@@ -124,7 +158,28 @@ pub fn wrangler_config(
         "\n[[ratelimits]]\nname = \"AUTH_RATE_LIMITER\"\nnamespace_id = \"1002\"\n\
          [ratelimits.simple]\nlimit = {AUTH_LIMIT}\nperiod = 60\n"
     ));
+    for t in tenants {
+        out.push_str(&format!(
+            "\n[[d1_databases]]\nbinding = \"{}\"\ndatabase_name = \"{}\"\ndatabase_id = \"{}\"\n",
+            t.binding, t.database_name, t.database_id
+        ));
+    }
     let mut vars = Vec::new();
+    if !tenants.is_empty() {
+        let map: serde_json::Map<String, serde_json::Value> = tenants
+            .iter()
+            .map(|t| {
+                (
+                    t.tenant.clone(),
+                    serde_json::Value::String(t.binding.clone()),
+                )
+            })
+            .collect();
+        vars.push(format!(
+            "FALAK_TENANTS = {}",
+            toml_string(&serde_json::Value::Object(map).to_string())
+        ));
+    }
     if let Identity::KeySet { jwks_url, issuer } = identity {
         vars.push(format!("FALAK_JWKS_URL = {}", toml_string(jwks_url)));
         vars.push(format!("FALAK_ISSUER = {}", toml_string(issuer)));
@@ -228,6 +283,55 @@ fn find_database(name: &str, cwd: &Path, envs: &[(&str, &str)]) -> Result<Option
     }))
 }
 
+/// `falak tenant add`: make a D1 database for a tenant, bind it, and publish again.
+pub fn add_tenant(dir: &Path, options: &Options, tenant: &str) -> Result<u8, String> {
+    if !falak_runtime_native::tenants::valid_tenant(tenant) {
+        return Err(
+            "a tenant id is a lower case UUID, like 00000000-0000-0000-0000-000000000001".into(),
+        );
+    }
+    let Some(compiled) = project::build(dir)? else {
+        return Ok(1);
+    };
+    if compiled.ir.app.tenancy != falak_contracts::ir::Tenancy::Database {
+        return Err("this app does not use `tenancy: database`".into());
+    }
+    let dir = dir
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve `{}`: {e}", dir.display()))?;
+    let worker = worker_name(options.name.as_deref().unwrap_or(&compiled.ir.app.name));
+    let mut tenants = load_tenants(&dir)?;
+    if tenants.iter().any(|t| t.tenant == tenant) {
+        println!("tenant {tenant} already has a database");
+        return Ok(0);
+    }
+    let account = options
+        .account
+        .clone()
+        .or_else(|| std::env::var("CLOUDFLARE_ACCOUNT_ID").ok());
+    let envs: Vec<(&str, &str)> = account
+        .as_deref()
+        .map(|a| vec![("CLOUDFLARE_ACCOUNT_ID", a)])
+        .unwrap_or_default();
+    let edge_out = project::out_dir(&dir).join("edge");
+    std::fs::create_dir_all(&edge_out).map_err(|e| e.to_string())?;
+    let database_name = format!("{worker}-t-{tenant}");
+    println!("creating the D1 database `{database_name}`");
+    if find_database(&database_name, &edge_out, &envs)?.is_none() {
+        wrangler(&["d1", "create", &database_name], &edge_out, &envs, None)?;
+    }
+    let database_id = find_database(&database_name, &edge_out, &envs)?
+        .ok_or("the D1 database was created but cannot be found")?;
+    tenants.push(TenantDb {
+        tenant: tenant.to_owned(),
+        binding: format!("TENANT_{}", tenants.len() + 1),
+        database_name,
+        database_id,
+    });
+    save_tenants(&dir, &tenants)?;
+    run(&dir, options)
+}
+
 pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
     let identity = options.identity()?;
     let Some(compiled) = project::build(dir)? else {
@@ -300,6 +404,7 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
             &database_id,
             &identity,
             options.allow_destructive,
+            &load_tenants(&dir)?,
         ),
     )
     .map_err(|e| format!("cannot write `{}`: {e}", config_path.display()))?;
@@ -375,6 +480,7 @@ mod tests {
             "uuid-1",
             &Identity::Local,
             false,
+            &[],
         );
         assert!(text.contains("name = \"notebook\""));
         assert!(text.contains("account_id = \"acc123\""));
@@ -393,7 +499,7 @@ mod tests {
             jwks_url: "https://a.example/.well-known/jwks.json".into(),
             issuer: "falak-local".into(),
         };
-        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u", &id, false);
+        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u", &id, false, &[]);
         assert!(text.contains("FALAK_JWKS_URL = \"https://a.example/.well-known/jwks.json\""));
         assert!(text.contains("FALAK_ISSUER = \"falak-local\""));
     }
@@ -419,6 +525,30 @@ mod tests {
     }
 
     #[test]
+    fn tenant_databases_become_bindings_and_a_map() {
+        let t = TenantDb {
+            tenant: "00000000-0000-0000-0000-0000000000a1".into(),
+            binding: "TENANT_1".into(),
+            database_name: "app-t-00000000-0000-0000-0000-0000000000a1".into(),
+            database_id: "db-1".into(),
+        };
+        let text = wrangler_config(
+            "app",
+            Path::new("/s.mjs"),
+            None,
+            "app-db",
+            "u",
+            &Identity::Local,
+            false,
+            &[t],
+        );
+        assert!(text.contains("binding = \"TENANT_1\""));
+        assert!(text.contains("database_id = \"db-1\""));
+        assert!(text.contains("FALAK_TENANTS ="));
+        assert!(text.contains("00000000-0000-0000-0000-0000000000a1"));
+    }
+
+    #[test]
     fn config_without_an_account_leaves_it_out() {
         let text = wrangler_config(
             "a",
@@ -428,6 +558,7 @@ mod tests {
             "u",
             &Identity::Local,
             false,
+            &[],
         );
         assert!(!text.contains("account_id"));
     }

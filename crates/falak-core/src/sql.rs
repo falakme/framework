@@ -660,10 +660,15 @@ pub fn list(req: Request, query: &ListQuery) -> Result<Option<ListPlan>> {
         .collect();
     let fetch = page_size + 1;
     let list = select_list(entity, access, &mut b);
+    // An unrestricted caller on an app without tenancy or soft delete has no condition.
+    let filter = if conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conds.join(" AND "))
+    };
     let sql = format!(
-        "SELECT {list} FROM {} WHERE {} ORDER BY {} LIMIT {fetch}",
+        "SELECT {list} FROM {}{filter} ORDER BY {} LIMIT {fetch}",
         q(&entity.table),
-        conds.join(" AND "),
         order.join(", ")
     );
     let statement = b.finish(sql)?;

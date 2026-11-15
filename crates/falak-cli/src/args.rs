@@ -16,6 +16,7 @@ pub enum Command {
     PolicyExplain,
     MigratePlan,
     MigrateApply,
+    TenantAdd,
     Doctor,
     Help,
     Version,
@@ -66,6 +67,10 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         Some("policy") => match it.next().map(String::as_str) {
             Some("explain") => Command::PolicyExplain,
             _ => return Err("`policy` needs a subcommand: explain".into()),
+        },
+        Some("tenant") => match it.next().map(String::as_str) {
+            Some("add") => Command::TenantAdd,
+            _ => return Err("`tenant` needs a subcommand: add".into()),
         },
         Some("migrate") => match it.next().map(String::as_str) {
             Some("plan") => Command::MigratePlan,

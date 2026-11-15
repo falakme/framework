@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
+serde.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
 falak-driver-postgres = { path = "../falak-driver-postgres" }

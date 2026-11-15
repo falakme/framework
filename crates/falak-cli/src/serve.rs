@@ -35,9 +35,11 @@ use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
 use falak_migrate::{MigrateOptions, migrate};
 use falak_runtime_native::{
+    NativeDriver,
     auth_routes::{ResetSink, auth_router},
     context::TokenAuthenticator,
     create_router,
+    tenants::{SqliteTenants, TenantRouter},
 };
 use tower::ServiceExt;
 
@@ -70,6 +72,8 @@ enum DriverStack {
 #[derive(Clone)]
 struct Stack {
     driver_stack: DriverStack,
+    /// Where `tenancy: database` keeps one database file per tenant.
+    tenant_dir: PathBuf,
     authenticator: Arc<TokenAuthenticator<SystemClock>>,
     reset_sink: ResetSink,
 }
@@ -183,6 +187,7 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
     };
 
     Ok(Stack {
+        tenant_dir: data.join("tenants"),
         driver_stack,
         authenticator: Arc::new(TokenAuthenticator::new(verifier, SystemClock)),
         reset_sink,
@@ -194,6 +199,17 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
 /// is a scratch copy; in `falak serve` a change that rebuilds, drops or retypes data
 /// stops the server and says how to apply it on purpose (`falak migrate apply`).
 async fn prepare_tables(stack: &Stack, ir: &Ir, dev: bool) -> Result<(), String> {
+    if ir.app.tenancy == falak_contracts::ir::Tenancy::Database {
+        // The app's tables live in each tenant's own database, made when the tenant is
+        // first seen. This database holds identity only.
+        return match &stack.driver_stack {
+            DriverStack::Sqlite { .. } => Ok(()),
+            DriverStack::Postgres { .. } => Err(
+                "`tenancy: database` runs on SQLite and D1, not PostgreSQL. Use `tenancy: row` there"
+                    .to_owned(),
+            ),
+        };
+    }
     let ctx = request_context();
     let options = MigrateOptions {
         allow_destructive: dev,
@@ -229,7 +245,14 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
 
     let router = match &stack.driver_stack {
         DriverStack::Sqlite { driver, identity } => {
-            create_router(ir_arc, driver.clone(), stack.authenticator.clone())
+            let data = if ir.app.tenancy == falak_contracts::ir::Tenancy::Database {
+                let tenants = SqliteTenants::new(stack.tenant_dir.clone(), ir_arc.clone());
+                Arc::new(TenantRouter::new(driver.clone(), Arc::new(tenants)))
+                    as Arc<dyn NativeDriver>
+            } else {
+                driver.clone() as Arc<dyn NativeDriver>
+            };
+            create_router(ir_arc, Arc::new(data), stack.authenticator.clone())
                 .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
         }
         DriverStack::Postgres { driver, identity } => {

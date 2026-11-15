@@ -17,7 +17,7 @@ workspace = true
 # this crate for `wasm32` with `default-features = false`.
 default = ["server", "sqlite", "postgres"]
 server = ["dep:tower-http", "dep:tracing-subscriber", "dep:tokio", "axum/tokio", "axum/http1"]
-sqlite = ["dep:falak-driver-sqlite"]
+sqlite = ["dep:falak-driver-sqlite", "dep:tokio", "tokio/sync"]
 postgres = ["dep:falak-driver-postgres"]
 # Compiles `DevAuthenticator`, which trusts the bearer value as the user id. For tests
 # only: no binary enables it.
@@ -28,6 +28,7 @@ falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite", optional = true }
+falak-migrate = { path = "../falak-migrate" }
 falak-driver-postgres = { path = "../falak-driver-postgres", optional = true }
 axum = { version = "0.8.9", default-features = false, features = ["json", "query"] }
 serde = { workspace = true }
