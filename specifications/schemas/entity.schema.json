@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/entity.schema.json",
+  "title": "Falak entity (entities/*.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entity", "fields"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "entity": { "$ref": "#/$defs/name" },
+    "table": { "$ref": "#/$defs/name" },
+    "owner": {
+      "description": "Field holding the owning user's id. Required for the `owner` policy rule.",
+      "$ref": "#/$defs/name"
+    },
+    "fields": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 100,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/field" }
+    },
+    "relations": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/relation" }
+    },
+    "admin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "maxLength": 80 },
+        "list_columns": { "type": "array", "items": { "$ref": "#/$defs/name" }, "uniqueItems": true },
+        "search_fields": { "type": "array", "items": { "$ref": "#/$defs/name" }, "uniqueItems": true }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "soft_delete": { "type": "boolean", "default": false },
+        "retention_days": { "type": "integer", "minimum": 1 },
+        "erasable": { "type": "boolean", "default": false }
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["uuid", "int64", "decimal_minor", "text", "bool", "timestamptz", "bytes", "json"] },
+        "required": { "type": "boolean", "default": false },
+        "unique": { "type": "boolean", "default": false },
+        "indexed": { "type": "boolean", "default": false },
+        "default": {
+          "description": "A literal of the field's type, or one of the generators `now` or `uuid`.",
+          "type": ["string", "number", "boolean"]
+        },
+        "max_length": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "min": { "type": "integer" },
+        "max": { "type": "integer" },
+        "pii": { "type": "boolean", "default": false },
+        "encrypted": { "type": "boolean", "default": false },
+        "references": {
+          "description": "`entity.field` this field points to.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}\\.[a-z][a-z0-9_]{0,62}$"
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "entity", "field"],
+      "properties": {
+        "kind": { "enum": ["belongs_to", "has_many"] },
+        "entity": { "$ref": "#/$defs/name" },
+        "field": { "$ref": "#/$defs/name" }
+      }
+    }
+  }
+}

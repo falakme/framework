@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/app.schema.json",
+  "title": "Falak app manifest (app.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "version"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,39}$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "description": { "type": "string", "maxLength": 300 },
+    "tenancy": { "enum": ["none", "row", "database"], "default": "none" },
+    "trust_tier": { "enum": ["standard", "sensitive", "high_assurance"], "default": "standard" },
+    "drivers": {
+      "description": "Drivers this app is built for. The build fails if the app needs more than one of them provides.",
+      "type": "array",
+      "items": { "enum": ["sqlite", "postgres", "d1"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "requires": {
+      "description": "Extra driver capabilities the app needs, beyond what the compiler infers.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "interactive_transactions", "atomic_batch", "savepoints", "serializable_isolation",
+          "concurrent_writers", "row_level_locking", "advisory_locks", "read_replicas",
+          "native_rls", "returning", "upsert", "json_operators", "full_text_search", "vector_search"
+        ]
+      },
+      "uniqueItems": true
+    }
+  }
+}

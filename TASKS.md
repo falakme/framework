@@ -65,7 +65,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 - [x] **T0.1** Monorepo skeleton: Cargo workspace with the crates in §2 as stubs, `packages/`, `office/`, `examples/`, `scripts/smoke/`, and CI. *Works when:* CI is green building every crate for native, and `falak-contracts` and `falak-core` for `wasm32`.
 - [x] **T0.2** Write the eight ADRs into `specifications/adr/` as accepted or changed by the owner. *Needs:* owner decision. *Works when:* ARCHITECTURE §3 links to eight ADR files and no item is marked *Proposed*.
 - [x] **T0.3** `falak-contracts`: provider traits, capability profile, IR types, error taxonomy. *Needs:* T0.1. *Works when:* every other crate compiles against it with stub implementations.
-- [ ] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor.
+- [x] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor. *Done:* the spec and four JSON Schemas are in `specifications/`, with a minimal example that validates and negative cases that are rejected; T0.11 will confirm against the Notebook fixture.
 
 **Dev2**
 - [ ] **T0.5** Draft `DRIVER_SPECIFICATION.md` with capability profiles for SQLite and PostgreSQL. *Works when:* each capability in ARCHITECTURE §4.4 has a value for both drivers.
@@ -94,11 +94,11 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 Target: the Notebook app runs as one binary with no external service.
 
 **Dev1**
-- [ ] **T1.1** Strict YAML parser with file, line and column diagnostics. *Works when:* a deliberately broken Notebook file reports the exact location and a suggested fix.
-- [ ] **T1.2** Typed AST and validation (types, relations, unknown and duplicate keys rejected). *Needs:* T1.1.
-- [ ] **T1.3** IR compile (`falak build`) with content hash, and `falak.lock`. *Needs:* T1.2. *Works when:* building Notebook twice gives the same hash.
-- [ ] **T1.4** Policy compiler for ownership and roles, producing SQL predicates, default deny. *Needs:* T1.2. *Works when:* an entity with no policy compiles to a query that returns nothing.
-- [ ] **T1.5** Query AST to parameterized SQL templates, with page-size, include-depth and filter limits. *Needs:* T1.3, T1.4.
+- [ ] **T1.1** *(early start: depends only on the schema spec)* Strict YAML parser with file, line and column diagnostics. *Works when:* a deliberately broken Notebook file reports the exact location and a suggested fix.
+- [ ] **T1.2** *(early start: depends only on the schema spec)* Typed AST and validation (types, relations, unknown and duplicate keys rejected). *Needs:* T1.1.
+- [ ] **T1.3** *(early start: depends only on the schema spec)* IR compile (`falak build`) with content hash, and `falak.lock`. *Needs:* T1.2. *Works when:* building Notebook twice gives the same hash.
+- [ ] **T1.4** *(early start: depends only on the schema spec)* Policy compiler for ownership and roles, producing SQL predicates, default deny. *Needs:* T1.2. *Works when:* an entity with no policy compiles to a query that returns nothing.
+- [ ] **T1.5** *(early start: depends only on the schema spec)* Query AST to parameterized SQL templates, with page-size, include-depth and filter limits. *Needs:* T1.3, T1.4.
 
 **Dev2**
 - [ ] **T1.6** SQLite driver (WAL, `busy_timeout`, `BEGIN IMMEDIATE`, one writer and a reader pool). *Needs:* T0.3.

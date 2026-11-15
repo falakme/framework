@@ -1,0 +1,6 @@
+schema_version: 1
+name: minimal
+version: 0.1.0
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

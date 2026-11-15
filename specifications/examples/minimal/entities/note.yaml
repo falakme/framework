@@ -1,0 +1,15 @@
+schema_version: 1
+entity: note
+owner: owner_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  body: { type: text }
+  archived: { type: bool, default: false }
+  owner_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Notes
+  list_columns: [title, archived]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true
+  erasable: true

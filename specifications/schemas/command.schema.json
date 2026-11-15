@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/command.schema.json",
+  "title": "Falak command (commands/*.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command", "kind", "entity"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "command": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "entity": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "kind": {
+      "description": "`create`, `update` and `delete` are declarative. `custom` calls a Rust handler registered under `handler`.",
+      "enum": ["create", "update", "delete", "custom"]
+    },
+    "input": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "enum": ["uuid", "int64", "decimal_minor", "text", "bool", "timestamptz", "bytes", "json"] },
+          "required": { "type": "boolean", "default": false },
+          "max_length": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+        }
+      }
+    },
+    "target": {
+      "description": "For `update` and `delete`: the input field holding the row id.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,62}$"
+    },
+    "set": {
+      "description": "For `create` and `update`: field to value. A value is a literal, or `$input.<name>`.",
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+    "handler": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "idempotent": {
+      "description": "Require an `Idempotency-Key` header and replay the stored result for a repeat.",
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "custom" } } }, "then": { "required": ["handler"] }, "else": { "not": { "required": ["handler"] } } },
+    { "if": { "properties": { "kind": { "enum": ["update", "delete"] } } }, "then": { "required": ["target"] } }
+  ]
+}

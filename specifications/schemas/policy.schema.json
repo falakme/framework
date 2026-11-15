@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/policy.schema.json",
+  "title": "Falak policy (policies/*.yaml), stage 1: ownership and roles",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entity", "rules"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "entity": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "actions", "allow"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "actions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["read", "create", "update", "delete"] }
+          },
+          "allow": {
+            "description": "Exactly one condition. Stage 2 adds `where`; stage 3 adds `related`.",
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "maxProperties": 1,
+            "properties": {
+              "owner": { "const": true },
+              "role": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+              "authenticated": { "const": true }
+            }
+          }
+        }
+      }
+    }
+  }
+}
