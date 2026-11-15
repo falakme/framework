@@ -55,7 +55,7 @@ nav button {
 nav button:hover { color: var(--ink); background: none; }
 nav button.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 500; }
 
-main { max-width: 64rem; margin: 0 auto; padding: 2.25rem 1.5rem 4rem; }
+main { max-width: 80rem; margin: 0 auto; padding: 2.25rem 1.5rem 4rem; }
 
 /* ---- type */
 h1 { font-size: 2rem; line-height: 1.2; font-weight: 600; letter-spacing: -.035em; margin: 0 0 .4rem; }
@@ -89,12 +89,12 @@ th, td { padding: .7rem 1rem; text-align: left; vertical-align: middle; border-b
 th { background: var(--bg-soft); color: var(--muted); font-weight: 500; font-size: .8rem; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--bg-soft); }
-td:last-child { text-align: right; }
+td:has(button) { text-align: right; }
 
 /* ---- forms */
 form { display: grid; gap: 1rem; }
 .row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; }
-label { display: grid; gap: .35rem; font-size: .85rem; font-weight: 500; color: var(--ink); }
+label { display: grid; align-content: start; gap: .35rem; font-size: .85rem; font-weight: 500; color: var(--ink); }
 label .note { font-weight: 400; }
 label.check { display: flex; align-items: center; gap: .5rem; font-weight: 400; padding-bottom: .55rem; }
 input[type=text], input[type=password], input[type=email], input[type=number], select, textarea {
@@ -130,15 +130,46 @@ button:disabled { opacity: .45; cursor: default; }
 .center > p.note { text-align: center; }
 .center .card { padding: 1.5rem; }
 .center button.primary { width: 100%; padding: .65rem; }
-.steps { display: flex; gap: .5rem; margin: 1.2rem 0; }
-.steps span { flex: 1; padding: .4rem 0; border-top: 2px solid var(--line); color: var(--faint); font-size: .8rem; }
-.steps span.on { border-color: var(--ink); color: var(--ink); font-weight: 500; }
 
+/* ---- using the width */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; gap: 1.75rem; align-items: start; }
+.cols table { margin-top: 0; }
+.cols aside .card { margin-top: 0; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+.two .card { margin: 0; }
+.stack { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
+.stack > * { width: 100%; flex: none !important; }
+.stack input[type=text], .stack input[type=password], .stack input[type=email], .stack select { width: 100%; min-width: 0; }
+.card .row label { flex: 1 1 13rem; }
+.card input[type=text], .card input[type=password], .card input[type=email], .card select { width: 100%; min-width: 0; }
+.stack button, .side button.primary { width: 100%; }
+
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 4rem; align-items: center; min-height: calc(100vh - 12rem); max-width: 62rem; margin: 0 auto; }
+.split.narrow { grid-template-columns: minmax(0, 1fr) 24rem; }
+.split .card { margin: 0; padding: 1.6rem; }
+.split h1 { font-size: 2.4rem; }
+.split .intro p { font-size: 1rem; color: var(--muted); }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.1rem; }
+.fields .wide { grid-column: 1 / -1; }
+.split button.primary { width: 100%; padding: .65rem; }
+.steps { list-style: none; padding: 0; margin: 2rem 0 0; display: grid; gap: 1.1rem; }
+.steps li { display: flex; gap: .9rem; align-items: flex-start; color: var(--faint); }
+.steps li b { flex: none; width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: .8rem; font-weight: 500; }
+.steps li strong { display: block; font-weight: 500; color: var(--ink-2); }
+.steps li span { font-size: .85rem; color: var(--muted); }
+.steps li.on b { background: #000; border-color: #000; color: #fff; }
+.steps li.on strong { color: var(--ink); }
+
+@media (max-width: 62rem) {
+  .cols, .two, .split, .split.narrow { grid-template-columns: minmax(0, 1fr); }
+  .split { gap: 2rem; min-height: 0; }
+}
 @media (max-width: 40rem) {
   main { padding: 1.5rem 1rem 3rem; }
   h1 { font-size: 1.6rem; }
   input[type=text], input[type=password], input[type=email], input[type=number], select { min-width: 100%; }
   .row > * { flex: 1 1 100%; }
+  .fields { grid-template-columns: minmax(0, 1fr); }
 }
 
 input[type=text], input[type=password], input[type=email], input[type=number], select { height: 2.4rem; }

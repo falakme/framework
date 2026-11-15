@@ -64,6 +64,10 @@ async function api(method, path, body) {
   return r.data;
 }
 
+// Two columns on a wide screen: the list or the main thing on the left, what you do about it on the right.
+function cols(left, right) { return el("div", { class: "cols" }, el("div", {}, ...left), el("aside", {}, ...right)); }
+function side(title, ...body) { return el("div", { class: "card side" }, el("h2", {}, title), ...body); }
+
 function show(...nodes) { main.replaceChildren(...nodes); }
 function say(box, text, cls) { box.replaceChildren(el("p", { class: cls || "note" }, text)); }
 function when(t) { return t ? new Date(t * 1000).toLocaleString() : ""; }
@@ -120,18 +124,24 @@ function setupView() {
       },
     },
   },
-    el("label", {}, "Setup code", token, el("span", { class: "note" }, "Printed in the terminal where Office started. The link it printed fills this in.")),
-    el("label", {}, "Your email", email),
-    el("label", {}, "Password", password, el("span", { class: "note" }, "At least 12 characters.")),
-    el("label", {}, "Repeat password", again),
-    el("label", {}, "Public address of this Office", address,
-      el("span", { class: "note" }, "What apps and people type to reach it. Use https for a real server. You can change it later.")),
+    el("div", { class: "fields" },
+      el("label", {}, "Setup code", token, el("span", { class: "note" }, "From the terminal where Office started.")),
+      el("label", {}, "Your email", email, el("span", { class: "note" }, "You sign in with this.")),
+      el("label", {}, "Password", password, el("span", { class: "note" }, "At least 12 characters.")),
+      el("label", {}, "Repeat password", again),
+      el("label", { class: "wide" }, "Public address of this Office", address,
+        el("span", { class: "note" }, "What apps and people type to reach it. Use https on a real server. You can change it later."))),
     el("button", { class: "primary", type: "submit" }, "Create the administrator"),
     out);
-  show(el("div", { class: "center" },
-    el("h1", {}, "Set up Falak Office"),
-    el("p", { class: "note" }, "One sign-in for all your apps. This takes a minute."),
-    el("div", { class: "steps" }, el("span", { class: "on" }, "1  Administrator"), el("span", {}, "2  Connect an app"), el("span", {}, "3  Add people")),
+  const step = (n, title, text, on) => el("li", { class: on ? "on" : "" }, el("b", {}, n), el("div", {}, el("strong", {}, title), el("span", {}, text)));
+  show(el("div", { class: "split" },
+    el("div", { class: "intro" },
+      el("h1", {}, "Set up Falak Office"),
+      el("p", {}, "One sign-in for all your apps. This takes about a minute."),
+      el("ol", { class: "steps" },
+        step("1", "Make the administrator", "You, with a password. This page.", true),
+        step("2", "Connect an app", "One command per app, from the Apps tab.", false),
+        step("3", "Add people", "Then give each person the apps they may open.", false))),
     el("div", { class: "card" }, form)));
 }
 
@@ -154,10 +164,11 @@ function signInView(withProvider, message) {
     },
   }, el("label", {}, "Email", email), el("label", {}, "Password", password),
     el("button", { class: "primary", type: "submit" }, "Sign in"), out);
-  show(el("div", { class: "center" }, el("h1", {}, "Sign in to Office"),
-    message ? el("p", { class: "note" }, message) : "",
-    el("div", { class: "card" }, form),
-    withProvider ? el("p", { class: "note" }, "People who sign in through your identity provider use the app's own sign-in button, not this page.") : ""));
+  show(el("div", { class: "split narrow" },
+    el("div", { class: "intro" }, el("h1", {}, "Sign in to Office"),
+      el("p", {}, message || "Administrators manage apps, people and access here."),
+      withProvider ? el("p", { class: "note" }, "People who sign in through your identity provider use the app's own sign-in button, not this page.") : ""),
+    el("div", { class: "card" }, form)));
 }
 
 function signOut(message) {
@@ -216,9 +227,11 @@ const views = {
       el("h1", {}, "Overview"),
       el("div", { class: "cards" },
         stat(c.apps, "apps"), stat(c.people, "people"), stat(c.memberships, "memberships"), stat(overview.signing_keys, "signing keys")),
-      el("div", { class: "card" }, el("h2", {}, "Public address"), el("code", {}, overview.issuer),
-        el("p", { class: "note" }, "Key set: ", el("code", {}, overview.jwks_url))),
-      next.length ? el("div", { class: "card" }, el("h2", {}, "Next"), el("ul", {}, ...next.map((n) => el("li", {}, n)))) : "",
+      el("div", { class: "two" },
+        el("div", { class: "card" }, el("h2", {}, "Public address"), el("code", {}, overview.issuer),
+          el("p", { class: "note" }, "Key set"), el("code", {}, overview.jwks_url)),
+        el("div", { class: "card" }, el("h2", {}, next.length ? "Next" : "All set"),
+          next.length ? el("ul", {}, ...next.map((n) => el("li", {}, n))) : el("p", {}, "Apps, people and access are in place."))),
       el("p", { class: "note" }, `Falak Office ${overview.version}`));
   },
 
@@ -240,18 +253,18 @@ const views = {
           } catch (e) { say(out, e.message, "err"); }
         },
       },
-    }, el("div", { class: "row" }, el("label", {}, "App name", name), el("label", {}, "Trust tier", tier),
+    }, el("div", { class: "row stack" }, el("label", {}, "App name", name), el("label", {}, "Trust tier", tier),
       el("button", { class: "primary", type: "submit" }, "Make an enrollment code")), out);
     show(banner(), el("h1", {}, "Apps"),
       el("p", { class: "note" }, "An app joins once with a single-use code. After that people sign in once and reach every app they have access to."),
-      apps.length ? table(["App", "Tier", "Status", "Joined", ""], apps.map((a) => [
+      cols([apps.length ? table(["App", "Tier", "Status", "Joined", ""], apps.map((a) => [
         a.name, String(a.tier), el("span", { class: "pill" + (a.status === "active" ? "" : " bad") }, a.status), when(a.created_at),
         a.status === "active" ? el("button", { class: "danger", on: { click: async () => {
           if (!confirm(`Cut ${a.name} off from Office? It stops accepting sign-ins within seconds.`)) return;
           await api("POST", `/v1/_office/apps/${encodeURIComponent(a.name)}/revoke`, {}); go("apps");
         } } }, "Cut off") : "",
-      ])) : el("div", { class: "empty" }, "No apps yet. Make an enrollment code below."),
-      el("h2", {}, "Connect an app"), el("div", { class: "card" }, form));
+      ])) : el("div", { class: "empty" }, "No apps yet. Make an enrollment code on the right.")],
+        [side("Connect an app", form)]));
   },
 
   async people() {
@@ -270,12 +283,12 @@ const views = {
           } catch (e) { say(out, e.message, "err"); }
         },
       },
-    }, el("div", { class: "row" }, el("label", {}, "Email", email), el("label", {}, "First password", password),
+    }, el("div", { class: "row stack" }, el("label", {}, "Email", email), el("label", {}, "First password", password),
       el("label", { class: "check" }, admin, "Administrator"), el("button", { class: "primary", type: "submit" }, "Add person")), out);
     show(el("h1", {}, "People"),
       el("p", { class: "note" }, "Accounts are made here. There is no public sign-up. People who use an identity provider are linked to the account with the same verified email."),
-      table(["Email", "Role", "Added"], people.map((p) => [p.email, p.roles.includes("office_admin") ? el("span", { class: "pill info" }, "administrator") : "", when(p.created_at)])),
-      el("h2", {}, "Add a person"), el("div", { class: "card" }, form));
+      cols([table(["Email", "Role", "Added"], people.map((p) => [p.email, p.roles.includes("office_admin") ? el("span", { class: "pill info" }, "administrator") : "", when(p.created_at)]))],
+        [side("Add a person", form)]));
   },
 
   async access() {
@@ -299,17 +312,17 @@ const views = {
           } catch (e) { say(out, e.message, "err"); }
         },
       },
-    }, el("div", { class: "row" }, el("label", {}, "Person", who), el("label", {}, "App", app),
+    }, el("div", { class: "row stack" }, el("label", {}, "Person", who), el("label", {}, "App", app),
       el("label", {}, "Roles in that app", roles), el("label", {}, "Workspace", tenant),
       el("button", { class: "primary", type: "submit" }, "Give access")), out);
     show(el("h1", {}, "Access"),
       el("p", { class: "note" }, "Who may open which app, with which roles. The app's own rules decide what the roles allow."),
-      m.data.length ? table(["Person", "App", "Roles", "Workspace", ""], m.data.map((x) => [
+      !(apps.data.length && people.data.length) ? el("div", { class: "empty" }, "Connect an app and add a person first, then give them access here.") : "",
+      !(apps.data.length && people.data.length) ? "" : cols([m.data.length ? table(["Person", "App", "Roles", "Workspace", ""], m.data.map((x) => [
         x.email, x.app, x.roles.join(", "), x.tenant,
         el("button", { class: "danger", on: { click: async () => { await api("DELETE", "/v1/_office/memberships", { user_id: x.user_id, app: x.app }); go("access"); } } }, "Remove"),
-      ])) : el("div", { class: "empty" }, "Nobody has access to any app yet."),
-      apps.data.length && people.data.length ? el("div", {}, el("h2", {}, "Give access"), el("div", { class: "card" }, form))
-        : el("div", { class: "empty" }, "Connect an app and add a person first."));
+      ])) : el("div", { class: "empty" }, "Nobody has access to any app yet.")],
+        [side("Give access", form)]));
   },
 
   async signin() {
@@ -351,9 +364,10 @@ const views = {
     }, el("div", { class: "row" }, el("label", {}, "Public address", addr), el("button", { type: "submit" }, "Save address")), addrOut);
     show(banner(), el("h1", {}, "Sign-in"),
       el("p", {}, "People sign in with a password you gave them, or through an identity provider such as Clerk, Auth0, Keycloak or Google. The provider does passkeys and multi-factor; Office only checks its signed ID token."),
-      el("div", { class: "card" }, el("h2", {}, "Identity provider"), el("p", { class: "note" }, o ? "On" : "Off"), form),
-      el("p", { class: "note" }, "The sign-in page of your app gets an ID token from the provider and sends it to Office at ", el("code", {}, "POST /v1/auth/oidc/exchange"), "."),
-      el("div", { class: "card" }, el("h2", {}, "Public address"), addrForm));
+      el("div", { class: "two" },
+        el("div", { class: "card" }, el("h2", {}, "Identity provider"), el("p", { class: "note" }, o ? "On" : "Off"), form,
+          el("p", { class: "note" }, "Your app's sign-in page gets an ID token from the provider and sends it to Office at ", el("code", {}, "POST /v1/auth/oidc/exchange"), ".")),
+        el("div", { class: "card" }, el("h2", {}, "Public address"), addrForm)));
   },
 
   async keys() {
@@ -371,6 +385,7 @@ const views = {
     }, el("div", { class: "row" }, el("label", {}, "Revoke", kind), el("label", {}, "Which", id), el("button", { class: "danger", type: "submit" }, "Revoke")), out);
     const keyOut = el("div");
     show(el("h1", {}, "Keys and revocation"),
+      el("div", { class: "two" },
       el("div", { class: "card" }, el("h2", {}, `Signing keys (${overview.signing_keys})`),
         el("p", { class: "note" }, "Rotating adds a new key and keeps the old one, so nothing fails while apps learn the new key. Retire the old keys once every token signed with them has expired (a few minutes for tier 2, fifteen for tier 1)."),
         el("div", { class: "row" },
@@ -378,7 +393,7 @@ const views = {
           el("button", { on: { click: async () => { if (!confirm("Retire the old keys? Tokens signed with them stop working.")) return; const r = await api("POST", "/v1/_office/keys/retire", {}); say(keyOut, `Retired. ${r.keys} key is published.`, "ok"); await reload(); } } }, "Retire old keys")),
         keyOut, el("p", { class: "note" }, "Key set: ", el("a", { href: "/.well-known/jwks.json" }, overview.jwks_url))),
       el("div", { class: "card" }, el("h2", {}, "Revoke"), rev,
-        el("p", { class: "note" }, `Feed version ${overview.feed_version}.`)));
+        el("p", { class: "note" }, `Feed version ${overview.feed_version}.`))));
   },
 
   async activity() {
