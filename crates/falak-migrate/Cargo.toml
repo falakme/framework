@@ -14,7 +14,11 @@ workspace = true
 [dependencies]
 falak-contracts.workspace = true
 falak-core.workspace = true
+sha2.workspace = true
+serde.workspace = true
+hex = "0.4"
 
 [dev-dependencies]
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-driver-postgres = { path = "../falak-driver-postgres" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

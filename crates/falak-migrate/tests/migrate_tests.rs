@@ -113,3 +113,89 @@ async fn test_initial_migration_creates_tables_and_is_idempotent() {
     let applied_again = apply_initial_migration(&driver, &ctx, &ir).await.unwrap();
     assert!(!applied_again, "Second migration run should be a no-op");
 }
+
+#[test]
+fn test_schema_diff_and_expand_contract_planning() {
+    use falak_core::sql::Dialect;
+    use falak_migrate::{Destructiveness, MigrationPhase, diff_ir, plan_migration};
+
+    let files1 = minimal_files();
+    let p1 = load_project(&files1).0.unwrap();
+    let ir1 = build_ir(&p1);
+
+    // Initial plan: all expand, safe
+    let initial_plan = plan_migration(None, &ir1, Dialect::Postgres);
+    assert!(!initial_plan.statements.is_empty());
+    assert!(!initial_plan.checksum.is_empty());
+    assert_eq!(initial_plan.from_hash, None);
+    assert_eq!(initial_plan.to_hash, ir1.content_hash);
+    assert!(initial_plan.contract_statements().is_empty());
+    assert!(!initial_plan.expand_statements().is_empty());
+
+    // Modified app: add a field to note and a new entity tag
+    let mut files2 = minimal_files();
+    files2.push(SourceFile {
+        path: "entities/tag.yaml".into(),
+        text: "schema_version: 1\nentity: tag\nowner: owner_id\nfields:\n  name: { type: text, required: true }\n  owner_id: { type: uuid, required: true }\n".into(),
+    });
+    let p2 = load_project(&files2).0.unwrap();
+    let ir2 = build_ir(&p2);
+
+    let diffs = diff_ir(Some(&ir1), &ir2);
+    assert_eq!(diffs.len(), 1); // New table tag
+
+    let plan2 = plan_migration(Some(&ir1), &ir2, Dialect::Postgres);
+    assert!(!plan2.expand_statements().is_empty());
+    assert!(plan2.contract_statements().is_empty());
+
+    // Reverse migration: dropping tag
+    let plan_reverse = plan_migration(Some(&ir2), &ir1, Dialect::Postgres);
+    assert!(!plan_reverse.contract_statements().is_empty());
+    let contract = plan_reverse.contract_statements()[0];
+    assert_eq!(contract.phase, MigrationPhase::Contract);
+    assert_eq!(contract.destructiveness, Destructiveness::Breaking);
+}
+
+#[tokio::test]
+async fn test_drift_detection_and_history() {
+    use falak_core::sql::Dialect;
+    use falak_migrate::{MigrationRecord, detect_drift, ensure_history_table, fetch_history};
+
+    let driver = SqliteDriver::in_memory().await.unwrap();
+    let ctx = dummy_context();
+
+    ensure_history_table(&driver, &ctx, Dialect::Sqlite)
+        .await
+        .unwrap();
+    let history = fetch_history(&driver, &ctx, Dialect::Sqlite).await.unwrap();
+    assert!(history.is_empty());
+
+    let record1 = MigrationRecord {
+        version: 1,
+        content_hash: "hash_v1".to_string(),
+        checksum: "sum_v1".to_string(),
+        applied_at: 1000,
+    };
+    let expected = vec![record1.clone()];
+
+    // Matches
+    assert!(detect_drift(std::slice::from_ref(&record1), &expected).is_ok());
+
+    // Mismatched checksum -> drift!
+    let drifted_record = MigrationRecord {
+        checksum: "sum_tampered".to_string(),
+        ..record1.clone()
+    };
+    let err = detect_drift(&[drifted_record], &expected).unwrap_err();
+    assert_eq!(err.code(), "migration_drift");
+
+    // Unexpected extra migration -> drift!
+    let extra_record = MigrationRecord {
+        version: 2,
+        content_hash: "hash_v2".to_string(),
+        checksum: "sum_v2".to_string(),
+        applied_at: 2000,
+    };
+    let err2 = detect_drift(&[record1, extra_record], &expected).unwrap_err();
+    assert_eq!(err2.code(), "migration_drift");
+}

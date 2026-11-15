@@ -506,7 +506,11 @@ version = "0.0.0"
 dependencies = [
  "falak-contracts",
  "falak-core",
+ "falak-driver-postgres",
  "falak-driver-sqlite",
+ "hex",
+ "serde",
+ "sha2",
  "tokio",
 ]
 

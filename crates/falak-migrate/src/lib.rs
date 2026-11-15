@@ -1,8 +1,20 @@
 //! Migration planning and application for Falak.
 //!
-//! Provides DDL schema execution and initial migration tracking from the
-//! compiled intermediate representation (IR) into SQLite, PostgreSQL, and D1.
+//! Provides DDL schema execution, expand-and-contract planning, advisory locking,
+//! checksum verification, and drift detection for SQLite, PostgreSQL, and D1.
 
+pub mod diff;
+pub mod history;
+pub mod lock;
+pub mod plan;
 pub mod runner;
 
-pub use runner::{MIGRATIONS_TABLE, apply_initial_migration};
+pub use diff::{SchemaDiff, diff_ir};
+pub use history::{
+    MIGRATIONS_TABLE, MigrationRecord, detect_drift, ensure_history_table, fetch_history,
+};
+pub use lock::{acquire_migration_lock, migration_lock_statement};
+pub use plan::{
+    Destructiveness, LockImpact, MigrationPhase, MigrationPlan, PlannedStatement, plan_migration,
+};
+pub use runner::{apply_initial_migration, apply_migration_phase, dialect_for_driver};

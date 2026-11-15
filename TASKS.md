@@ -172,7 +172,7 @@ Target: Falak.me, a multi-tenant app with file uploads.
 
 **Dev2**
 - [ ] **T3.5** PostgreSQL RLS: generated policies with `USING` and `WITH CHECK`, forced RLS, non-owner runtime role, per-transaction `set_config`, build failure on a scoped table with no policy. *Needs:* T3.1.
-- [ ] **T3.6** `falak migrate` for PostgreSQL and SQLite: diff, `plan`, expand and contract, advisory lock, checksums, drift detection.
+- [x] **T3.6** `falak migrate` for PostgreSQL and SQLite: diff, `plan`, expand and contract, advisory lock, checksums, drift detection.
 - [ ] **T3.7** PostgreSQL backups to the bucket and a written restore procedure. *Works when:* a restore into an empty database is demonstrated.
 
 **Dev3**
