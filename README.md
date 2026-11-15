@@ -10,7 +10,7 @@ It is built as three independently versioned products:
 
 ## Status
 
-**Design stage (`M0`).** There is no code and no frozen specification yet. Several foundational decisions are still open; they are listed in [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions).
+**Design stage (`M0`).** The foundational decisions are recorded as ADRs ([ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions)); the workspace skeleton and shared contracts exist, and no specification is frozen yet.
 
 ## Design
 
@@ -36,7 +36,7 @@ Nine acceptance-gated milestones. Gates, scope and validation apps are in [ARCHI
 | **M2** | PostgreSQL and Cloudflare Workers/D1 portability |
 | **M3** | Isolation, migrations and backups |
 | **M4** | Minimal Falak Office: identity, registry, Studio |
-| | *Proposed v1.0 release* |
+| | *v1.0 release* |
 | **M5** | Federation and durable events |
 | **M6** | Operational maturity and disaster recovery |
 | **M7a** | Heavy compute workers |

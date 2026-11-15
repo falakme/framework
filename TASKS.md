@@ -46,7 +46,7 @@ An agent changes only the directories it owns. A change needed elsewhere is requ
 
 Agents cannot do these. Phase 0 cannot close without the first two.
 
-- [ ] Accept or change the eight proposed decisions in ARCHITECTURE §3. This plan assumes all eight are accepted as proposed.
+- [x] Accept or change the eight proposed decisions in ARCHITECTURE §3. *Accepted as proposed by Dev1 under discretion delegated by the owner (2026-11-15); the owner may revise by a new ADR.*
 - [ ] Write the "why not existing tools" statement in ARCHITECTURE §2.
 - [ ] Provide a Cloudflare account and API token for Workers and D1 (needed from T0.8).
 - [ ] Provide a Coolify server and an R2 or S3 bucket (needed from Phase 3).
@@ -63,7 +63,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 
 **Dev1**
 - [x] **T0.1** Monorepo skeleton: Cargo workspace with the crates in §2 as stubs, `packages/`, `office/`, `examples/`, `scripts/smoke/`, and CI. *Works when:* CI is green building every crate for native, and `falak-contracts` and `falak-core` for `wasm32`.
-- [ ] **T0.2** Write the eight ADRs into `specifications/adr/` as accepted or changed by the owner. *Needs:* owner decision. *Works when:* ARCHITECTURE §3 links to eight ADR files and no item is marked *Proposed*.
+- [x] **T0.2** Write the eight ADRs into `specifications/adr/` as accepted or changed by the owner. *Needs:* owner decision. *Works when:* ARCHITECTURE §3 links to eight ADR files and no item is marked *Proposed*.
 - [x] **T0.3** `falak-contracts`: provider traits, capability profile, IR types, error taxonomy. *Needs:* T0.1. *Works when:* every other crate compiles against it with stub implementations.
 - [ ] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor.
 

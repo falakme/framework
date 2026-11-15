@@ -1,6 +1,6 @@
 # Falak Framework: Architecture & Execution Plan
 
-**Status: design baseline, draft 4.** No specification is frozen and no runtime code exists yet. Items marked *Proposed* depend on a decision in §3 that has not been accepted.
+**Status: design baseline, draft 4.** No specification is frozen yet. The eight foundational decisions in §3 are accepted.
 
 ## 1. Core Strategy: Build Incrementally, Freeze Contracts When Proven
 
@@ -49,18 +49,18 @@ flowchart LR
 
 ## 3. Open Decisions
 
-Each decision becomes an ADR in `specifications/adr/` during `M0`. All positions below are **proposed, not accepted**. A-1 to A-3 block the schema specification.
+Each decision is recorded as an ADR in [`specifications/adr/`](./specifications/adr/). All eight are accepted; the owner may revise any of them by a new ADR.
 
-| ADR | Question | Proposed position |
+| ADR | Question | Decision |
 | :-- | :-- | :-- |
-| A-1 | Interpreted runtime or generated code | `falak build` compiles YAML to a validated, content-hashed intermediate representation (IR). A generic runtime loads the IR and never parses YAML. |
-| A-2 | How custom handlers are written | Declarative commands for the common case. Custom logic is a Rust crate linked into the app against a small handler API that exposes only the policy-checked data layer. |
-| A-3 | Tenancy model | Declared in `app.yaml`: `none`, `row` or `database` (§4.5). |
-| A-4 | Build or wrap the identity provider | Wrap an existing open-source OIDC provider; add only app audiences, App Passports and trust-tier claims. |
-| A-5 | Shape of Falak Office | A modular monolith: one binary, one PostgreSQL database, built on Falak Core. |
-| A-6 | Event store | PostgreSQL only in v1. NATS remains possible behind `EventPublisher`. |
-| A-7 | Policy language staging | Ownership and roles in `M1`; attribute rules and field masks in `M3`; relationship rules with bounded depth in `M4`. |
-| A-8 | Release cut line | v1.0 is `M1`–`M4`. Later milestones start when their validation app is wanted. |
+| [A-1](./specifications/adr/ADR-0001-ir-and-runtime.md) | Interpreted runtime or generated code | `falak build` compiles YAML to a validated, content-hashed intermediate representation (IR). A generic runtime loads the IR and never parses YAML. |
+| [A-2](./specifications/adr/ADR-0002-custom-handlers.md) | How custom handlers are written | Declarative commands for the common case. Custom logic is a Rust crate linked into the app against a small handler API that exposes only the policy-checked data layer. |
+| [A-3](./specifications/adr/ADR-0003-tenancy.md) | Tenancy model | Declared in `app.yaml`: `none`, `row` or `database` (§4.5). |
+| [A-4](./specifications/adr/ADR-0004-identity.md) | Build or wrap the identity provider | Wrap an existing open-source OIDC provider; add only app audiences, App Passports and trust-tier claims. |
+| [A-5](./specifications/adr/ADR-0005-office-shape.md) | Shape of Falak Office | A modular monolith: one binary, one PostgreSQL database, built on Falak Core. |
+| [A-6](./specifications/adr/ADR-0006-event-store.md) | Event store | PostgreSQL only in v1. NATS remains possible behind `EventPublisher`. |
+| [A-7](./specifications/adr/ADR-0007-policy-staging.md) | Policy language staging | Ownership and roles in `M1`; attribute rules and field masks in `M3`; relationship rules with bounded depth in `M4`. |
+| [A-8](./specifications/adr/ADR-0008-release-cut.md) | Release cut line | v1.0 is `M1`–`M4`. Later milestones start when their validation app is wanted. |
 
 ---
 
@@ -87,7 +87,7 @@ YAML files use a strict subset: unknown keys, duplicate keys, anchors and implic
 
 ### 4.2 Portable Core and Runtime Adapters
 * **Portable semantic core.** Schema AST, input validation, policy compiler, parameterized Query AST and PII pseudonymization live in a crate that performs no I/O, has no Tokio dependency and builds for both native targets and `wasm32`. CI builds both on every change.
-* **Compile once.** Policies, queries and the OpenAPI 3.1 document are compiled at build time into SQL templates in the IR *(Proposed, A-1)*. Requests bind parameters only.
+* **Compile once.** Policies, queries and the OpenAPI 3.1 document are compiled at build time into SQL templates in the IR. Requests bind parameters only.
 * **Native adapter.** Axum + Tokio + SQLx, for PostgreSQL and SQLite.
 * **Edge adapter.** `workers-rs` with D1 bindings, held to a WASM size budget and the platform's CPU-time limit.
 * **Build-time verification.** The compiler rejects an app whose requirements, queries or commands exceed the chosen driver's capability profile.
@@ -124,7 +124,7 @@ Expected profiles, to be confirmed in `M0` against current vendor documentation:
 
 Commands that read then write compile to a conditional batch with a version column on drivers without interactive transactions, or the build rejects them.
 
-### 4.5 Tenancy *(Proposed, A-3)*
+### 4.5 Tenancy
 | Mode | Meaning | Enforcement |
 | :-- | :-- | :-- |
 | `none` | Rows are owned by users | Ownership policy |
@@ -176,7 +176,7 @@ All tiers: `Ed25519` signatures with the algorithm pinned to EdDSA; `iss`, `aud`
 * **Contracts:** event schemas are versioned and checked for compatibility at build time. Outbox and inbox have retention and pruning, poison-message handling and back-pressure limits.
 * **Event security:** each event is signed by its publishing app and verified on receipt. Office delivers an event only to apps the publisher's contract authorises as subscribers. Consumers validate the payload against the contract version before acting. Contracts mark PII fields; events carry identifiers in place of PII wherever the consumer can look the data up under its own policy.
 * **Saga orchestrator:** opt-in, for multi-app workflows that need compensation.
-* **Store:** PostgreSQL *(Proposed, A-6)*.
+* **Store:** PostgreSQL.
 
 ### 4.9 Operations, Compute, AI Readiness & Financial Engine
 * **Observatory & Vault:** OpenTelemetry tracing, liveness and readiness endpoints, `/v1/_office/health`, SHA-256 hash-chained audit logs with external anchoring, rotation of signing keys, app credentials and tenant DEKs, and `pgBackRest`/`WAL-G` and Litestream backups to R2.
@@ -274,11 +274,11 @@ flowchart TD
 
 ### M4: Minimal Falak Office
 * **Goal:** Launch Falak Office on Coolify so multiple apps share one login and one admin interface.
-* **Scope:** `Office Identity` *(Proposed, A-4: wraps an existing OIDC provider)* with passkeys, `Ed25519` JWTs, refresh rotation and cached JWKS; `Office Registry` with cryptographic enrollment and signed App Passports; `Office Studio` generated from `admin:` metadata with step-up scopes, PII masking, accessibility and localisation; signing-key rotation with overlap; hash-chained audit log; relationship rules with bounded depth; documented and tested outage behaviour per tier. FEDERATION spec reaches candidate.
+* **Scope:** `Office Identity` (wrapping an existing OIDC provider, A-4) with passkeys, `Ed25519` JWTs, refresh rotation and cached JWKS; `Office Registry` with cryptographic enrollment and signed App Passports; `Office Studio` generated from `admin:` metadata with step-up scopes, PII masking, accessibility and localisation; signing-key rotation with overlap; hash-chained audit log; relationship rules with bounded depth; documented and tested outage behaviour per tier. FEDERATION spec reaches candidate.
 * **Validation Apps:** **Digital Notebook**, **Falak.me**, **Academy**.
 * **Exit Gate:** Single sign-on works across all three apps. Studio manages records in two unrelated apps with no custom dashboard code. A signing key is rotated with no failed requests. Apps behave as specified with Office stopped.
 
-**v1.0 release** *(Proposed, A-8)*.
+**v1.0 release** (A-8).
 
 ### M5: Federation & Durable Cross-App Events
 * **Goal:** Loose, fault-tolerant cross-app communication without synchronous coupling.
