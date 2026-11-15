@@ -1,5 +1,15 @@
 [advisories]
 version = 2
+ignore = [
+    # SQLite before 3.54.0 can return stale memory when it opens a database file together
+    # with a `-wal` file whose page size differs. The attacker must be able to place both
+    # files where the victim opens them. Falak opens only the database files it created
+    # in its own data directory, and never a file supplied by a user. sqlx (every release,
+    # including 0.9.0) pins libsqlite3-sys below 0.38, so there is no patched build to
+    # move to yet. Remove this entry when sqlx allows libsqlite3-sys >= 0.39 or the SQLite
+    # driver moves to rusqlite >= 0.41. Owner: Dev2. Review by 2026-12-15.
+    { id = "RUSTSEC-2026-0459", reason = "needs attacker-supplied db+wal files; Falak opens only its own; no patched sqlx exists" },
+]
 
 [licenses]
 version = 2
@@ -8,6 +18,8 @@ allow = ["Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unicode-3.
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace crates depend on each other by path and are never published.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
