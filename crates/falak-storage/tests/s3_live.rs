@@ -82,9 +82,8 @@ fn upload_check_publish_and_download_against_a_real_store() {
         ("content-length".to_owned(), png.len().to_string()),
     ];
     assert!(put(&begun.url, &wrong, &png) >= 400);
-    // So is the size.
-    let longer = [&png[..], &[0u8; 5]].concat();
-    assert!(put(&begun.url, &begun.headers, &longer) >= 400);
+    // The size is signed too. A client that sends more bytes than it signed has the extra
+    // bytes ignored by the server's HTTP framing, so `finish_upload` checks the stored size.
 
     let key =
         block_on(flow.finish_upload(Some(tenant), id, "image/png", png.len() as u64)).unwrap();

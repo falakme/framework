@@ -8,7 +8,8 @@
 #   FALAK_TARGET=workers  check the deployed app at FALAK_URL (after `falak deploy`)
 #
 # It also runs the object storage tests, which include a tenant asking for another
-# tenant's file. Set FALAK_BIN to use an already built binary.
+# tenant's file. With FALAK_S3_ENDPOINT, FALAK_S3_BUCKET, FALAK_S3_ACCESS_KEY and
+# FALAK_S3_SECRET_KEY set (S3, R2, MinIO) it also runs files.py over HTTP against that store. Set FALAK_BIN to use an already built binary.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -63,6 +64,14 @@ for _ in $(seq 1 60); do
   fi
   sleep 0.5
 done
+
+if [ -n "${FALAK_S3_ENDPOINT:-}" ]; then
+  python3 "$root/scripts/smoke/files.py" "http://127.0.0.1:$port" || {
+    echo "--- server log ---" >&2
+    cat "$work/server.log" >&2
+    exit 1
+  }
+fi
 
 python3 "$root/scripts/smoke/isolation.py" "http://127.0.0.1:$port" || {
   echo "--- server log ---" >&2

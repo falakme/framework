@@ -13,6 +13,7 @@ use crate::{
     context::Authenticator,
     driver::NativeDriver,
     error::problem_response,
+    files::{FileApi, begin_handler, complete_handler, get_handler as file_get_handler},
     handlers::{
         command_handler, create_handler, delete_handler, get_handler, list_handler, query_handler,
         update_handler,
@@ -26,6 +27,8 @@ pub struct AppState<D: NativeDriver> {
     pub driver: Arc<D>,
     pub idempotency: IdempotencyStore,
     pub auth: Arc<dyn Authenticator>,
+    /// The object store behind `/v1/_files`. `None`: those routes answer 501.
+    pub files: Option<Arc<dyn FileApi>>,
 }
 
 /// What differs between runtimes: where idempotency keys live and which limits apply.
@@ -35,6 +38,7 @@ pub struct AppState<D: NativeDriver> {
 pub struct RouterOptions {
     pub idempotency: IdempotencyStore,
     pub limits: Limits,
+    pub files: Option<Arc<dyn FileApi>>,
 }
 
 pub fn create_router<D: NativeDriver>(
@@ -54,12 +58,14 @@ pub fn create_router_with<D: NativeDriver>(
     let RouterOptions {
         idempotency,
         limits,
+        files,
     } = options;
     let state = Arc::new(AppState {
         ir,
         driver,
         idempotency,
         auth,
+        files,
     });
 
     let router = Router::<Arc<AppState<D>>>::new()
@@ -92,6 +98,9 @@ pub fn create_router_with<D: NativeDriver>(
             ),
         )
         .route("/v1/_queries/{name}", get(query_handler::<D>))
+        .route("/v1/_files", post(begin_handler::<D>))
+        .route("/v1/_files/{id}", get(file_get_handler::<D>))
+        .route("/v1/_files/{id}/complete", post(complete_handler::<D>))
         .route(
             "/v1/{entity}",
             get(list_handler::<D>).post(create_handler::<D>),

@@ -584,6 +584,7 @@ dependencies = [
  "falak-driver-sqlite",
  "falak-migrate",
  "falak-runtime-native",
+ "falak-storage",
  "hex",
  "http-body-util",
  "serde",

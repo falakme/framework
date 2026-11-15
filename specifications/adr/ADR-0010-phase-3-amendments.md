@@ -13,7 +13,7 @@ All changes are additive. An app written for 1.0 compiles to the same IR hash an
 
 * **AUTHORIZATION §10:** `where` and `fields` under `allow`; per-row field masks; write rules; side-channel rules; tenancy checks; PostgreSQL row-level security.
 * **SCHEMA §13:** `queries/` (level 2 SQL), `tenancy: database` refused with `postgres`, and a build error for a tenant or owner scoped entity with no policy. The last one is the only rule that rejects an app 1.0 accepted: an owner-scoped entity with no policy used to build and deny everything.
-* **API:** `GET /v1/_queries/{name}`; `413 payload_too_large` (ADR-0009).
+* **API §9:** `GET /v1/_queries/{name}`, and the file routes `/v1/_files` (upload by presigned URL into quarantine, magic-byte check, attachment-only download). `413 payload_too_large` (ADR-0009).
 * **Migrations:** `falak migrate plan` and `apply`, with a saved schema snapshot per applied version, table rebuilds on SQLite and D1, and an approval step (`--allow-destructive`) for anything that rebuilds, drops or retypes data. Not a specification change.
 * **Identity:** apps with tenancy get a tenant per user, computed by the server (`falak_auth::identity::tenant_of`). A tenant with several members needs membership, which Office provides.
 

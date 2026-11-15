@@ -35,10 +35,11 @@ use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
 use falak_migrate::{MigrateOptions, migrate};
 use falak_runtime_native::{
-    NativeDriver,
+    NativeDriver, RouterOptions,
     auth_routes::{ResetSink, auth_router},
     context::TokenAuthenticator,
-    create_router,
+    create_router_with,
+    files::{FileApi, S3Files},
     tenants::{SqliteTenants, TenantRouter},
 };
 use tower::ServiceExt;
@@ -250,6 +251,14 @@ async fn prepare_tables(stack: &Stack, ir: &Ir, dev: bool) -> Result<(), String>
         .map_err(|e| format!("cannot update the tables: {}", e.public_message()))
 }
 
+/// Router options from the environment: file storage when `FALAK_S3_*` is set.
+fn options() -> RouterOptions {
+    RouterOptions {
+        files: S3Files::from_env().map(|f| Arc::new(f) as Arc<dyn FileApi>),
+        ..RouterOptions::default()
+    }
+}
+
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
     let ir_arc = Arc::new(ir.clone());
     let openapi = falak_core::openapi::generate(ir).to_string();
@@ -263,13 +272,21 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
             } else {
                 driver.clone() as Arc<dyn NativeDriver>
             };
-            create_router(ir_arc, Arc::new(data), stack.authenticator.clone())
-                .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
+            create_router_with(
+                ir_arc,
+                Arc::new(data),
+                stack.authenticator.clone(),
+                options(),
+            )
+            .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
         }
-        DriverStack::Postgres { driver, identity } => {
-            create_router(ir_arc, driver.clone(), stack.authenticator.clone())
-                .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
-        }
+        DriverStack::Postgres { driver, identity } => create_router_with(
+            ir_arc,
+            driver.clone(),
+            stack.authenticator.clone(),
+            options(),
+        )
+        .merge(auth_router(identity.clone(), stack.reset_sink.clone())),
     };
 
     router.route(

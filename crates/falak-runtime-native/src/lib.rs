@@ -5,6 +5,7 @@ pub mod auth_routes;
 pub mod context;
 pub mod driver;
 pub mod error;
+pub mod files;
 pub mod handlers;
 pub mod idempotency;
 pub mod json;

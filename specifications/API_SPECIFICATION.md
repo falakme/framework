@@ -776,3 +776,14 @@ X-Request-Id: req_01h8abc138
   "request_id": "req_01h8abc138"
 }
 ```
+
+---
+
+## 9. Files and queries (ADR-0010)
+
+* `GET /v1/_queries/{name}?param=value`: runs a level 2 query declared in the app (SCHEMA §13). Unknown or missing parameters are `400`.
+* `POST /v1/_files` with `{name, content_type, size}`: checks the type (`image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`, `text/plain`) and size, records a pending file for the caller, and returns `201 {id, state: "pending", upload: {method: "PUT", url, headers, expires_in}}`. The client uploads to `url` with exactly those headers. The URL signs the content type and length and points into a quarantine prefix.
+* `POST /v1/_files/{id}/complete`: checks the stored object against the declared size and, by its first bytes, the declared type. A good file is published (`200 {state: "clean"}`); a bad one is deleted and refused (`400`, `file_content_mismatch` or `file_size`) and cannot be completed again.
+* `GET /v1/_files/{id}`: `200 {id, name, content_type, size, download: {url}}` for a published file. The URL is short lived and answers as an attachment of type `application/octet-stream`.
+* A file belongs to its uploader and tenant. For anyone else every one of these is `404`, as for an id that does not exist. Object keys are made by the server under the tenant; callers never name an object.
+* Without file storage configured (`FALAK_S3_ENDPOINT`, `FALAK_S3_BUCKET`, `FALAK_S3_ACCESS_KEY`, `FALAK_S3_SECRET_KEY`), these routes answer `501`. The Workers runtime does not serve them yet.

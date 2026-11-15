@@ -386,6 +386,18 @@ fn plan_alter(
     }
 }
 
+/// Uploaded files: who owns each, in which tenant, and whether it passed the checks.
+fn files_table(dialect: Dialect) -> String {
+    let (int, time) = if dialect == Dialect::Postgres {
+        ("bigint", "bigint")
+    } else {
+        ("INTEGER", "INTEGER")
+    };
+    format!(
+        "CREATE TABLE IF NOT EXISTS \"_falak_files\" (\"id\" TEXT NOT NULL PRIMARY KEY, \"tenant\" TEXT, \"owner\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"content_type\" TEXT NOT NULL, \"size\" {int} NOT NULL, \"state\" TEXT NOT NULL, \"created_at\" {time} NOT NULL)"
+    )
+}
+
 /// Generate a migration plan between two IR versions.
 pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> MigrationPlan {
     let mut statements = Vec::new();
@@ -446,6 +458,23 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
         // Expand statements first, whatever order the tables came in.
         statements.sort_by_key(|s| s.phase == MigrationPhase::Contract);
     }
+
+    // The table behind `/v1/_files`. Idempotent, so it is safe in every plan.
+    statements.push(stmt(
+        files_table(dialect),
+        MigrationPhase::Expand,
+        LockImpact::None,
+        Destructiveness::Safe,
+        "Create the file records table".to_owned(),
+    ));
+    statements.push(stmt(
+        "CREATE INDEX IF NOT EXISTS \"idx__falak_files_owner\" ON \"_falak_files\" (\"owner\")"
+            .to_owned(),
+        MigrationPhase::Expand,
+        LockImpact::None,
+        Destructiveness::Safe,
+        "Index the file records by owner".to_owned(),
+    ));
 
     // Row-level security on PostgreSQL, from the same rules the runtime applies.
     if dialect == Dialect::Postgres {

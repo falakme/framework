@@ -143,6 +143,8 @@ async fn build_app(env: &Env) -> Result<App, String> {
     let options = RouterOptions {
         idempotency,
         limits,
+        // File storage is not wired on Workers yet: `/v1/_files` answers 501.
+        files: None,
     };
     let openapi = falak_core::openapi::generate(&ir).to_string();
     let ir = Arc::new(ir);
