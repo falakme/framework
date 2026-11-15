@@ -168,7 +168,7 @@ fn field_schema(field: &IrField) -> Value {
 }
 
 /// Fields a caller may set: declared by the app, not the owner field and not computed.
-fn writable(entity: &IrEntity) -> impl Iterator<Item = &IrField> {
+pub(crate) fn writable(entity: &IrEntity) -> impl Iterator<Item = &IrField> {
     entity
         .fields
         .iter()

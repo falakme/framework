@@ -9,6 +9,7 @@ pub enum Command {
     Check,
     Build,
     Openapi,
+    Sync,
     Serve,
     Dev,
     Doctor,
@@ -22,6 +23,7 @@ pub struct Args {
     pub dir: PathBuf,
     pub port: u16,
     pub name: Option<String>,
+    pub out: Option<PathBuf>,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -35,6 +37,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         Some("check") => Command::Check,
         Some("build") => Command::Build,
         Some("openapi") => Command::Openapi,
+        Some("sync") => Command::Sync,
         Some("serve") => Command::Serve,
         Some("dev") => Command::Dev,
         Some("doctor") => Command::Doctor,
@@ -45,6 +48,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         dir: PathBuf::from("."),
         port: DEFAULT_PORT,
         name: None,
+        out: None,
     };
     let mut dir_set = false;
     while let Some(arg) = it.next() {
@@ -59,6 +63,9 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--name" => {
                 args.name = Some(it.next().ok_or("`--name` needs a value")?.clone());
+            }
+            "--out" => {
+                args.out = Some(PathBuf::from(it.next().ok_or("`--out` needs a value")?));
             }
             "-h" | "--help" => args.command = Command::Help,
             flag if flag.starts_with('-') => return Err(format!("unknown option `{flag}`")),
@@ -115,6 +122,7 @@ mod tests {
             "serve --port 0",
             "serve --port 99999",
             "serve --port abc",
+            "sync --out",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }

@@ -1,0 +1,13 @@
+{
+  "name": "@falak/studio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Falak Studio: admin UI generated from `admin:` metadata (Phase 4).",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"no tests yet\""
+  }
+}

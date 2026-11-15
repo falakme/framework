@@ -22,6 +22,7 @@ COMMANDS:
     check [dir]                  Validate the app and print diagnostics
     build [dir]                  Compile; write falak.lock and .falak/ir.json
     openapi [dir]                Write .falak/openapi.json
+    sync [dir] [--out <file>]    Write the TypeScript client (default .falak/client.ts)
     serve [dir] [options]        Serve the app
     dev [dir] [options]          Serve, and rebuild and reload when a file changes
     doctor [dir] [--port <n>]    Check this machine and the app
@@ -42,7 +43,7 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match run(args.command, &args.dir, args.port, args.name) {
+    match run(args.command, &args.dir, args.port, args.name, args.out) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("error: {e}");
@@ -51,7 +52,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(command: Command, dir: &PathBuf, port: u16, name: Option<String>) -> Result<u8, String> {
+fn run(
+    command: Command,
+    dir: &PathBuf,
+    port: u16,
+    name: Option<String>,
+    out: Option<PathBuf>,
+) -> Result<u8, String> {
     match command {
         Command::Help => {
             print!("{USAGE}");
@@ -99,6 +106,20 @@ fn run(command: Command, dir: &PathBuf, port: u16, name: Option<String>) -> Resu
                     .map_err(|e| format!("cannot render the OpenAPI document: {e}"))?;
                 let path = project::out_dir(dir).join("openapi.json");
                 std::fs::write(&path, text)
+                    .map_err(|e| format!("cannot write `{}`: {e}", path.display()))?;
+                println!("wrote {}", path.display());
+                Ok(0)
+            }
+            None => Ok(1),
+        },
+        Command::Sync => match project::build(dir)? {
+            Some(c) => {
+                let path = out.unwrap_or_else(|| project::out_dir(dir).join("client.ts"));
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("cannot create `{}`: {e}", parent.display()))?;
+                }
+                std::fs::write(&path, falak_core::typescript::generate(&c.ir))
                     .map_err(|e| format!("cannot write `{}`: {e}", path.display()))?;
                 println!("wrote {}", path.display());
                 Ok(0)

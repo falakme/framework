@@ -81,7 +81,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 
 **Dev5**
 - [x] **T0.11** Notebook app definition in `examples/notebook/` (entities, policies, commands). This is the shared fixture for Phases 1 and 2. *Works when:* Dev1 and Dev4 confirm it covers ownership, roles, a relation and one custom command.
-- [ ] **T0.12** TypeScript workspace: `packages/sdk` and `packages/studio` stubs. *Works when:* `pnpm build` is green in CI.
+- [x] **T0.12** TypeScript workspace: `packages/sdk` and `packages/studio` stubs. *Works when:* `pnpm build` is green in CI.
 
 **Gate (Dev1)**
 - [ ] All Phase 0 boxes ticked, including the first two owner decisions in §4.
@@ -116,7 +116,7 @@ Target: the Notebook app runs as one binary with no external service.
 - [ ] **T1.14** Auth middleware that puts the verified subject into the request context, and secret references resolved at runtime. *Needs:* T1.7, T1.13. *Works when:* a request with a user id in a header but no valid token is rejected.
 
 **Dev5**
-- [ ] **T1.15** TypeScript SDK codegen (`falak sync`). *Needs:* T1.11.
+- [x] **T1.15** TypeScript SDK codegen (`falak sync`). *Needs:* T1.11.
 - [ ] **T1.16** Notebook React frontend using the generated SDK. *Needs:* T1.15.
 - [ ] **T1.17** `scripts/smoke/notebook.sh`: start the binary, create two users, create notes as each, and confirm each user sees only their own and gets 404 on the other's. *Needs:* T1.7, T1.14.
 - [ ] **T1.18** Ten-minute quickstart in `docs/` and linked from the README. *Works when:* another agent follows it on a clean machine and reaches a running Notebook.
@@ -151,7 +151,7 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 
 **Dev5**
 - [ ] **T2.11** Make the Notebook smoke script take a target (SQLite, PostgreSQL, Workers) and run all three in CI. *Needs:* T2.5, T2.8.
-- [ ] **T2.12** SDK: typed errors, pagination helpers, automatic idempotency keys.
+- [x] **T2.12** SDK: typed errors, pagination helpers, automatic idempotency keys.
 
 **Gate (Dev1)**
 - [ ] The Notebook smoke script passes on all three targets with zero changes to `examples/notebook/`.
