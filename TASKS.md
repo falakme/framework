@@ -205,10 +205,10 @@ Target: three apps share one login and one admin interface.
 - [x] **T4.1** Relationship rules with bounded traversal depth. *`allow: { owner: true, related: project.workspace }`, at most 3 `belongs_to` steps, nested `EXISTS`, AUTHORIZATION §11. Checked on SQLite only (3 tests).*
 - [x] **T4.2** `admin:` presentation metadata in schema and IR. *Already built in Phase 1 (`label`, `list_columns`, `search_fields`, validated); `tests/admin.rs` now pins it into the IR.*
 - [x] **T4.3** `FEDERATION_SPECIFICATION.md` to candidate. *Needs:* T4.5, T4.8 drafts.
-- [ ] **T4.14** Release v1.0: tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
+- [ ] **T4.14** Release v1.0: *(`v1.0.0-rc.1` is published as a pre-release with binaries, an SBOM, checksums and build provenance attestations, verified with `gh attestation verify`; the final `v1.0.0` tag waits for the owner.)* tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
 
 **Dev2**
-- [ ] **T4.4** Office skeleton: one binary, one PostgreSQL database, built on Falak Core, deployed on Coolify.
+- [ ] **T4.4** Office skeleton: *(binary, PostgreSQL and `deploy/office/` container files are done; **not deployed on Coolify**: the Coolify connection was down, and the image was not built here.)* one binary, one PostgreSQL database, built on Falak Core, deployed on Coolify.
 - [x] **T4.5** Registry: single-use enrollment tokens, asymmetric app keys, signed App Passports, `GET /v1/_office/manifest`, passport revocation. *Needs:* T4.4.
 
 **Dev3**
@@ -226,8 +226,8 @@ Target: three apps share one login and one admin interface.
 - [x] **T4.13** `scripts/smoke/office.sh`: log in once and reach Notebook, Falak.me and Academy; edit a record in two apps from Studio; rotate the signing key; stop Office and confirm each app behaves as its tier specifies. *Needs:* T4.6, T4.9, T4.11, T4.12.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/office.sh` passes.
-- [ ] Studio manages two apps with no app-specific dashboard code.
+- [x] `scripts/smoke/office.sh` passes. *Locally on SQLite and PostgreSQL 16, and in CI (`smoke-office`).*
+- [x] Studio manages two apps with no app-specific dashboard code. *Three in the smoke test (Notebook, its copy, Falak.me), from one config entry each.*
 - [ ] v1.0 released (T4.14).
 
 ---
@@ -348,6 +348,7 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * **Limits.** The page was not run in a browser here. Search is an exact match on the first `search_fields` entry. Studio sessions live in memory (a restart signs everyone out). `/v1/_schema` exists on the native runtime and on Workers (shared router) but Workers was not re-deployed. Relationship rules (T4.1) were checked on SQLite only. Tier 3 is refused by Office.
   * **Changes in other agents' areas:** `falak-runtime-native` gains `GET /v1/_schema`; `falak-contracts` IR gains `IrRule.related`, `IrRelated`, `IrHop`; `falak-core` policy/SQL gain `Via`; `specifications/AUTHORIZATION_SPECIFICATION.md` §11 and `schemas/policy.schema.json`.
 - **Phase 4, Workers (Dev3, 2026-11-16).** A Worker enrolled with Office (`falak office enroll`, then `falak deploy`) follows Office on requests (every 20 s per isolate, before routing) and saves the last good key set and feed state in its own D1 (`falak_office_cache`), so a new isolate still verifies tokens and honors revocations with Office down. `scripts/smoke/office-workers.py` ran it for real on the Falak account against a local Office behind a Cloudflare quick tunnel: Office token accepted, foreign token refused, revoked person refused within the interval, tier 2 reads with Office down and pauses writes after the limit, writes resume when Office returns. The Worker, D1 database and tunnel were deleted afterwards. **The edge WASM is now 800 KiB gzip; the budget is raised from 800 to 900 KiB** (Workers allows 3 MiB on the free plan) because ed25519 signing, the feed and the saved state came with it.
+- **Phase 4 closed except two items (Dev3, 2026-11-16).** CI is green on `main` for the first time: the license check allows two permissive licences (`Apache-2.0 WITH LLVM-exception`, `CDLA-Permissive-2.0`), the RLS test gets its own database, and a `smoke-office` job runs the Office smoke on SQLite and PostgreSQL. `v1.0.0-rc.1` was cut to prove the release pipeline (`.github/workflows/release.yml`): two platforms built, `SHA256SUMS`, a CycloneDX SBOM from `Cargo.lock` (302 components), and provenance attestations (Sigstore, no stored key). **Open:** (1) T4.4 Coolify deployment: `deploy/office/README.md` has the steps; (2) T4.14 final tag: bump `version` in `Cargo.toml` to `1.0.0`, regenerate `falak.lock` files with `falak build`, move `[1.0.0] - unreleased` in `CHANGELOG.md` to the date, tag `v1.0.0`. FEDERATION is frozen with that tag. Not checked: a real Clerk or Auth0 tenant, the Studio page in a browser, the container image build.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1
