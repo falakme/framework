@@ -40,6 +40,7 @@ use falak_auth::{
     system::{RandomIds, SystemClock},
 };
 use falak_contracts::{Error, ErrorKind, Result, support::Clock};
+use falak_driver_postgres::PostgresDriver;
 use falak_driver_sqlite::SqliteDriver;
 use serde_json::{Value, json};
 
@@ -89,6 +90,7 @@ macro_rules! impl_auth_service {
 }
 
 impl_auth_service!(SqlStore<SqliteDriver>);
+impl_auth_service!(SqlStore<PostgresDriver>);
 impl_auth_service!(MemoryStore);
 
 /// Delivers a password reset token to its owner (for example by mail). The default for

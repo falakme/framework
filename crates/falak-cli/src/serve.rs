@@ -35,6 +35,7 @@ use falak_contracts::{
     identity::RequestContext,
     ir::Ir,
 };
+use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
 use falak_migrate::apply_initial_migration;
 use falak_runtime_native::{
@@ -59,9 +60,20 @@ pub fn run(dir: &Path, port: u16, dev: bool) -> Result<u8, String> {
 
 /// Everything that outlives a rebuild of the app.
 #[derive(Clone)]
+enum DriverStack {
+    Sqlite {
+        driver: Arc<SqliteDriver>,
+        identity: Arc<LocalIdentity<SqlStore<SqliteDriver>, SystemClock, RandomIds>>,
+    },
+    Postgres {
+        driver: Arc<PostgresDriver>,
+        identity: Arc<LocalIdentity<SqlStore<PostgresDriver>, SystemClock, RandomIds>>,
+    },
+}
+
+#[derive(Clone)]
 struct Stack {
-    driver: Arc<SqliteDriver>,
-    identity: Arc<LocalIdentity<SqlStore<SqliteDriver>, SystemClock, RandomIds>>,
+    driver_stack: DriverStack,
     authenticator: Arc<TokenAuthenticator<SystemClock>>,
     reset_sink: ResetSink,
 }
@@ -78,20 +90,6 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
     std::fs::create_dir_all(&data)
         .map_err(|e| format!("cannot create `{}`: {e}", data.display()))?;
 
-    let db = data.join("data.db");
-    let driver = SqliteDriver::open(SqliteConfig {
-        url: format!("sqlite://{}", db.display()),
-        ..SqliteConfig::default()
-    })
-    .await
-    .map_err(|e| format!("cannot open the database: {e}"))?;
-
-    let store = SqlStore::new(driver.clone(), Placeholders::Question);
-    store
-        .migrate()
-        .await
-        .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
-
     let keys = LocalKeys::load_or_create(&data.join("keys.json"))
         .map_err(|e| format!("cannot load the signing keys: {e}"))?;
     let config = TokenConfig {
@@ -101,14 +99,6 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
     };
     let mut verifier = Verifier::new(config.clone());
     keys.trust_all(&mut verifier);
-    let identity = LocalIdentity::new(
-        store,
-        keys,
-        config,
-        Policy::default(),
-        SystemClock,
-        RandomIds,
-    );
 
     let reset_sink: ResetSink = if dev {
         Arc::new(|email, token| {
@@ -119,9 +109,69 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
         Arc::new(|_, _| {})
     };
 
+    let database_url = std::env::var("DATABASE_URL").ok();
+    let is_postgres = database_url
+        .as_ref()
+        .is_some_and(|url| url.starts_with("postgres://") || url.starts_with("postgresql://"));
+
+    let driver_stack = if is_postgres {
+        let pg_url = database_url.unwrap();
+        let driver = PostgresDriver::open(PostgresConfig {
+            url: pg_url,
+            ..PostgresConfig::default()
+        })
+        .await
+        .map_err(|e| format!("cannot open the postgres database: {e}"))?;
+
+        let store = SqlStore::new(driver.clone(), Placeholders::Numbered);
+        store
+            .migrate()
+            .await
+            .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
+
+        let identity = LocalIdentity::new(
+            store,
+            keys,
+            config,
+            Policy::default(),
+            SystemClock,
+            RandomIds,
+        );
+        DriverStack::Postgres {
+            driver: Arc::new(driver),
+            identity: Arc::new(identity),
+        }
+    } else {
+        let db = data.join("data.db");
+        let driver = SqliteDriver::open(SqliteConfig {
+            url: format!("sqlite://{}", db.display()),
+            ..SqliteConfig::default()
+        })
+        .await
+        .map_err(|e| format!("cannot open the database: {e}"))?;
+
+        let store = SqlStore::new(driver.clone(), Placeholders::Question);
+        store
+            .migrate()
+            .await
+            .map_err(|e| format!("cannot prepare the identity tables: {e}"))?;
+
+        let identity = LocalIdentity::new(
+            store,
+            keys,
+            config,
+            Policy::default(),
+            SystemClock,
+            RandomIds,
+        );
+        DriverStack::Sqlite {
+            driver: Arc::new(driver),
+            identity: Arc::new(identity),
+        }
+    };
+
     Ok(Stack {
-        driver: Arc::new(driver),
-        identity: Arc::new(identity),
+        driver_stack,
         authenticator: Arc::new(TokenAuthenticator::new(verifier, SystemClock)),
         reset_sink,
     })
@@ -131,27 +181,52 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
 /// the database was built for a different version, since those tables are not altered.
 async fn prepare_tables(stack: &Stack, ir: &Ir) -> Result<(), String> {
     let ctx = request_context();
-    let earlier = stack
-        .driver
-        .query(
-            &ctx,
-            Statement::new(
-                "SELECT COUNT(*) FROM _falak_migrations WHERE content_hash <> ?",
-                vec![Value::Text(ir.content_hash.clone())],
-            ),
-        )
-        .await
-        .ok()
-        .and_then(|r| r.rows.first().and_then(|row| row.first().cloned()));
-    let created = apply_initial_migration(&*stack.driver, &ctx, ir)
-        .await
-        .map_err(|e| format!("cannot create the tables: {e}"))?;
-    if created && matches!(earlier, Some(Value::Int64(n)) if n > 0) {
-        eprintln!(
-            "warning: the data model changed. New tables were created, but existing tables \
-             are not altered (migrations are not available yet). Delete .falak/data.db to \
-             start again with an empty database."
-        );
+    match &stack.driver_stack {
+        DriverStack::Sqlite { driver, .. } => {
+            let earlier = driver
+                .query(
+                    &ctx,
+                    Statement::new(
+                        "SELECT COUNT(*) FROM _falak_migrations WHERE content_hash <> ?",
+                        vec![Value::Text(ir.content_hash.clone())],
+                    ),
+                )
+                .await
+                .ok()
+                .and_then(|r| r.rows.first().and_then(|row| row.first().cloned()));
+            let created = apply_initial_migration(&**driver, &ctx, ir)
+                .await
+                .map_err(|e| format!("cannot create the tables: {e}"))?;
+            if created && matches!(earlier, Some(Value::Int64(n)) if n > 0) {
+                eprintln!(
+                    "warning: the data model changed. New tables were created, but existing tables \
+                     are not altered (migrations are not available yet). Delete .falak/data.db to \
+                     start again with an empty database."
+                );
+            }
+        }
+        DriverStack::Postgres { driver, .. } => {
+            let earlier = driver
+                .query(
+                    &ctx,
+                    Statement::new(
+                        "SELECT COUNT(*) FROM \"_falak_migrations\" WHERE \"content_hash\" <> $1",
+                        vec![Value::Text(ir.content_hash.clone())],
+                    ),
+                )
+                .await
+                .ok()
+                .and_then(|r| r.rows.first().and_then(|row| row.first().cloned()));
+            let created = apply_initial_migration(&**driver, &ctx, ir)
+                .await
+                .map_err(|e| format!("cannot create the tables: {e}"))?;
+            if created && matches!(earlier, Some(Value::Int64(n)) if n > 0) {
+                eprintln!(
+                    "warning: the data model changed. New tables were created, but existing tables \
+                     are not altered (migrations are not available yet)."
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -159,25 +234,32 @@ async fn prepare_tables(stack: &Stack, ir: &Ir) -> Result<(), String> {
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
     let ir_arc = Arc::new(ir.clone());
     let openapi = falak_core::openapi::generate(ir).to_string();
-    create_router(ir_arc, stack.driver.clone(), stack.authenticator.clone())
-        .merge(auth_router(
-            stack.identity.clone(),
-            stack.reset_sink.clone(),
-        ))
-        .route(
-            "/openapi.json",
-            get(move || {
-                let body = openapi.clone();
-                async move {
-                    let mut res = body.into_response();
-                    res.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static("application/json"),
-                    );
-                    res
-                }
-            }),
-        )
+
+    let router = match &stack.driver_stack {
+        DriverStack::Sqlite { driver, identity } => {
+            create_router(ir_arc, driver.clone(), stack.authenticator.clone())
+                .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
+        }
+        DriverStack::Postgres { driver, identity } => {
+            create_router(ir_arc, driver.clone(), stack.authenticator.clone())
+                .merge(auth_router(identity.clone(), stack.reset_sink.clone()))
+        }
+    };
+
+    router.route(
+        "/openapi.json",
+        get(move || {
+            let body = openapi.clone();
+            async move {
+                let mut res = body.into_response();
+                res.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                res
+            }
+        }),
+    )
 }
 
 async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
@@ -221,7 +303,12 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
         })
     };
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let host_ip: std::net::IpAddr = std::env::var("FALAK_HOST")
+        .or_else(|_| std::env::var("HOST"))
+        .ok()
+        .and_then(|h| h.parse().ok())
+        .unwrap_or_else(|| [127, 0, 0, 1].into());
+    let addr = SocketAddr::new(host_ip, port);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| format!("cannot listen on {addr}: {e} (use --port to pick another)"))?;

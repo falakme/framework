@@ -21,6 +21,7 @@ falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-driver-postgres = { path = "../falak-driver-postgres" }
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1", "json", "query"] }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 serde = { workspace = true }

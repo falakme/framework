@@ -20,6 +20,7 @@ falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-driver-postgres = { path = "../falak-driver-postgres" }
 falak-migrate = { path = "../falak-migrate" }
 falak-runtime-native = { path = "../falak-runtime-native" }
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }

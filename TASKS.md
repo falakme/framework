@@ -138,8 +138,8 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 - [ ] **T2.3** Freeze SCHEMA, AUTHORIZATION, DRIVER and API specs at 1.0. *Needs:* Phase 2 smoke passing.
 
 **Dev2**
-- [ ] **T2.4** PostgreSQL driver: SQLx pool, one transaction per request. *early start*
-- [ ] **T2.5** Docker image and compose file for Notebook on PostgreSQL. *Needs:* T2.4.
+- [x] **T2.4** PostgreSQL driver: SQLx pool, one transaction per request. *early start*
+- [x] **T2.5** Docker image and compose file for Notebook on PostgreSQL. *Needs:* T2.4.
 
 **Dev3**
 - [ ] **T2.6** D1 driver: atomic batches, read-replica bookmarks. *early start*

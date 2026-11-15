@@ -8,6 +8,7 @@ use falak_contracts::{
     driver::{Outcome, Rows, Statement, StorageDriver},
     identity::RequestContext,
 };
+use falak_driver_postgres::PostgresDriver;
 use falak_driver_sqlite::SqliteDriver;
 
 /// Trait for storage drivers in the native runtime, ensuring returned futures
@@ -29,6 +30,28 @@ pub trait NativeDriver: Send + Sync + 'static {
 }
 
 impl NativeDriver for SqliteDriver {
+    fn profile(&self) -> &CapabilityProfile {
+        <Self as StorageDriver>::profile(self)
+    }
+
+    fn query<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        statement: Statement,
+    ) -> Pin<Box<dyn Future<Output = Result<Rows>> + Send + 'a>> {
+        Box::pin(<Self as StorageDriver>::query(self, ctx, statement))
+    }
+
+    fn batch<'a>(
+        &'a self,
+        ctx: &'a RequestContext,
+        statements: Vec<Statement>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Outcome>>> + Send + 'a>> {
+        Box::pin(<Self as StorageDriver>::batch(self, ctx, statements))
+    }
+}
+
+impl NativeDriver for PostgresDriver {
     fn profile(&self) -> &CapabilityProfile {
         <Self as StorageDriver>::profile(self)
     }
