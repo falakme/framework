@@ -1,6 +1,6 @@
 # Authorization Specification
 
-* **Status:** Draft 1, stage 1 (ownership, roles, authentication). Frozen at the M2 exit (ADR-0007).
+* **Status:** Frozen 1.0 for stage 1 (ownership, roles, authentication) (2026-11-15, ADR-0007 and ADR-0009). Stages 2 and 3 are additions and are not frozen yet.
 * **Owner:** Dev4. Compiler behaviour: Dev1 (`falak-core::policy`, `falak-core::sql`).
 * **Scope:** who may do what to which rows. The YAML syntax is in `SCHEMA_SPECIFICATION.md` §6; this document says what the keys mean and what the runtime MUST do. Stage 2 (attributes, field masks) and stage 3 (relationships) extend it without changing anything here.
 

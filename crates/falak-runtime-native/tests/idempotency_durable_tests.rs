@@ -110,3 +110,25 @@ async fn two_stores_on_one_database_share_keys() {
         CheckResult::Replay(_)
     ));
 }
+
+#[test]
+fn a_conflict_with_a_running_request_says_to_retry_in_one_second() {
+    use falak_contracts::{Error, ErrorKind};
+    let busy = Error::new(
+        ErrorKind::Conflict,
+        "concurrent_mutation_in_progress",
+        "busy",
+    );
+    let res = falak_runtime_native::idempotency::rejection(&busy, "/v1/notes", "req_1");
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert_eq!(res.headers()["retry-after"], "1");
+
+    let mismatch = Error::new(
+        ErrorKind::Unprocessable,
+        "idempotency_payload_mismatch",
+        "other body",
+    );
+    let res = falak_runtime_native::idempotency::rejection(&mismatch, "/v1/notes", "req_2");
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(res.headers().get("retry-after").is_none());
+}

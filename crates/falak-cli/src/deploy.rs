@@ -29,7 +29,46 @@ const KEYS_SECRET: &str = "FALAK_KEYS";
 pub struct Options {
     pub name: Option<String>,
     pub account: Option<String>,
+    /// Key set mode: verify tokens against this published key set (`https`).
+    pub jwks_url: Option<String>,
+    /// The `iss` those tokens carry.
+    pub issuer: Option<String>,
 }
+
+/// How the Worker identifies callers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Identity {
+    /// The Worker signs tokens with its own keys and serves `/v1/auth/*`.
+    Local,
+    /// The Worker only verifies tokens, against another service's key set.
+    KeySet { jwks_url: String, issuer: String },
+}
+
+impl Options {
+    fn identity(&self) -> Result<Identity, String> {
+        match (&self.jwks_url, &self.issuer) {
+            (None, None) => Ok(Identity::Local),
+            (Some(url), Some(issuer)) => {
+                if !url.starts_with("https://") {
+                    return Err("`--jwks-url` must start with https://".into());
+                }
+                if issuer.trim().is_empty() {
+                    return Err("`--issuer` cannot be empty".into());
+                }
+                Ok(Identity::KeySet {
+                    jwks_url: url.clone(),
+                    issuer: issuer.clone(),
+                })
+            }
+            _ => Err("`--jwks-url` and `--issuer` go together".into()),
+        }
+    }
+}
+
+/// Requests per minute per client address, on the data routes and on the auth routes.
+/// Cloudflare's binding allows a period of 10 or 60 seconds.
+const DATA_LIMIT: u32 = 600;
+const AUTH_LIMIT: u32 = 30;
 
 /// Workers names allow lowercase letters, digits and hyphens.
 pub fn worker_name(app: &str) -> String {
@@ -54,6 +93,7 @@ pub fn wrangler_config(
     account: Option<&str>,
     database: &str,
     database_id: &str,
+    identity: &Identity,
 ) -> String {
     let mut out = String::new();
     out.push_str("# Written by `falak deploy`. Changes are overwritten.\n");
@@ -63,6 +103,9 @@ pub fn wrangler_config(
         toml_string(&main.to_string_lossy())
     ));
     out.push_str(&format!("compatibility_date = \"{COMPATIBILITY_DATE}\"\n"));
+    // `fetch` reaches only the public internet, never another Worker through a shortcut
+    // on the same zone. The key set fetch needs this to reach an issuer on workers.dev.
+    out.push_str("compatibility_flags = [\"global_fetch_strictly_public\"]\n");
     if let Some(account) = account {
         out.push_str(&format!("account_id = \"{account}\"\n"));
     }
@@ -70,6 +113,21 @@ pub fn wrangler_config(
     out.push_str("[[d1_databases]]\nbinding = \"DB\"\n");
     out.push_str(&format!("database_name = \"{database}\"\n"));
     out.push_str(&format!("database_id = \"{database_id}\"\n"));
+    out.push_str(&format!(
+        "\n[[ratelimits]]\nname = \"RATE_LIMITER\"\nnamespace_id = \"1001\"\n\
+         [ratelimits.simple]\nlimit = {DATA_LIMIT}\nperiod = 60\n"
+    ));
+    out.push_str(&format!(
+        "\n[[ratelimits]]\nname = \"AUTH_RATE_LIMITER\"\nnamespace_id = \"1002\"\n\
+         [ratelimits.simple]\nlimit = {AUTH_LIMIT}\nperiod = 60\n"
+    ));
+    if let Identity::KeySet { jwks_url, issuer } = identity {
+        out.push_str(&format!(
+            "\n[vars]\nFALAK_JWKS_URL = {}\nFALAK_ISSUER = {}\n",
+            toml_string(jwks_url),
+            toml_string(issuer)
+        ));
+    }
     out
 }
 
@@ -164,6 +222,7 @@ fn find_database(name: &str, cwd: &Path, envs: &[(&str, &str)]) -> Result<Option
 }
 
 pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
+    let identity = options.identity()?;
     let Some(compiled) = project::build(dir)? else {
         return Ok(1);
     };
@@ -214,17 +273,26 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
         }
     };
 
-    // 3. Signing keys, made once and kept.
+    // 3. Signing keys, made once and kept. Key set mode has none: it holds no secret.
     let keys_path = project::out_dir(&dir).join("edge-keys.json");
-    let keys = LocalKeys::load_or_create(&keys_path)
-        .map_err(|e| format!("cannot prepare the signing keys: {e}"))?;
-    drop(keys);
+    if identity == Identity::Local {
+        let keys = LocalKeys::load_or_create(&keys_path)
+            .map_err(|e| format!("cannot prepare the signing keys: {e}"))?;
+        drop(keys);
+    }
 
     // 4. Publish.
     let config_path = edge_out.join("wrangler.toml");
     std::fs::write(
         &config_path,
-        wrangler_config(&worker, &main, account.as_deref(), &database, &database_id),
+        wrangler_config(
+            &worker,
+            &main,
+            account.as_deref(),
+            &database,
+            &database_id,
+            &identity,
+        ),
     )
     .map_err(|e| format!("cannot write `{}`: {e}", config_path.display()))?;
     let config_arg = config_path.to_string_lossy().into_owned();
@@ -232,6 +300,10 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
     let published = wrangler(&["deploy", "--config", &config_arg], &edge_out, &envs, None)?;
 
     // 5. The keys secret, only if the Worker does not have it yet.
+    if identity != Identity::Local {
+        println!("deployed: {}", deployed_url(&published));
+        return Ok(0);
+    }
     let secrets = wrangler(
         &[
             "secret",
@@ -263,12 +335,15 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
         )?;
     }
 
-    let url = published
+    println!("deployed: {}", deployed_url(&published));
+    Ok(0)
+}
+
+fn deployed_url(wrangler_output: &str) -> &str {
+    wrangler_output
         .split_whitespace()
         .find(|w| w.starts_with("https://") && w.contains("workers.dev"))
-        .unwrap_or("(see the wrangler output)");
-    println!("deployed: {url}");
-    Ok(0)
+        .unwrap_or("(see the wrangler output)")
 }
 
 #[cfg(test)]
@@ -290,17 +365,59 @@ mod tests {
             Some("acc123"),
             "notebook-db",
             "uuid-1",
+            &Identity::Local,
         );
         assert!(text.contains("name = \"notebook\""));
         assert!(text.contains("account_id = \"acc123\""));
         assert!(text.contains("binding = \"DB\""));
+        assert!(text.contains("global_fetch_strictly_public"));
         assert!(text.contains("database_id = \"uuid-1\""));
         assert!(!text.contains("FALAK_KEYS"));
+        assert!(text.contains("name = \"RATE_LIMITER\""));
+        assert!(text.contains("name = \"AUTH_RATE_LIMITER\""));
+        assert!(!text.contains("FALAK_JWKS_URL"));
+    }
+
+    #[test]
+    fn key_set_mode_sets_the_issuer_and_url_as_plain_vars() {
+        let id = Identity::KeySet {
+            jwks_url: "https://a.example/.well-known/jwks.json".into(),
+            issuer: "falak-local".into(),
+        };
+        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u", &id);
+        assert!(text.contains("FALAK_JWKS_URL = \"https://a.example/.well-known/jwks.json\""));
+        assert!(text.contains("FALAK_ISSUER = \"falak-local\""));
+    }
+
+    fn opts(url: Option<&str>, iss: Option<&str>) -> Options {
+        Options {
+            name: None,
+            account: None,
+            jwks_url: url.map(str::to_owned),
+            issuer: iss.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn identity_options_must_be_complete_and_https() {
+        assert_eq!(opts(None, None).identity(), Ok(Identity::Local));
+        assert!(opts(Some("https://x/jwks"), None).identity().is_err());
+        assert!(opts(None, Some("iss")).identity().is_err());
+        assert!(opts(Some("http://x/jwks"), Some("iss")).identity().is_err());
+        assert!(opts(Some("https://x/jwks"), Some(" ")).identity().is_err());
+        assert!(opts(Some("https://x/jwks"), Some("iss")).identity().is_ok());
     }
 
     #[test]
     fn config_without_an_account_leaves_it_out() {
-        let text = wrangler_config("a", Path::new("/s.mjs"), None, "a-db", "u");
+        let text = wrangler_config(
+            "a",
+            Path::new("/s.mjs"),
+            None,
+            "a-db",
+            "u",
+            &Identity::Local,
+        );
         assert!(!text.contains("account_id"));
     }
 }

@@ -8,10 +8,11 @@ pub mod error;
 pub mod handlers;
 pub mod idempotency;
 pub mod json;
+pub mod limits;
 #[cfg(feature = "server")]
 pub mod telemetry;
 
-pub use app::{AppState, create_router, create_router_with};
+pub use app::{AppState, RouterOptions, create_router, create_router_with};
 pub use driver::NativeDriver;
 pub use error::{InvalidParam, ProblemDetails};
 pub use idempotency::IdempotencyStore;

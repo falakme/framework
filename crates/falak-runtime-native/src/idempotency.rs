@@ -351,3 +351,16 @@ async fn durable_release(driver: &dyn NativeDriver, scope: &IdempotencyKeyScope)
         .batch(&context(), vec![Statement::new(sql, key_values(scope))])
         .await;
 }
+
+/// The problem response for a refused idempotency check. A request that arrives while
+/// the first is still running also carries `Retry-After: 1` (API specification §5.2).
+pub fn rejection(error: &Error, instance: &str, request_id: &str) -> axum::response::Response {
+    let mut res = crate::error::problem_response(error, instance, request_id, vec![]);
+    if error.code() == "concurrent_mutation_in_progress" {
+        res.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from_static("1"),
+        );
+    }
+    res
+}

@@ -1,6 +1,6 @@
 # Schema Specification
 
-* **Status:** Draft 1 (becomes frozen at the M2 exit; see ARCHITECTURE §5)
+* **Status:** Frozen 1.0 (2026-11-15, ADR-0009). Changes only by ADR.
 * **Owner:** Dev1
 * **Scope:** the YAML files that describe an app, and how they compile to the IR. Policy semantics are in `AUTHORIZATION_SPECIFICATION.md`; driver behaviour in `DRIVER_SPECIFICATION.md`.
 * **Machine-readable form:** the JSON Schemas in [`schemas/`](./schemas/). Where this document and a schema disagree, fix the document and the schema together. A worked example is in [`examples/minimal/`](./examples/minimal/).

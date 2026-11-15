@@ -26,6 +26,8 @@ pub struct Args {
     pub name: Option<String>,
     pub out: Option<PathBuf>,
     pub account: Option<String>,
+    pub jwks_url: Option<String>,
+    pub issuer: Option<String>,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -53,6 +55,8 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         name: None,
         out: None,
         account: None,
+        jwks_url: None,
+        issuer: None,
     };
     let mut dir_set = false;
     while let Some(arg) = it.next() {
@@ -70,6 +74,12 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--account" => {
                 args.account = Some(it.next().ok_or("`--account` needs a value")?.clone());
+            }
+            "--jwks-url" => {
+                args.jwks_url = Some(it.next().ok_or("`--jwks-url` needs a value")?.clone());
+            }
+            "--issuer" => {
+                args.issuer = Some(it.next().ok_or("`--issuer` needs a value")?.clone());
             }
             "--out" => {
                 args.out = Some(PathBuf::from(it.next().ok_or("`--out` needs a value")?));
@@ -131,6 +141,8 @@ mod tests {
             "serve --port abc",
             "sync --out",
             "deploy --account",
+            "deploy --jwks-url",
+            "deploy --issuer",
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }

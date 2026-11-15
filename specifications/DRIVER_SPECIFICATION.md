@@ -1,8 +1,8 @@
 # Falak Driver Specification
 
-**Status:** Draft v1 (Phase 0 / Milestone M0).  
+**Status:** Frozen 1.0 (2026-11-15, ADR-0009). Changes only by ADR.  
 **Authors:** Dev2 (Native Runtime & Data Lead), with Cloudflare D1 limits contributed by Dev3 (T0.7).  
-**Target Gate:** Frozen at Milestone M2 exit.
+**Frozen at:** Milestone M2 exit.
 
 ---
 

@@ -38,6 +38,78 @@ jobs:
       - name: Edge runtime WASM size budget
         run: bash scripts/check-wasm-size.sh
 
+  # The same Notebook smoke test on PostgreSQL (T2.11).
+  smoke-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: notebook
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d notebook"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Toolchain
+        run: rustup show
+      - name: Notebook smoke test on PostgreSQL
+        env:
+          FALAK_TARGET: postgres
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
+        run: bash scripts/smoke/notebook.sh
+
+  # The same smoke test on Workers (T2.11). It deploys a throwaway Worker and database to
+  # the Cloudflare account in the repository secrets, tests it, and deletes both. It runs
+  # on pushes only: pull requests from forks have no secrets. Without the secrets it
+  # says so in the run summary instead of passing quietly.
+  smoke-workers:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_NAME: falak-ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check the Cloudflare secrets
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::smoke-workers did not run: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to the repository secrets"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Toolchain
+        if: steps.secrets.outputs.present == 'true'
+        run: rustup show
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.secrets.outputs.present == 'true'
+        with:
+          node-version: 24
+      - name: Deploy a throwaway Worker
+        if: steps.secrets.outputs.present == 'true'
+        id: deploy
+        run: |
+          cargo install worker-build --locked
+          cargo build --locked -p falak-cli
+          ./target/debug/falak deploy examples/notebook --name "$WORKER_NAME" | tee deploy.log
+          echo "url=$(sed -n 's/^deployed: //p' deploy.log)" >> "$GITHUB_OUTPUT"
+      - name: Notebook smoke test on Workers
+        if: steps.secrets.outputs.present == 'true'
+        env:
+          FALAK_TARGET: workers
+          FALAK_URL: ${{ steps.deploy.outputs.url }}
+        run: bash scripts/smoke/notebook.sh
+      - name: Delete the throwaway Worker and database
+        if: always() && steps.secrets.outputs.present == 'true'
+        run: |
+          npx --yes wrangler@4 delete --name "$WORKER_NAME" --force || true
+          npx --yes wrangler@4 d1 delete "$WORKER_NAME-db" -y || true
+
   web:
     runs-on: ubuntu-latest
     steps:

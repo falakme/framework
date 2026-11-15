@@ -17,6 +17,7 @@ use crate::{
         command_handler, create_handler, delete_handler, get_handler, list_handler, update_handler,
     },
     idempotency::IdempotencyStore,
+    limits::Limits,
 };
 
 pub struct AppState<D: NativeDriver> {
@@ -26,22 +27,33 @@ pub struct AppState<D: NativeDriver> {
     pub auth: Arc<dyn Authenticator>,
 }
 
+/// What differs between runtimes: where idempotency keys live and which limits apply.
+/// The edge runtime passes a durable store and a rate gate backed by Cloudflare, because
+/// its isolates share no memory.
+#[derive(Clone, Default)]
+pub struct RouterOptions {
+    pub idempotency: IdempotencyStore,
+    pub limits: Limits,
+}
+
 pub fn create_router<D: NativeDriver>(
     ir: Arc<Ir>,
     driver: Arc<D>,
     auth: Arc<dyn Authenticator>,
 ) -> Router {
-    create_router_with(ir, driver, auth, IdempotencyStore::new())
+    create_router_with(ir, driver, auth, RouterOptions::default())
 }
 
-/// Like [`create_router`], with the idempotency store to use. The edge runtime passes a
-/// durable one, because its isolates share no memory.
 pub fn create_router_with<D: NativeDriver>(
     ir: Arc<Ir>,
     driver: Arc<D>,
     auth: Arc<dyn Authenticator>,
-    idempotency: IdempotencyStore,
+    options: RouterOptions,
 ) -> Router {
+    let RouterOptions {
+        idempotency,
+        limits,
+    } = options;
     let state = Arc::new(AppState {
         ir,
         driver,
@@ -100,6 +112,26 @@ pub fn create_router_with<D: NativeDriver>(
             )
         })
         .with_state(state);
+    let router = router
+        .layer(axum::extract::DefaultBodyLimit::max(limits.max_body_bytes))
+        .layer(axum::middleware::from_fn(
+            crate::limits::problem_for_oversize,
+        ));
+    let router = match limits.rate {
+        Some(gate) => router.layer(axum::middleware::from_fn_with_state(
+            gate,
+            crate::limits::rate_limit,
+        )),
+        None => router,
+    };
+    #[cfg(feature = "server")]
+    let router = match limits.timeout {
+        Some(limit) => router.layer(axum::middleware::from_fn_with_state(
+            limit,
+            crate::limits::time_limit,
+        )),
+        None => router,
+    };
     // `TraceLayer` reads `Instant::now`, which panics on `wasm32-unknown-unknown`.
     #[cfg(feature = "server")]
     let router = router.layer(tower_http::trace::TraceLayer::new_for_http());

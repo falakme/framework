@@ -103,11 +103,10 @@ pub fn create_table(ir: &Ir, entity: &IrEntity, dialect: Dialect) -> Vec<String>
     out
 }
 
-/// Statements for every entity, ordered so a table appears after the tables it
-/// references. A reference cycle is broken by creating the tables in name order; the
-/// foreign key is still declared, which PostgreSQL requires to be satisfiable, so apps
-/// should avoid cycles.
-pub fn create_all(ir: &Ir, dialect: Dialect) -> Vec<String> {
+/// Entities ordered so a table appears after the tables it references. A reference
+/// cycle is broken by name order; the foreign key is still declared, which PostgreSQL
+/// requires to be satisfiable, so apps should avoid cycles.
+pub fn creation_order(ir: &Ir) -> Vec<&IrEntity> {
     let mut order: Vec<&IrEntity> = Vec::new();
     fn visit<'a>(
         ir: &'a Ir,
@@ -133,6 +132,11 @@ pub fn create_all(ir: &Ir, dialect: Dialect) -> Vec<String> {
         visit(ir, e, &mut order, &mut Vec::new());
     }
     order
+}
+
+/// Statements for every entity, in [`creation_order`].
+pub fn create_all(ir: &Ir, dialect: Dialect) -> Vec<String> {
+    creation_order(ir)
         .into_iter()
         .flat_map(|e| create_table(ir, e, dialect))
         .collect()

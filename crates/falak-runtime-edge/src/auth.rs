@@ -38,4 +38,7 @@ impl AuthService for EdgeAuth {
     fn reset_password<'a>(&'a self, token: &'a str, new_password: &'a str) -> Boxed<'a, ()> {
         Box::pin(SendFuture::new(self.0.reset_password(token, new_password)))
     }
+    fn jwks(&self) -> serde_json::Value {
+        self.0.verifier().jwks()
+    }
 }

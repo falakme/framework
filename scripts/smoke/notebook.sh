@@ -10,11 +10,31 @@
 #
 # Set FALAK_BIN to use an already built binary.
 #
-# Set FALAK_URL to run the same checks against an app that is already deployed (for
-# example on Workers after `falak deploy`) instead of serving one here:
+# Targets (T2.11). The same checks run on each, with no change to examples/notebook/:
 #
-#   FALAK_URL=https://notebook.example.workers.dev scripts/smoke/notebook.sh
+#   FALAK_TARGET=sqlite   (default) serve here on SQLite
+#   FALAK_TARGET=postgres serve here on the PostgreSQL named by DATABASE_URL
+#   FALAK_TARGET=workers  check the deployed app at FALAK_URL (after `falak deploy`)
+#
+#   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/notebook \
+#     FALAK_TARGET=postgres scripts/smoke/notebook.sh
+#   FALAK_TARGET=workers FALAK_URL=https://notebook.example.workers.dev scripts/smoke/notebook.sh
+#
+# `scripts/smoke/all-targets.sh` runs all three.
 set -euo pipefail
+
+target="${FALAK_TARGET:-sqlite}"
+case "$target" in
+  sqlite) ;;
+  postgres)
+    [ -n "${DATABASE_URL:-}" ] || { echo "FALAK_TARGET=postgres needs DATABASE_URL" >&2; exit 2; }
+    ;;
+  workers)
+    [ -n "${FALAK_URL:-}" ] || { echo "FALAK_TARGET=workers needs FALAK_URL" >&2; exit 2; }
+    ;;
+  *) echo "unknown FALAK_TARGET '$target' (sqlite, postgres or workers)" >&2; exit 2 ;;
+esac
+echo "target: $target"
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$(mktemp -d)"
@@ -25,7 +45,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ -n "${FALAK_URL:-}" ]; then
+if [ "$target" = workers ]; then
   python3 "$root/scripts/smoke/notebook.py" "$FALAK_URL"
   exit $?
 fi
@@ -39,7 +59,12 @@ cp -R "$root/examples/notebook" "$work/app"
 rm -rf "$work/app/web" "$work/app/.falak"
 
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-"$FALAK_BIN" serve "$work/app" --port "$port" >"$work/server.log" 2>&1 &
+if [ "$target" = sqlite ]; then
+  # An inherited DATABASE_URL must not turn this into a PostgreSQL run.
+  env -u DATABASE_URL "$FALAK_BIN" serve "$work/app" --port "$port" >"$work/server.log" 2>&1 &
+else
+  "$FALAK_BIN" serve "$work/app" --port "$port" >"$work/server.log" 2>&1 &
+fi
 server_pid=$!
 
 # Wait up to 30 seconds for the server to answer.

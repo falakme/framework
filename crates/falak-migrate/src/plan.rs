@@ -1,7 +1,10 @@
 //! Migration planning, expand-and-contract phase segregation, and checksum generation.
 
 use falak_contracts::ir::{FieldType, Ir};
-use falak_core::{ddl::create_table, sql::Dialect};
+use falak_core::{
+    ddl::{create_table, creation_order},
+    sql::Dialect,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -101,7 +104,8 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
 
     if from.is_none() {
         // Initial migration: create all tables and indexes in Expand phase
-        for entity in &to.entities {
+        // Referenced tables first: PostgreSQL checks a foreign key when the table is made.
+        for entity in creation_order(to) {
             let entity_ddl = create_table(to, entity, dialect);
             for (idx, sql) in entity_ddl.into_iter().enumerate() {
                 let is_create = idx == 0;
@@ -123,7 +127,16 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
             }
         }
     } else {
-        let diffs = diff_ir(from, to);
+        let mut diffs = diff_ir(from, to);
+        // New tables go first, referenced ones before the tables that reference them.
+        let order = creation_order(to);
+        diffs.sort_by_key(|d| match d {
+            SchemaDiff::CreateTable(e) => order
+                .iter()
+                .position(|o| o.name == e.name)
+                .unwrap_or(order.len()),
+            _ => order.len() + 1,
+        });
 
         // 1. Process Expand changes
         for diff in &diffs {

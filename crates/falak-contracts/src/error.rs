@@ -21,8 +21,10 @@ pub enum ErrorKind {
     Conflict,
     /// An `If-Match` or version precondition failed.
     PreconditionFailed,
-    /// A rate or size limit was exceeded.
+    /// A rate limit was exceeded.
     RateLimited,
+    /// The request body is larger than the runtime accepts.
+    PayloadTooLarge,
     /// The request is well formed but cannot be processed (for example an idempotency
     /// key reused with a different body).
     Unprocessable,
@@ -46,6 +48,7 @@ impl ErrorKind {
             Self::NotFound => 404,
             Self::Conflict => 409,
             Self::PreconditionFailed => 412,
+            Self::PayloadTooLarge => 413,
             Self::Unprocessable => 422,
             Self::RateLimited => 429,
             Self::Unsupported => 501,
@@ -175,6 +178,7 @@ mod tests {
     fn statuses_and_retry() {
         assert_eq!(ErrorKind::NotFound.http_status(), 404);
         assert_eq!(ErrorKind::PreconditionFailed.http_status(), 412);
+        assert_eq!(ErrorKind::PayloadTooLarge.http_status(), 413);
         assert!(ErrorKind::Timeout.retryable());
         assert!(!ErrorKind::Forbidden.retryable());
     }

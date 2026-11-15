@@ -49,6 +49,7 @@ Agents cannot do these. Phase 0 cannot close without the first two.
 - [x] Accept or change the eight proposed decisions in ARCHITECTURE §3. *Accepted as proposed by Dev1 under discretion delegated by the owner (2026-11-15); the owner may revise by a new ADR.*
 - [ ] Write the "why not existing tools" statement in ARCHITECTURE §2.
 - [ ] Provide a Cloudflare account and API token for Workers and D1 (needed from T0.8).
+- [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to the repository's GitHub secrets, so CI can run the Workers smoke test (T2.11). The token needs Workers Scripts and D1 edit rights.
 - [ ] Provide a Coolify server and an R2 or S3 bucket (needed from Phase 3).
 - [ ] Choose the OIDC provider that Office Identity wraps (needed before T4.8). Dev4 brings a recommendation.
 - [ ] Give a security contact address for `SECURITY.md`, and turn on GitHub private vulnerability reporting for the repository (Dev4 cannot do either).
@@ -133,9 +134,9 @@ Target: the Notebook app runs as one binary with no external service.
 Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with D1.
 
 **Dev1**
-- [ ] **T2.1** Build-time capability validator: reject an app whose needs exceed the driver's profile or limits. *Works when:* a command needing an interactive transaction fails to build for D1 with a clear message.
+- [x] **T2.1** Build-time capability validator: reject an app whose needs exceed the driver's profile or limits. *Works when:* a command needing an interactive transaction fails to build for D1 with a clear message.
 - [x] **T2.2** Compile read-then-write commands to a conditional batch with a version column. *Needs:* T2.1.
-- [ ] **T2.3** Freeze SCHEMA, AUTHORIZATION, DRIVER and API specs at 1.0. *Needs:* Phase 2 smoke passing.
+- [x] **T2.3** Freeze SCHEMA, AUTHORIZATION, DRIVER and API specs at 1.0. *Needs:* Phase 2 smoke passing.
 
 **Dev2**
 - [x] **T2.4** PostgreSQL driver: SQLx pool, one transaction per request. *early start*
@@ -147,16 +148,16 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 - [x] **T2.8** `falak deploy` for Workers, and a WASM size check in CI. *Needs:* T2.7.
 
 **Dev4**
-- [ ] **T2.9** Token verification on the edge with a cached JWKS, using WASM-compatible crypto. *Needs:* T2.7.
-- [ ] **T2.10** Rate limits and request size and time limits on both runtimes.
+- [x] **T2.9** Token verification on the edge with a cached JWKS, using WASM-compatible crypto. *Needs:* T2.7.
+- [x] **T2.10** Rate limits and request size and time limits on both runtimes.
 
 **Dev5**
-- [ ] **T2.11** Make the Notebook smoke script take a target (SQLite, PostgreSQL, Workers) and run all three in CI. *Needs:* T2.5, T2.8.
+- [x] **T2.11** Make the Notebook smoke script take a target (SQLite, PostgreSQL, Workers) and run all three in CI. *Needs:* T2.5, T2.8.
 - [x] **T2.12** SDK: typed errors, pagination helpers, automatic idempotency keys.
 
 **Gate (Dev1)**
-- [ ] The Notebook smoke script passes on all three targets with zero changes to `examples/notebook/`.
-- [ ] Four specs frozen at 1.0.
+- [x] The Notebook smoke script passes on all three targets with zero changes to `examples/notebook/`.
+- [x] Four specs frozen at 1.0.
 
 ---
 
@@ -321,7 +322,14 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * `falak-runtime-native`: new features `server`, `sqlite`, `postgres` (all default), so the crate builds for `wasm32` with `default-features = false`. `IdempotencyStore` methods are now `async`, and there is a durable variant that keeps keys in the database (`_falak_idempotency`); `falak serve` still uses the in-memory one. New `create_router_with` and `auth_routes::PeerAddr`. Request ids are random now.
   * `falak-contracts`: `support::wall_clock_micros()`, because `SystemTime::now` panics on Workers. `falak-auth` and `falak-migrate` use it. `LocalKeys::from_json` is public.
   * `falak-cli`: new `deploy` command and `--account`.
-- **Limits of the edge runtime.** The auth rate limiter lives in isolate memory (T2.10 moves it). Argon2id runs inside the Worker; sign-up worked on the account used here, but a plan with a low CPU limit may refuse it. The D1 migration for a changed app is still create-only (T3.8).
+- **Phase 2 closed (Dev3, 2026-11-15).** The Notebook smoke test passes on SQLite, PostgreSQL 16 and Workers with D1, with no change to `examples/notebook/`: `scripts/smoke/all-targets.sh`, 28 checks on each. The four specs are frozen at 1.0 (ADR-0009).
+  * **T2.1** was already built (`falak-core::requirements`) and tested (`tests/compile.rs`: a custom command fails to build for `d1` with a clear message). It was only unticked.
+  * **T2.9** `falak deploy --jwks-url <https url> --issuer <iss>` makes a Worker that holds no signing key and verifies tokens against the issuer's published key set (cache, refresh on unknown `kid`, stale-if-error). Checked live: a token from `notebook.falakme.workers.dev` is accepted by `notebook-keys.falakme.workers.dev`, and a damaged one is refused. Apps with local identity now publish `/.well-known/jwks.json`.
+  * **T2.10** Data routes: 600 requests a minute per client address, 1 MiB body (413), 30 second request time on `falak serve` (504). Auth routes: 30 a minute. Native keeps counts in memory. Workers use Cloudflare's rate limit binding, which is approximate and per location, and which sends no counts, only `Retry-After`. Checked live: the 31st login attempt in a minute gets 429. Workers set no timer of their own; the platform enforces CPU and wall time.
+  * **T2.11** `FALAK_TARGET=sqlite|postgres|workers` in `scripts/smoke/notebook.sh`, and `scripts/smoke/all-targets.sh`. CI has a `smoke-postgres` job and a `smoke-workers` job. **The CI jobs have not run yet.** `smoke-workers` needs the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (owner action). Without them it prints a warning and does not run.
+  * **A real bug, found by the PostgreSQL run:** the initial migration created `notes` before `notebooks`, and PostgreSQL checks foreign keys at create time. The plan now creates referenced tables first.
+  * **Changes in other agents' areas (Dev1, Dev2 to review):** `ErrorKind::PayloadTooLarge` (413) in `falak-contracts`; `falak-core::ddl::creation_order`; `falak-migrate::plan` orders by it; `falak-runtime-native` gets `RouterOptions`, `limits`, and `Retry-After: 1` on an in-flight idempotency conflict (API §5.2 already said so). The edge WASM grew from 555 to 679 KiB gzip with these; the budget is 800.
+- **Limits of the edge runtime.** Argon2id runs inside the Worker; sign-up worked on the account used here, but a plan with a low CPU limit may refuse it. The D1 migration for a changed app is still create-only (T3.8).
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

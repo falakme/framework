@@ -453,3 +453,16 @@ async fn the_auth_routes_ignore_a_bearer_token() {
         .await;
     assert_eq!(status, StatusCode::CREATED);
 }
+
+#[tokio::test]
+async fn the_public_key_set_is_published_and_has_no_secrets() {
+    let app = app().await;
+    let (status, body, headers) = app.call("GET", "/.well-known/jwks.json", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "application/json");
+    let keys = body["keys"].as_array().unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0]["kty"], "OKP");
+    assert_eq!(keys[0]["crv"], "Ed25519");
+    assert!(keys[0].get("d").is_none(), "a private key part leaked");
+}

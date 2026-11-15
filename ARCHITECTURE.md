@@ -1,6 +1,6 @@
 # Falak Framework: Architecture & Execution Plan
 
-**Status: design baseline, draft 4.** No specification is frozen yet. The eight foundational decisions in §3 are accepted.
+**Status: design baseline, draft 4.** SCHEMA, AUTHORIZATION (stage 1), DRIVER and API are frozen at 1.0 (ADR-0009); FEDERATION is not. The eight foundational decisions in §3 are accepted.
 
 ## 1. Core Strategy: Build Incrementally, Freeze Contracts When Proven
 

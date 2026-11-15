@@ -1,8 +1,8 @@
 # Falak API Specification
 
-**Status:** Draft v1 (Phase 0 / Milestone M0).  
+**Status:** Frozen 1.0 (2026-11-15, ADR-0009). Changes only by ADR.  
 **Author:** Dev2 (Native Runtime & Data Lead).  
-**Target Gate:** Frozen at Milestone M2 exit.  
+**Frozen at:** Milestone M2 exit.  
 **Audience:** Dev5 (SDK codegen, Studio, and Notebook app), Dev3 (Edge runtime & CLI), Dev4 (Security middleware).
 
 ---
@@ -155,6 +155,7 @@ To guarantee safe retries across flaky networks without risk of duplicate execut
 3. **In-Flight Requests:** If a second request arrives while the first is still processing, the server returns `409 Conflict` (`concurrent_mutation_in_progress`) with a `Retry-After: 1` header.
 4. **Completed Requests:** When a request succeeds, the server caches the HTTP status code, selected response headers (`ETag`, `Content-Type`), and response body for 24 hours. Replaying the request returns the identical cached response accompanied by:
    `Idempotent-Replayed: true`
+5. **Where keys live:** Every instance of an app that can receive the same retry MUST see the same keys. `falak serve` is one process and keeps them in memory. The Workers runtime has many isolates with no shared memory, so it keeps them in the app's database (`_falak_idempotency`). A key that stays in flight for more than 120 seconds is treated as left by a request that died, and the next request with that key proceeds.
 
 ---
 
@@ -192,6 +193,8 @@ All error responses emit `Content-Type: application/problem+json; charset=utf-8`
 | `NotFound` | `404` | Not Found | `not_found` | "Not found." |
 | `Conflict` | `409` | Conflict | `unique_violation` | "A record with this identifier already exists." |
 | `PreconditionFailed` | `412` | Precondition Failed | `precondition_failed` | "Resource version mismatch." |
+| `PayloadTooLarge` | `413` | Payload Too Large | `payload_too_large` | "The request body is too large." |
+| `Unprocessable` | `422` | Unprocessable Entity | `idempotency_payload_mismatch` | "The idempotency key was previously used with a different request payload." |
 | `RateLimited` | `429` | Too Many Requests | `rate_limited` | "Too many requests. Please retry later." |
 | `Unsupported` | `501` | Not Implemented | `unsupported_capability` | "Operation not supported on this runtime." |
 | `Unavailable` | `503` | Service Unavailable | `service_unavailable` | "Database is temporarily busy. Retry shortly." |
@@ -210,6 +213,28 @@ Every response includes standard IETF rate limit headers:
 * `RateLimit-Remaining`: Remaining request count in the active window.
 * `RateLimit-Reset`: Number of seconds until the current quota window resets.
 * If throttled (`429 Too Many Requests`), the response additionally emits `Retry-After: <seconds>`.
+
+A runtime whose limiter only answers yes or no (the Workers runtime, which counts with Cloudflare's rate limit binding) MUST NOT invent counts: it sends `Retry-After` on a `429` and no `RateLimit-*` headers.
+
+### 7.1 Limits
+
+The numbers below are defaults. They are properties of the runtime, not of the app.
+
+| Limit | Default | Over the limit |
+| :--- | :--- | :--- |
+| Data routes, per client address | 600 requests per minute | `429` `rate_limited` |
+| `/v1/auth/*`, per client address | 30 requests per minute | `429` `rate_limited` |
+| Request body, data routes | 1 MiB | `413` `payload_too_large` |
+| Request body, `/v1/auth/*` | 8 KiB | `400` `invalid_body` |
+| Request time (`falak serve`) | 30 seconds | `504` `execution_timeout` |
+
+`/healthz` and `/readyz` are never rate limited. The Workers runtime sets no timer of its own: Cloudflare enforces the CPU and wall time limits of the plan, and a request that exceeds them is ended by the platform.
+
+The client address is the connection's peer address (`falak serve`) or Cloudflare's `CF-Connecting-IP` header (Workers). A runtime MUST NOT take it from `X-Forwarded-For` or any other header a client can set.
+
+### 7.2 Public keys
+
+A runtime that issues its own tokens (`/v1/auth/*`) publishes the public keys that verify them at `GET /.well-known/jwks.json` as a JSON Web Key Set (Ed25519, `kty` `OKP`). The response contains no private key material and may be cached for five minutes. Another service verifies this app's tokens by fetching the set, caching it for ten minutes, and refetching at most once every 30 seconds when a token names an unknown `kid`.
 
 ---
 

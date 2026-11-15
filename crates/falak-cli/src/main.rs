@@ -33,6 +33,8 @@ OPTIONS:
     --port <n>     Port to listen on (default 8787)
     --name <name>  App name for `init`, or the Worker name for `deploy`
     --account <id> Cloudflare account for `deploy` (or CLOUDFLARE_ACCOUNT_ID)
+    --jwks-url <u> `deploy`: verify tokens against this key set instead of signing them
+    --issuer <iss> `deploy`: the `iss` of those tokens (needed with --jwks-url)
     -h, --help     Show this help
     -V, --version  Show the version
 ";
@@ -52,7 +54,12 @@ fn main() -> ExitCode {
         args.port,
         args.name,
         args.out,
-        args.account,
+        deploy::Options {
+            name: None,
+            account: args.account,
+            jwks_url: args.jwks_url,
+            issuer: args.issuer,
+        },
     ) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
@@ -68,7 +75,7 @@ fn run(
     port: u16,
     name: Option<String>,
     out: Option<PathBuf>,
-    account: Option<String>,
+    mut deploy_options: deploy::Options,
 ) -> Result<u8, String> {
     match command {
         Command::Help => {
@@ -153,7 +160,10 @@ fn run(
         }
         Command::Serve => serve::run(dir, port, false),
         Command::Dev => serve::run(dir, port, true),
-        Command::Deploy => deploy::run(dir, &deploy::Options { name, account }),
+        Command::Deploy => {
+            deploy_options.name = name;
+            deploy::run(dir, &deploy_options)
+        }
     }
 }
 

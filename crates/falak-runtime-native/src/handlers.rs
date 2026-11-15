@@ -408,7 +408,7 @@ pub async fn create_handler<D: NativeDriver>(
                     serde_json::from_slice(&cached.body).unwrap_or(serde_json::Value::Null);
                 return build_response(cached.status, json_val, cached.etag, &req_id, true);
             }
-            Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+            Err(e) => return crate::idempotency::rejection(&e, &instance, &req_id),
         }
     }
 
@@ -600,7 +600,7 @@ pub async fn update_handler<D: NativeDriver>(
                     serde_json::from_slice(&cached.body).unwrap_or(serde_json::Value::Null);
                 return build_response(cached.status, json_val, cached.etag, &req_id, true);
             }
-            Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+            Err(e) => return crate::idempotency::rejection(&e, &instance, &req_id),
         }
     }
 

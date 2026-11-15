@@ -1,4 +1,10 @@
 //! The Worker's `fetch` handler.
+//!
+//! Two modes, chosen by the Worker's configuration:
+//! * **Local identity** (default): the Worker signs tokens with `FALAK_KEYS` and serves
+//!   `/v1/auth/*`, like `falak serve`.
+//! * **Key set** (`FALAK_JWKS_URL` and `FALAK_ISSUER` set): the Worker only verifies
+//!   tokens, against the issuer's published public keys. No signing key, no auth routes.
 
 use std::{cell::RefCell, net::IpAddr, sync::Arc};
 
@@ -17,10 +23,11 @@ use falak_auth::{
 };
 use falak_contracts::{driver::StorageDriver, identity::RequestContext, ir::Ir};
 use falak_runtime_native::{
-    IdempotencyStore, NativeDriver,
-    auth_routes::{PeerAddr, auth_router},
-    context::TokenAuthenticator,
+    IdempotencyStore, NativeDriver, RouterOptions,
+    auth_routes::{PeerAddr, auth_router_with},
+    context::{Authenticator, TokenAuthenticator, bearer_token},
     create_router_with,
+    limits::{Limits, RateGate},
 };
 use tower_service::Service;
 use worker::{Context, Env, HttpRequest, event, send::SendWrapper};
@@ -28,6 +35,8 @@ use worker::{Context, Env, HttpRequest, event, send::SendWrapper};
 use crate::{
     auth::{EdgeAuth, Identity},
     driver::EdgeDriver,
+    gate::EdgeGate,
+    jwks::JwksAuth,
 };
 
 /// The compiled app, embedded by `build.rs`. Empty if the Worker was built without one.
@@ -36,9 +45,19 @@ const IR_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/ir.json"));
 /// Seconds of clock difference allowed when checking a token. Same as `falak serve`.
 const LEEWAY_SECS: i64 = 30;
 
+/// Window of the Cloudflare rate limit bindings, in seconds. Cloudflare allows 10 or 60.
+const GATE_PERIOD_SECS: u32 = 60;
+
+#[derive(Clone)]
+struct App {
+    router: Router,
+    /// Present in key set mode: it must fetch keys before a request is routed.
+    jwks: Option<Arc<JwksAuth>>,
+}
+
 thread_local! {
-    // One router per isolate, built on the first request. `Router` is cheap to clone.
-    static APP: RefCell<Option<Router>> = const { RefCell::new(None) };
+    // One app per isolate, built on the first request. `Router` is cheap to clone.
+    static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
 
 fn request_context() -> RequestContext {
@@ -48,7 +67,20 @@ fn request_context() -> RequestContext {
     }
 }
 
-async fn build_app(env: &Env) -> Result<Router, String> {
+fn var(env: &Env, name: &str) -> Option<String> {
+    env.var(name)
+        .ok()
+        .map(|v| v.to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// A rate gate from the binding `name`, if the Worker has it.
+fn gate(env: &Env, name: &str, app: &str) -> Option<Arc<dyn RateGate>> {
+    let limiter = env.rate_limiter(name).ok()?;
+    Some(Arc::new(EdgeGate::new(limiter, app, GATE_PERIOD_SECS)))
+}
+
+async fn build_app(env: &Env) -> Result<App, String> {
     if IR_JSON.is_empty() {
         return Err("this Worker was built without an app".into());
     }
@@ -57,20 +89,6 @@ async fn build_app(env: &Env) -> Result<Router, String> {
     let db = env
         .d1("DB")
         .map_err(|e| format!("no D1 binding `DB`: {e}"))?;
-    let keys_text = env
-        .secret("FALAK_KEYS")
-        .map_err(|e| format!("no secret `FALAK_KEYS`: {e}"))?
-        .to_string();
-    let keys = LocalKeys::from_json(&keys_text).map_err(|e| format!("bad signing keys: {e}"))?;
-
-    let config = TokenConfig {
-        issuer: "falak-local".into(),
-        audience: ir.app.name.clone(),
-        leeway_secs: LEEWAY_SECS,
-    };
-    let mut verifier = Verifier::new(config.clone());
-    keys.trust_all(&mut verifier);
-
     let driver = EdgeDriver::new(db);
     let ctx = request_context();
 
@@ -92,17 +110,7 @@ async fn build_app(env: &Env) -> Result<Router, String> {
     .await
     .map_err(|e| format!("the database is not reachable: {e}"))?;
 
-    let identity: Identity = LocalIdentity::new(
-        SqlStore::new(driver.clone(), Placeholders::Question),
-        keys,
-        config,
-        Policy::default(),
-        SystemClock,
-        RandomIds,
-    );
-    let auth = Arc::new(EdgeAuth(SendWrapper::new(identity)));
-    let authenticator = Arc::new(TokenAuthenticator::new(verifier, SystemClock));
-
+    // Idempotency keys must be shared by every isolate, so they live in D1.
     let shared: Arc<dyn NativeDriver> = Arc::new(driver.clone());
     let idempotency = IdempotencyStore::durable(shared);
     idempotency
@@ -110,33 +118,94 @@ async fn build_app(env: &Env) -> Result<Router, String> {
         .await
         .map_err(|e| format!("cannot prepare the idempotency table: {e}"))?;
 
+    let mut limits = Limits {
+        timeout: None, // Workers enforce their own CPU and wall time limits.
+        ..Limits::default()
+    };
+    if let Some(g) = gate(env, "RATE_LIMITER", &ir.app.name) {
+        limits.rate = Some(g);
+    }
+    let auth_gate = gate(env, "AUTH_RATE_LIMITER", &ir.app.name);
+
+    let options = RouterOptions {
+        idempotency,
+        limits,
+    };
     let openapi = falak_core::openapi::generate(&ir).to_string();
-    let router = create_router_with(Arc::new(ir), Arc::new(driver), authenticator, idempotency)
-        .merge(auth_router(auth, Arc::new(|_, _| {})))
-        .route(
-            "/openapi.json",
-            get(move || {
-                let body = openapi.clone();
-                async move {
-                    let mut res = body.into_response();
-                    res.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static("application/json"),
-                    );
-                    res
-                }
-            }),
+    let ir = Arc::new(ir);
+
+    let (router, jwks) = if let Some(url) = var(env, "FALAK_JWKS_URL") {
+        let issuer =
+            var(env, "FALAK_ISSUER").ok_or("FALAK_JWKS_URL is set but FALAK_ISSUER is not")?;
+        let config = TokenConfig {
+            issuer,
+            audience: ir.app.name.clone(),
+            leeway_secs: LEEWAY_SECS,
+        };
+        let auth = Arc::new(JwksAuth::new(&url, config)?);
+        let authenticator: Arc<dyn Authenticator> = auth.clone();
+        let router = create_router_with(ir.clone(), Arc::new(driver), authenticator, options);
+        (router, Some(auth))
+    } else {
+        let keys_text = env
+            .secret("FALAK_KEYS")
+            .map_err(|e| format!("no secret `FALAK_KEYS`: {e}"))?
+            .to_string();
+        let keys =
+            LocalKeys::from_json(&keys_text).map_err(|e| format!("bad signing keys: {e}"))?;
+        let config = TokenConfig {
+            issuer: "falak-local".into(),
+            audience: ir.app.name.clone(),
+            leeway_secs: LEEWAY_SECS,
+        };
+        let mut verifier = Verifier::new(config.clone());
+        keys.trust_all(&mut verifier);
+
+        let identity: Identity = LocalIdentity::new(
+            SqlStore::new(driver.clone(), Placeholders::Question),
+            keys,
+            config,
+            Policy::default(),
+            SystemClock,
+            RandomIds,
         );
-    Ok(router)
+        let auth = Arc::new(EdgeAuth(SendWrapper::new(identity)));
+        let authenticator = Arc::new(TokenAuthenticator::new(verifier, SystemClock));
+        let data = create_router_with(ir.clone(), Arc::new(driver), authenticator, options);
+        let router = match auth_gate {
+            Some(g) => data.merge(auth_router_with(auth, Arc::new(|_, _| {}), g)),
+            None => data.merge(falak_runtime_native::auth_routes::auth_router(
+                auth,
+                Arc::new(|_, _| {}),
+            )),
+        };
+        (router, None)
+    };
+
+    let router = router.route(
+        "/openapi.json",
+        get(move || {
+            let body = openapi.clone();
+            async move {
+                let mut res = body.into_response();
+                res.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                res
+            }
+        }),
+    );
+    Ok(App { router, jwks })
 }
 
-async fn app(env: &Env) -> Result<Router, String> {
-    if let Some(router) = APP.with(|a| a.borrow().clone()) {
-        return Ok(router);
+async fn app(env: &Env) -> Result<App, String> {
+    if let Some(app) = APP.with(|a| a.borrow().clone()) {
+        return Ok(app);
     }
-    let router = build_app(env).await?;
-    APP.with(|a| *a.borrow_mut() = Some(router.clone()));
-    Ok(router)
+    let app = build_app(env).await?;
+    APP.with(|a| *a.borrow_mut() = Some(app.clone()));
+    Ok(app)
 }
 
 fn unavailable() -> http::Response<axum::body::Body> {
@@ -152,16 +221,21 @@ async fn fetch(
 ) -> worker::Result<http::Response<axum::body::Body>> {
     console_error_panic_hook::set_once();
 
-    let mut router = match app(&env).await {
-        Ok(r) => r,
+    let app = match app(&env).await {
+        Ok(a) => a,
         Err(why) => {
             worker::console_error!("falak: {why}");
             return Ok(unavailable());
         }
     };
 
-    // Cloudflare sets this header and overwrites any value the client sends. The auth
-    // routes rate limit by it.
+    if let Some(jwks) = &app.jwks {
+        let token = bearer_token(req.headers()).map(str::to_owned);
+        jwks.refresh_if_needed(token.as_deref()).await;
+    }
+
+    // Cloudflare sets this header and overwrites any value the client sends. The rate
+    // limits use it.
     let peer: Option<IpAddr> = req
         .headers()
         .get("cf-connecting-ip")
@@ -171,5 +245,6 @@ async fn fetch(
         req.extensions_mut().insert(PeerAddr(ip));
     }
 
+    let mut router = app.router;
     Ok(router.call(req).await?)
 }

@@ -19,36 +19,35 @@
 // An `Err` here is a finished HTTP response, returned straight to the client.
 #![allow(clippy::result_large_err)]
 
-use std::{
-    future::Future,
-    net::IpAddr,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::{future::Future, net::IpAddr, pin::Pin, sync::Arc};
 
 use axum::{
     Router,
     extract::{DefaultBodyLimit, Request, State},
     http::{HeaderName, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
 use falak_auth::store::SqlStore;
 use falak_auth::{
     identity::{LocalIdentity, Tokens},
-    ratelimit::{Limiter, Rate},
+    ratelimit::Rate,
     store::MemoryStore,
     system::{RandomIds, SystemClock},
 };
-use falak_contracts::{Error, ErrorKind, Result, support::Clock};
+use falak_contracts::{Error, ErrorKind, Result};
 #[cfg(feature = "postgres")]
 use falak_driver_postgres::PostgresDriver;
 #[cfg(feature = "sqlite")]
 use falak_driver_sqlite::SqliteDriver;
 use serde_json::{Value, json};
 
-use crate::{context::extract_request_id, error::problem_response};
+use crate::{
+    context::extract_request_id,
+    error::problem_response,
+    limits::{MemoryGate, RateGate},
+};
 
 type Boxed<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
 
@@ -62,6 +61,8 @@ pub trait AuthService: Send + Sync + 'static {
     /// The reset token to deliver, or `None` if the email has no account.
     fn request_reset<'a>(&'a self, email: &'a str) -> Boxed<'a, Option<String>>;
     fn reset_password<'a>(&'a self, token: &'a str, new_password: &'a str) -> Boxed<'a, ()>;
+    /// The public keys that verify this service's tokens, as a JSON Web Key Set.
+    fn jwks(&self) -> Value;
 }
 
 macro_rules! impl_auth_service {
@@ -89,6 +90,9 @@ macro_rules! impl_auth_service {
             ) -> Boxed<'a, ()> {
                 Box::pin(LocalIdentity::reset_password(self, token, new_password))
             }
+            fn jwks(&self) -> Value {
+                LocalIdentity::verifier(self).jwks()
+            }
         }
     };
 }
@@ -105,8 +109,7 @@ pub type ResetSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 pub struct AuthState {
     service: Arc<dyn AuthService>,
-    limiter: Mutex<Limiter>,
-    clock: SystemClock,
+    gate: Arc<dyn RateGate>,
     reset_sink: ResetSink,
 }
 
@@ -120,13 +123,23 @@ pub const AUTH_RATE: Rate = Rate {
 const MAX_BODY_BYTES: usize = 8 * 1024;
 
 pub fn auth_router(service: Arc<dyn AuthService>, reset_sink: ResetSink) -> Router {
+    auth_router_with(service, reset_sink, Arc::new(MemoryGate::new(AUTH_RATE)))
+}
+
+/// Like [`auth_router`], with the rate gate to use (the edge runtime passes one backed
+/// by Cloudflare).
+pub fn auth_router_with(
+    service: Arc<dyn AuthService>,
+    reset_sink: ResetSink,
+    gate: Arc<dyn RateGate>,
+) -> Router {
     let state = Arc::new(AuthState {
         service,
-        limiter: Mutex::new(Limiter::new(AUTH_RATE, 100_000)),
-        clock: SystemClock,
+        gate,
         reset_sink,
     });
     Router::new()
+        .route("/.well-known/jwks.json", get(jwks))
         .route("/v1/auth/signup", post(signup))
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/refresh", post(refresh))
@@ -157,7 +170,7 @@ fn too_many() -> Error {
 #[derive(Debug, Clone, Copy)]
 pub struct PeerAddr(pub IpAddr);
 
-fn peer_ip(req: &Request) -> Option<IpAddr> {
+pub(crate) fn peer_ip(req: &Request) -> Option<IpAddr> {
     if let Some(p) = req.extensions().get::<PeerAddr>() {
         return Some(p.0);
     }
@@ -180,14 +193,13 @@ async fn read(
     let peer = peer_ip(&req);
     let request_id = extract_request_id(req.headers());
     let key = peer.map_or_else(|| "unknown".to_owned(), |ip| ip.to_string());
-    let decision = state
-        .limiter
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .check(&key, state.clock.now_micros());
+    let decision = state.gate.check(&key).await;
     if !decision.allowed {
         let mut res = problem_response(&too_many(), instance, &request_id, vec![]);
         for (name, value) in decision.headers() {
+            if decision.limit == 0 && name != "Retry-After" {
+                continue;
+            }
             if let (Ok(n), Ok(v)) = (
                 HeaderName::from_bytes(name.to_ascii_lowercase().as_bytes()),
                 HeaderValue::from_str(&value),
@@ -276,6 +288,22 @@ fn tokens_json(t: &Tokens) -> Value {
 }
 
 // ---------------------------------------------------------------- handlers
+
+/// The public keys, so another service can verify this one's tokens (T2.9). Public
+/// keys only; safe to cache.
+async fn jwks(State(s): State<Arc<AuthState>>) -> Response {
+    let mut res = s.service.jwks().to_string().into_response();
+    let h = res.headers_mut();
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=300"),
+    );
+    res
+}
 
 async fn signup(State(s): State<Arc<AuthState>>, req: Request) -> Response {
     let (call, v) = match read(&s, req, "/v1/auth/signup").await {
