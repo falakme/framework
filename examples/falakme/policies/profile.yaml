@@ -1,0 +1,12 @@
+schema_version: 1
+entity: profile
+rules:
+  - id: owner_full_access
+    actions: [read, create, update, delete]
+    allow: { owner: true }
+  # Everyone in the workspace can see names, not the biography.
+  - id: directory
+    actions: [read]
+    allow:
+      authenticated: true
+      fields: [display_name]

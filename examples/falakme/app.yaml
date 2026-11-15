@@ -1,0 +1,7 @@
+schema_version: 1
+name: falakme
+version: 0.1.0
+description: A portal for a workspace, with profiles, pages and file records.
+tenancy: row
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

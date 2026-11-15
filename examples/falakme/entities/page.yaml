@@ -1,0 +1,15 @@
+schema_version: 1
+entity: page
+owner: owner_id
+fields:
+  slug: { type: text, required: true, max_length: 80, unique: true }
+  title: { type: text, required: true, max_length: 200 }
+  body: { type: text, max_length: 20000 }
+  status: { type: text, required: true, max_length: 20, default: draft, indexed: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Pages
+  list_columns: [title, status]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true

@@ -114,3 +114,31 @@ Each of these has an automated test before the stage is accepted:
 ## 9. Not in stage 1
 
 Attribute rules (`where`), field masks, relationship rules (`related`), deny rules, delegated access and time-limited grants. They are specified when their stages start (ADR-0007) and will add keys under `allow`; they will not change the meaning of the conditions above.
+
+---
+
+## 10. Stage 2: attribute conditions, field masks and side channels (ADR-0010)
+
+Stage 2 adds two optional keys under `allow`. Both only narrow what a rule grants; neither changes the meaning of the stage 1 conditions.
+
+```yaml
+- id: reviewers_published
+  actions: [read]
+  allow:
+    role: reviewer
+    where: { status: published, owner_id: $subject, rank: { in: [1, 2] }, kind: { ne: secret } }
+    fields: [title, status]
+```
+
+* `where` is a map of declared field to a value (equals), `$subject` (the caller), `{ in: [...] }` or `{ ne: value }`. Every condition must hold. The only variable is `$subject`. Encrypted, JSON and bytes fields cannot be compared. The compiler checks that fields exist and values fit their type.
+* `fields` lists the declared fields the rule grants. Built-in fields (`id`, `version`, timestamps) are always granted. A rule without `fields` grants all of them.
+
+**Decision.** Every satisfied rule that lists the action is a grant. A row is visible if any grant reaches it. A field of a visible row is returned only if a grant that reaches that row grants the field: otherwise it is `null`, decided in SQL per row. A request whose rules have neither `where` nor `fields` behaves exactly as in stage 1.
+
+**Writes.** A write may set only fields that every satisfied rule grants (the most restrictive wins). On `create`, the new row must satisfy some grant's `where`, else `403`. On `update`, the row must be reachable before the change, and the row after the change must still be reachable: a change that would move a row out of the caller's reach does not happen and answers `404`.
+
+**Side channels.** A field the caller cannot read on every row they can see MUST NOT be used to filter or sort, because the rows returned would reveal its values. Such a request is refused with the same `400` and the same wording as for a field that does not exist. Invisible rows are `404`. Relation traversal does not exist in v1; when it does it MUST apply the related entity's policy.
+
+**Tenancy** (ADR-0003). Under `row` and `database` tenancy a caller with no tenant is denied. An entity that is tenant or owner scoped and has no policy file is a build error (`scoped_without_policy`). `tenancy: database` is not available with the `postgres` driver.
+
+**PostgreSQL.** The same rules are compiled to row-level security as a second wall (see `falak-migrate::rls`): tenant policy `RESTRICTIVE`, one permissive policy per action, `FORCE ROW LEVEL SECURITY`, a runtime role `falak_app` with no ownership and no `BYPASSRLS`, and the caller read from `falak.subject`, `falak.tenant_id` and `falak.roles`, set per transaction. RLS works on rows only; field masks are the runtime's. Because PostgreSQL applies the `SELECT` policy to the rows an `UPDATE`, `DELETE` or `INSERT ... RETURNING` touches, the `SELECT` policy covers a rule granting any action; the runtime's own SQL still limits reads to rules that list `read`.

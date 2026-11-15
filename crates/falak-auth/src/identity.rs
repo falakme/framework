@@ -68,6 +68,22 @@ pub struct LocalIdentity<S, C, G> {
     policy: Policy,
     clock: C,
     ids: G,
+    per_user_tenants: bool,
+}
+
+/// The tenant of a user in an app with tenancy and local identity: a workspace of one,
+/// named by a hash of the user id. It is computed by the server and is the same every
+/// time. A tenant shared by several people needs membership, which Office provides.
+pub fn tenant_of(user_id: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(b"falak-tenant\0");
+    h.update(user_id.as_bytes());
+    let d = h.finalize();
+    let mut b = [0u8; 16];
+    b.copy_from_slice(&d[..16]);
+    b[6] = (b[6] & 0x0f) | 0x50;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    uuid_string(b)
 }
 
 fn invalid_credentials() -> Error {
@@ -155,7 +171,16 @@ impl<S: AuthStore, C: Clock, G: IdGenerator> LocalIdentity<S, C, G> {
             policy,
             clock,
             ids,
+            per_user_tenants: false,
         }
+    }
+
+    /// Put each user in a tenant of their own (see [`tenant_of`]). Use for apps whose
+    /// `tenancy` is `row` or `database`.
+    #[must_use]
+    pub fn with_per_user_tenants(mut self) -> Self {
+        self.per_user_tenants = true;
+        self
     }
 
     fn now(&self) -> i64 {
@@ -236,7 +261,7 @@ impl<S: AuthStore, C: Clock, G: IdGenerator> LocalIdentity<S, C, G> {
             &self.config,
             &Claims {
                 subject: user.id.clone(),
-                tenant: None,
+                tenant: self.per_user_tenants.then(|| tenant_of(&user.id)),
                 roles: user.roles.clone(),
                 issued_at: now,
                 expires_at: now + self.policy.access_ttl_secs,

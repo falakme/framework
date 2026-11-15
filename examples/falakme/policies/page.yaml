@@ -1,0 +1,17 @@
+schema_version: 1
+entity: page
+rules:
+  - id: owner_full_access
+    actions: [read, create, update, delete]
+    allow: { owner: true }
+  - id: published_to_members
+    actions: [read]
+    allow:
+      authenticated: true
+      where: { status: published }
+  - id: editors_fix_drafts
+    actions: [update]
+    allow:
+      role: editor
+      where: { status: draft }
+      fields: [title, body]

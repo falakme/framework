@@ -109,6 +109,7 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
         Arc::new(|_, _| {})
     };
 
+    let scoped = ir.app.tenancy != falak_contracts::ir::Tenancy::None;
     let database_url = std::env::var("DATABASE_URL").ok();
     let is_postgres = database_url
         .as_ref()
@@ -153,6 +154,11 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
             SystemClock,
             RandomIds,
         );
+        let identity = if scoped {
+            identity.with_per_user_tenants()
+        } else {
+            identity
+        };
         DriverStack::Postgres {
             driver: Arc::new(driver),
             identity: Arc::new(identity),
@@ -180,6 +186,11 @@ async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
             SystemClock,
             RandomIds,
         );
+        let identity = if scoped {
+            identity.with_per_user_tenants()
+        } else {
+            identity
+        };
         DriverStack::Sqlite {
             driver: Arc::new(driver),
             identity: Arc::new(identity),

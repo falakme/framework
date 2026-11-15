@@ -27,6 +27,8 @@ jobs:
         run: cargo build --locked --target wasm32-unknown-unknown -p falak-contracts -p falak-core
       - name: Notebook smoke test
         run: bash scripts/smoke/notebook.sh
+      - name: Isolation smoke test (SQLite)
+        run: bash scripts/smoke/isolation.sh
       - name: Generated files are current
         run: |
           cargo run --locked -q -p falak-cli -- sync examples/notebook --out examples/notebook/web/src/falak.generated.ts
@@ -60,6 +62,21 @@ jobs:
           FALAK_TARGET: postgres
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
         run: bash scripts/smoke/notebook.sh
+      - name: Row-level security conformance
+        env:
+          FALAK_TEST_PG_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
+        run: cargo test --locked -p falak-runtime-native --test rls_tests
+      - name: Isolation smoke test on PostgreSQL
+        env:
+          FALAK_TARGET: postgres
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
+        run: |
+          export PGPASSWORD=postgres
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE isolation'
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE live'
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/isolation bash scripts/smoke/isolation.sh
+      - name: A schema change on a running app, no downtime
+        run: DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/live bash scripts/smoke/migrate-live.sh
 
   # The same smoke test on Workers (T2.11). It deploys a throwaway Worker and database to
   # the Cloudflare account in the repository secrets, tests it, and deletes both. It runs
@@ -104,11 +121,25 @@ jobs:
           FALAK_TARGET: workers
           FALAK_URL: ${{ steps.deploy.outputs.url }}
         run: bash scripts/smoke/notebook.sh
+      - name: Deploy Falak.me to a second throwaway Worker
+        if: steps.secrets.outputs.present == 'true'
+        id: deploy_falakme
+        run: |
+          ./target/debug/falak deploy examples/falakme --name "$WORKER_NAME-iso" | tee deploy2.log
+          echo "url=$(sed -n 's/^deployed: //p' deploy2.log)" >> "$GITHUB_OUTPUT"
+      - name: Isolation smoke test on Workers
+        if: steps.secrets.outputs.present == 'true'
+        env:
+          FALAK_TARGET: workers
+          FALAK_URL: ${{ steps.deploy_falakme.outputs.url }}
+        run: bash scripts/smoke/isolation.sh
       - name: Delete the throwaway Worker and database
         if: always() && steps.secrets.outputs.present == 'true'
         run: |
           npx --yes wrangler@4 delete --name "$WORKER_NAME" --force || true
           npx --yes wrangler@4 d1 delete "$WORKER_NAME-db" -y || true
+          npx --yes wrangler@4 delete --name "$WORKER_NAME-iso" --force || true
+          npx --yes wrangler@4 d1 delete "$WORKER_NAME-iso-db" -y || true
 
   web:
     runs-on: ubuntu-latest

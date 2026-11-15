@@ -2,7 +2,12 @@
 //! `FALAK_TEST_S3=<endpoint>,<bucket>,<access key>,<secret key>`; without it the test
 //! says so and passes. The bucket must exist.
 
-use std::{future::Future, io::Read, pin::pin, task::{Context, Poll, Waker}};
+use std::{
+    future::Future,
+    io::Read,
+    pin::pin,
+    task::{Context, Poll, Waker},
+};
 
 use falak_contracts::support::wall_clock_micros;
 use falak_storage::{FileFlow, S3Config, UploadLimits, s3::S3Backend};
@@ -58,7 +63,11 @@ fn upload_check_publish_and_download_against_a_real_store() {
     };
     let now = wall_clock_micros() / 1_000_000;
     let tenant = "00000000-0000-0000-0000-0000000000a1";
-    let png: Vec<u8> = [&[0x89u8, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..], &[7u8; 40]].concat();
+    let png: Vec<u8> = [
+        &[0x89u8, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A][..],
+        &[7u8; 40],
+    ]
+    .concat();
 
     // A good upload, through the presigned URL alone.
     let id = "11111111-2222-3333-4444-00000000a001";
@@ -68,20 +77,33 @@ fn upload_check_publish_and_download_against_a_real_store() {
     assert_eq!(put(&begun.url, &begun.headers, &png), 200);
 
     // The type is signed: the same URL refuses another content type.
-    let wrong = vec![("content-type".to_owned(), "text/plain".to_owned()), ("content-length".to_owned(), png.len().to_string())];
+    let wrong = vec![
+        ("content-type".to_owned(), "text/plain".to_owned()),
+        ("content-length".to_owned(), png.len().to_string()),
+    ];
     assert!(put(&begun.url, &wrong, &png) >= 400);
     // So is the size.
     let longer = [&png[..], &[0u8; 5]].concat();
     assert!(put(&begun.url, &begun.headers, &longer) >= 400);
 
-    let key = block_on(flow.finish_upload(Some(tenant), id, "image/png", png.len() as u64)).unwrap();
+    let key =
+        block_on(flow.finish_upload(Some(tenant), id, "image/png", png.len() as u64)).unwrap();
     assert_eq!(key, format!("files/{tenant}/{id}"));
 
     // Download: an attachment, with the right bytes.
-    let url = flow.download_url(Some(tenant), id, "photo.png", now).unwrap();
+    let url = flow
+        .download_url(Some(tenant), id, "photo.png", now)
+        .unwrap();
     let resp = ureq::get(&url).call().unwrap();
-    assert!(resp.header("content-disposition").unwrap().starts_with("attachment"));
-    assert_eq!(resp.header("content-type"), Some("application/octet-stream"));
+    assert!(
+        resp.header("content-disposition")
+            .unwrap()
+            .starts_with("attachment")
+    );
+    assert_eq!(
+        resp.header("content-type"),
+        Some("application/octet-stream")
+    );
     let mut got = Vec::new();
     resp.into_reader().read_to_end(&mut got).unwrap();
     assert_eq!(got, png);
@@ -93,14 +115,23 @@ fn upload_check_publish_and_download_against_a_real_store() {
         .begin_upload(Some(tenant), bad_id, "image/png", exe.len() as u64, now)
         .unwrap();
     assert_eq!(put(&begun.url, &begun.headers, exe), 200);
-    let err = block_on(flow.finish_upload(Some(tenant), bad_id, "image/png", exe.len() as u64)).unwrap_err();
+    let err = block_on(flow.finish_upload(Some(tenant), bad_id, "image/png", exe.len() as u64))
+        .unwrap_err();
     assert_eq!(err.code(), "file_content_mismatch");
-    let dl = flow.download_url(Some(tenant), bad_id, "x.png", now).unwrap();
-    assert!(matches!(ureq::get(&dl).call(), Err(ureq::Error::Status(404, _))));
+    let dl = flow
+        .download_url(Some(tenant), bad_id, "x.png", now)
+        .unwrap();
+    assert!(matches!(
+        ureq::get(&dl).call(),
+        Err(ureq::Error::Status(404, _))
+    ));
 
     // Another tenant's key is another object: the download of this id under a different
     // tenant is a 404, not the file.
     let other = "00000000-0000-0000-0000-0000000000b2";
     let dl = flow.download_url(Some(other), id, "x.png", now).unwrap();
-    assert!(matches!(ureq::get(&dl).call(), Err(ureq::Error::Status(404, _))));
+    assert!(matches!(
+        ureq::get(&dl).call(),
+        Err(ureq::Error::Status(404, _))
+    ));
 }

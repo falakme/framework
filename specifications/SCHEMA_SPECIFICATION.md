@@ -183,3 +183,25 @@ The compiler derives `requires` from the app and adds the explicit list:
 * The `RESERVED_WORDS` list is produced by T1.2.
 * Workflow, event and job file formats are specified at M5 and M7.
 * The stage 2 and 3 policy keys (`where`, `related`, field masks) are specified in `AUTHORIZATION_SPECIFICATION.md` when those stages start.
+
+---
+
+## 13. Queries (level 2 SQL, ADR-0010)
+
+`queries/<name>.yaml` (the `queries/` directory is now recognised):
+
+```yaml
+schema_version: 1
+query: published_pages
+params:
+  prefix: { type: text, max_length: 40 }
+sql: |
+  SELECT slug, title FROM page WHERE status = 'published' AND slug LIKE :prefix ORDER BY slug
+```
+
+* The SQL is one `SELECT` (with `WITH`, `UNION`, sub-selects). It reads **entities by name**, not tables. It may not name a physical table, a schema, `sqlite_master`, the migration tables or the catalogue; may not write, lock, recurse, call table functions or use comments; and may call only the functions in `falak_core::restricted::ALLOWED_FUNCTIONS`. It is checked with a SQL parser at build time and every problem is reported.
+* Parameters are written `:name`, declared under `params` (types `text`, `int64`, `decimal_minor`, `bool`, `uuid`), and all declared parameters must be used. Values are always bound.
+* The checked query is stored in the IR (`queries`, omitted when empty so other apps keep their hash).
+* At run time `GET /v1/_queries/{name}?param=value` runs it. Each entity it reads becomes a CTE of the same name that applies the tenant, soft-delete, policy and field-mask conditions of a generated read, so a query sees only what its caller could read through the API. An entity the caller cannot read is an empty set. Results are capped at 1000 rows (`meta.truncated`). Column values are the driver's raw values.
+
+`tenancy: database` is rejected when `drivers` includes `postgres`.

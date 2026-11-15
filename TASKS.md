@@ -166,20 +166,20 @@ Target: the same Notebook definition runs on SQLite, PostgreSQL and Workers with
 Target: Falak.me, a multi-tenant app with file uploads.
 
 **Dev1**
-- [ ] **T3.1** Tenancy modes `none`, `row`, `database` in schema, IR and policy compiler.
-- [ ] **T3.2** Attribute rules, field masks, and the side-channel rules (no filter or sort on unreadable fields, relation re-check, 404 for invisible rows). *Needs:* T3.1.
-- [ ] **T3.3** Level-2 restricted SQL: build-time parser check (single, read-only, parameterized) and generated policy-filtered views for SQLite and D1.
-- [ ] **T3.4** `falak policy explain` output: decision, matching rule and generated SQL. *Needs:* T3.2.
+- [x] **T3.1** Tenancy modes `none`, `row`, `database` in schema, IR and policy compiler.
+- [x] **T3.2** Attribute rules, field masks, and the side-channel rules (no filter or sort on unreadable fields, relation re-check, 404 for invisible rows). *Needs:* T3.1.
+- [x] **T3.3** Level-2 restricted SQL: build-time parser check (single, read-only, parameterized) and generated policy-filtered views for SQLite and D1.
+- [x] **T3.4** `falak policy explain` output: decision, matching rule and generated SQL. *Needs:* T3.2.
 
 **Dev2**
-- [ ] **T3.5** PostgreSQL RLS: generated policies with `USING` and `WITH CHECK`, forced RLS, non-owner runtime role, per-transaction `set_config`, build failure on a scoped table with no policy. *Needs:* T3.1.
+- [x] **T3.5** PostgreSQL RLS: generated policies with `USING` and `WITH CHECK`, forced RLS, non-owner runtime role, per-transaction `set_config`, build failure on a scoped table with no policy. *Needs:* T3.1.
 - [x] **T3.6** `falak migrate` for PostgreSQL and SQLite: diff, `plan`, expand and contract, advisory lock, checksums, drift detection.
 - [x] **T3.7** PostgreSQL backups to the bucket and a written restore procedure. *Works when:* a restore into an empty database is demonstrated.
 
 **Dev3**
-- [ ] **T3.8** D1 migrations, including table rebuilds. *Needs:* T3.6.
-- [ ] **T3.9** `database` tenancy mode on D1 and SQLite: provisioning and routing a request to its tenant's database. *Needs:* T3.1.
-- [ ] **T3.10** CLI commands `migrate plan`, `migrate apply`, `policy explain`. *Needs:* T3.4, T3.6.
+- [x] **T3.8** D1 migrations, including table rebuilds. *Needs:* T3.6.
+- [x] **T3.9** `database` tenancy mode on D1 and SQLite: provisioning and routing a request to its tenant's database. *Needs:* T3.1.
+- [x] **T3.10** CLI commands `migrate plan`, `migrate apply`, `policy explain`. *Needs:* T3.4, T3.6.
 
 **Dev4**
 - [ ] **T3.11** Object storage: presigned upload and download, size and type conditions, quarantine prefix, magic-byte check, server-generated tenant-prefixed keys.
@@ -187,13 +187,13 @@ Target: Falak.me, a multi-tenant app with file uploads.
 - [x] **T3.13** Hash-chained, append-only audit log. *Works when:* editing a stored entry makes verification fail.
 
 **Dev5**
-- [ ] **T3.14** Falak.me app in `examples/falakme/`: portal, profiles, file assets, `row` tenancy.
-- [ ] **T3.15** `scripts/smoke/isolation.sh`: as a user of tenant A, try every Falak.me endpoint, a level-2 query and a file download against tenant B's data, on all three drivers. All must fail. *Needs:* T3.5, T3.3, T3.11, T3.14.
+- [x] **T3.14** Falak.me app in `examples/falakme/`: portal, profiles, file assets, `row` tenancy.
+- [x] **T3.15** `scripts/smoke/isolation.sh`: as a user of tenant A, try every Falak.me endpoint, a level-2 query and a file download against tenant B's data, on all three drivers. All must fail. *Needs:* T3.5, T3.3, T3.11, T3.14.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/isolation.sh` passes on all three drivers.
-- [ ] A schema change to Falak.me is applied with `falak migrate` on a running app without downtime.
-- [ ] Restore from backup demonstrated (T3.7).
+- [x] `scripts/smoke/isolation.sh` passes on all three drivers.
+- [x] A schema change to Falak.me is applied with `falak migrate` on a running app without downtime.
+- [x] Restore from backup demonstrated (T3.7).
 
 ---
 
@@ -330,6 +330,14 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * **A real bug, found by the PostgreSQL run:** the initial migration created `notes` before `notebooks`, and PostgreSQL checks foreign keys at create time. The plan now creates referenced tables first.
   * **Changes in other agents' areas (Dev1, Dev2 to review):** `ErrorKind::PayloadTooLarge` (413) in `falak-contracts`; `falak-core::ddl::creation_order`; `falak-migrate::plan` orders by it; `falak-runtime-native` gets `RouterOptions`, `limits`, and `Retry-After: 1` on an in-flight idempotency conflict (API §5.2 already said so). The edge WASM grew from 555 to 679 KiB gzip with these; the budget is 800.
 - **Limits of the edge runtime.** Argon2id runs inside the Worker; sign-up worked on the account used here, but a plan with a low CPU limit may refuse it. The D1 migration for a changed app is still create-only (T3.8).
+- **Phase 3 (Dev3, 2026-11-15): all boxes ticked except T3.11.** `scripts/smoke/isolation.sh` (Falak.me, two workspaces, 39 checks) passes on SQLite, on PostgreSQL 16 (also as the non-owner `falak_app` role with row-level security enforced), and on Workers with D1. ADR-0010 records the specification amendments.
+  * **T3.1** `tenancy: database` is refused with `postgres`; a tenant or owner scoped entity with no policy is a build error; a caller with no tenant is denied. **T3.2** `where` and `fields` under `allow`, per-row masks in SQL, write rules, and no filter or sort on a field the caller cannot read everywhere. **T3.3** `queries/*.yaml`, parser checked (`sqlparser`), run as `GET /v1/_queries/{name}` through per-request CTEs with the caller's tenant, policy and masks. **T3.4** `falak policy explain`. **T3.5** `falak-migrate::rls`, checked against live PostgreSQL by `rls_tests` (needs `FALAK_TEST_PG_ADMIN_URL`; CI sets it). Use `FALAK_MIGRATE_URL` (owner) with `DATABASE_URL` (`falak_app`) to run under RLS.
+  * **T3.8, T3.10** `falak migrate plan|apply`: a saved schema snapshot per version, in-place column changes, table rebuilds for SQLite and D1 (atomic, foreign keys deferred, rolled back if a row does not fit), and approval (`--allow-destructive`) for anything that rebuilds, drops or retypes. On D1 the Worker migrates itself at start; `falak deploy --allow-destructive` permits the risky kind. D1 rebuilds are tested on SQLite and by plan, not yet on a live D1 database.
+  * **T3.9** SQLite: one file per tenant, opened and migrated on first use (`TenantRouter`). D1: `falak tenant add --tenant <uuid>` makes the D1 database, binds it and redeploys; an unknown tenant is refused. Checked live on two tenants. Bindings are fixed at deploy, so each new tenant costs a deploy.
+  * **T3.14** `examples/falakme/`: profiles (names visible to the workspace, bio private), pages (drafts, published to members, editors), file records, a level 2 query, `publish_page`. **Gate:** `scripts/smoke/migrate-live.sh` applied a new column to a running PostgreSQL app under traffic: 212 requests, 0 failures. **Restore:** a dump of that database restored into an empty one with identical rows (71 pages, 2 users, 2 schema snapshots, 15 policies).
+  * **T3.11 is NOT done.** Built and unit tested: SigV4 presigning (reproduces the AWS documented signature), tenant prefixed server-made keys, type and size signed into the upload URL, quarantine, magic-byte check, attachment-only download URLs. Missing: the HTTP endpoints in the runtime that use it (so the file part of T3.15 is covered by the library tests, not over HTTP), and a run against a real S3 or R2 bucket (`crates/falak-storage/tests/s3_live.rs` is written; no S3 server was available here).
+  * **Changes in other agents' areas (Dev1, Dev2 to review):** IR gains `IrRule.when/fields` and `queries`; `Access::Grants`; the list SQL no longer emits an empty `WHERE` (it broke an unrestricted caller on an app with no tenancy or soft delete); `falak-migrate` plan, diff and runner rewritten around snapshots; PostgreSQL driver sets `falak.roles`; local identity gives each user a tenant of their own (`tenant_of`), because shared tenants need membership (Office, Phase 4).
+  * **Cost:** the edge WASM is 738 KiB gzip, close to its 800 KiB budget.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

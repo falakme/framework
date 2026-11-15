@@ -192,6 +192,11 @@ async fn build_app(env: &Env) -> Result<App, String> {
             SystemClock,
             RandomIds,
         );
+        let identity = if ir.app.tenancy == falak_contracts::ir::Tenancy::None {
+            identity
+        } else {
+            identity.with_per_user_tenants()
+        };
         let auth = Arc::new(EdgeAuth(SendWrapper::new(identity)));
         let authenticator = Arc::new(TokenAuthenticator::new(verifier, SystemClock));
         let data = create_router_with(ir.clone(), Arc::new(data.clone()), authenticator, options);

@@ -1,0 +1,13 @@
+schema_version: 1
+entity: asset
+owner: owner_id
+fields:
+  name: { type: text, required: true, max_length: 200 }
+  content_type: { type: text, required: true, max_length: 100 }
+  size_bytes: { type: int64, required: true, min: 0 }
+  file_id: { type: uuid, required: true, unique: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Files
+  list_columns: [name, content_type]
+  search_fields: [name]

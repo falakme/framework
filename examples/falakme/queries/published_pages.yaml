@@ -1,0 +1,9 @@
+schema_version: 1
+query: published_pages
+params:
+  prefix: { type: text, max_length: 40 }
+sql: |
+  SELECT slug, title, status
+  FROM page
+  WHERE status = 'published' AND slug LIKE :prefix
+  ORDER BY slug

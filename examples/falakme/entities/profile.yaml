@@ -1,0 +1,11 @@
+schema_version: 1
+entity: profile
+owner: owner_id
+fields:
+  display_name: { type: text, required: true, max_length: 100 }
+  bio: { type: text, max_length: 2000, pii: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Profiles
+  list_columns: [display_name]
+  search_fields: [display_name]
