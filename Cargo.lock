@@ -212,6 +212,10 @@ version = "0.0.0"
 [[package]]
 name = "falak-cli"
 version = "0.0.0"
+dependencies = [
+ "falak-core",
+ "serde_json",
+]
 
 [[package]]
 name = "falak-contracts"

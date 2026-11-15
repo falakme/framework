@@ -1,6 +1,6 @@
 [package]
 name = "falak-cli"
-description = "The falak command line tool."
+description = "The falak command line."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,4 +11,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "falak"
+path = "src/main.rs"
+
 [dependencies]
+falak-core.workspace = true
+serde_json.workspace = true

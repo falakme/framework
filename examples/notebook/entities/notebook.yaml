@@ -1,0 +1,15 @@
+schema_version: 1
+entity: notebook
+owner: owner_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  notes: { kind: has_many, entity: note, field: notebook_id }
+admin:
+  label: Notebooks
+  list_columns: [title]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true
+  erasable: true

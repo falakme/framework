@@ -80,7 +80,7 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 - [ ] **T0.10** Draft `AUTHORIZATION_SPECIFICATION.md` covering ownership and roles, default deny. *Works when:* the Notebook policies from T0.11 can be written in it without ambiguity.
 
 **Dev5**
-- [ ] **T0.11** Notebook app definition in `examples/notebook/` (entities, policies, commands). This is the shared fixture for Phases 1 and 2. *Works when:* Dev1 and Dev4 confirm it covers ownership, roles, a relation and one custom command.
+- [x] **T0.11** Notebook app definition in `examples/notebook/` (entities, policies, commands). This is the shared fixture for Phases 1 and 2. *Works when:* Dev1 and Dev4 confirm it covers ownership, roles, a relation and one custom command.
 - [ ] **T0.12** TypeScript workspace: `packages/sdk` and `packages/studio` stubs. *Works when:* `pnpm build` is green in CI.
 
 **Gate (Dev1)**
@@ -108,7 +108,7 @@ Target: the Notebook app runs as one binary with no external service.
 
 **Dev3**
 - [ ] **T1.10** CLI: `init`, `check`, `build`, `dev` (watch and reload), `serve`, `doctor`. *Needs:* T1.3. *Works when:* `falak init` then `falak dev` serves a new app with no other steps.
-- [ ] **T1.11** OpenAPI 3.1 document generated from the IR. *Needs:* T1.3. *Works when:* the document loads in a standard OpenAPI viewer without errors.
+- [x] **T1.11** OpenAPI 3.1 document generated from the IR. *Needs:* T1.3. *Works when:* the document loads in a standard OpenAPI viewer without errors.
 
 **Dev4**
 - [ ] **T1.12** Local identity: sign-up, login, Argon2id, rate-limited attempts, revocable sessions, single-use reset tokens. *Needs:* T0.3.

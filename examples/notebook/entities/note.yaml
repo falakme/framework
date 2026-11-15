@@ -1,0 +1,18 @@
+schema_version: 1
+entity: note
+owner: owner_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  body: { type: text, max_length: 20000 }
+  archived: { type: bool, default: false }
+  notebook_id: { type: uuid, required: true, indexed: true, references: notebook.id }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  notebook: { kind: belongs_to, entity: notebook, field: notebook_id }
+admin:
+  label: Notes
+  list_columns: [title, archived]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true
+  erasable: true

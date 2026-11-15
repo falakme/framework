@@ -8,6 +8,7 @@ pub mod ddl;
 pub mod diagnostics;
 pub mod load;
 pub mod lock;
+pub mod openapi;
 pub mod policy;
 pub mod reader;
 pub mod requirements;

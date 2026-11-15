@@ -1,0 +1,7 @@
+schema_version: 1
+name: notebook
+version: 0.1.0
+description: A personal notebook. Each person sees only their own notes.
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

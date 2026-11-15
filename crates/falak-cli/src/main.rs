@@ -1,3 +1,155 @@
-fn main() {
-    println!("falak-cli: not implemented yet");
+//! The `falak` command line.
+
+mod args;
+mod doctor;
+mod init;
+mod project;
+mod serve;
+mod watch;
+
+use std::{path::PathBuf, process::ExitCode};
+
+use args::{Command, parse};
+
+const USAGE: &str = "\
+falak: build and run Falak apps
+
+USAGE:
+    falak <command> [directory] [options]
+
+COMMANDS:
+    init [dir] [--name <name>]   Create a new app (default: the current directory)
+    check [dir]                  Validate the app and print diagnostics
+    build [dir]                  Compile; write falak.lock and .falak/ir.json
+    openapi [dir]                Write .falak/openapi.json
+    serve [dir] [options]        Serve the app
+    dev [dir] [options]          Serve, and rebuild and reload when a file changes
+    doctor [dir] [--port <n>]    Check this machine and the app
+
+OPTIONS:
+    --port <n>     Port to listen on (default 8787)
+    --name <name>  App name for `init` (default: the directory name)
+    -h, --help     Show this help
+    -V, --version  Show the version
+";
+
+fn main() -> ExitCode {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let args = match parse(&argv) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("error: {e}\n\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(args.command, &args.dir, args.port, args.name) {
+        Ok(code) => ExitCode::from(code),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run(command: Command, dir: &PathBuf, port: u16, name: Option<String>) -> Result<u8, String> {
+    match command {
+        Command::Help => {
+            print!("{USAGE}");
+            Ok(0)
+        }
+        Command::Version => {
+            println!("falak {}", project::FRAMEWORK_VERSION);
+            Ok(0)
+        }
+        Command::Init => {
+            let name = match name {
+                Some(n) => n,
+                None => default_name(dir)?,
+            };
+            init::init(dir, &name)?;
+            println!("Created app `{name}` in {}", dir.display());
+            println!("Next: falak dev {}", dir.display());
+            Ok(0)
+        }
+        Command::Check => {
+            let outcome = project::compile_dir(dir)?;
+            let (errors, warnings) = project::print_diagnostics(&outcome.diagnostics);
+            if outcome.compiled.is_some() {
+                println!("ok: {} files, {warnings} warning(s)", outcome.sources);
+                Ok(0)
+            } else {
+                eprintln!("failed: {errors} error(s), {warnings} warning(s)");
+                Ok(1)
+            }
+        }
+        Command::Build => match project::build(dir)? {
+            Some(c) => {
+                println!(
+                    "built {} {} (ir sha256:{})",
+                    c.ir.app.name, c.ir.app.version, c.ir.content_hash
+                );
+                Ok(0)
+            }
+            None => Ok(1),
+        },
+        Command::Openapi => match project::build(dir)? {
+            Some(c) => {
+                let doc = falak_core::openapi::generate(&c.ir);
+                let text = serde_json::to_string_pretty(&doc)
+                    .map_err(|e| format!("cannot render the OpenAPI document: {e}"))?;
+                let path = project::out_dir(dir).join("openapi.json");
+                std::fs::write(&path, text)
+                    .map_err(|e| format!("cannot write `{}`: {e}", path.display()))?;
+                println!("wrote {}", path.display());
+                Ok(0)
+            }
+            None => Ok(1),
+        },
+        Command::Doctor => {
+            let checks = doctor::run(dir, port);
+            let mut failed = false;
+            for c in &checks {
+                println!(
+                    "{} {:<18} {}",
+                    if c.ok { "ok  " } else { "FAIL" },
+                    c.name,
+                    c.detail
+                );
+                failed |= !c.ok;
+            }
+            Ok(u8::from(failed))
+        }
+        Command::Serve => serve::run(dir, port, false),
+        Command::Dev => serve::run(dir, port, true),
+    }
+}
+
+/// Name an app after its directory, turning anything that is not allowed in a name
+/// into `-`.
+fn default_name(dir: &PathBuf) -> Result<String, String> {
+    let absolute = std::fs::canonicalize(dir)
+        .or_else(|_| std::env::current_dir().map(|c| c.join(dir)))
+        .map_err(|e| format!("cannot resolve `{}`: {e}", dir.display()))?;
+    let raw = absolute
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches('-').to_string();
+    if init::valid_app_name(&cleaned) {
+        Ok(cleaned)
+    } else {
+        Err(format!(
+            "cannot use `{raw}` as an app name; pass one with --name"
+        ))
+    }
 }
