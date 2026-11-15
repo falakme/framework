@@ -1,0 +1,85 @@
+# Release (T4.14): on a tag `vX.Y.Z` (or `vX.Y.Z-rc.N`, which becomes a pre-release).
+#
+# Builds the three programs, writes a software bill of materials from Cargo.lock, writes
+# checksums, signs everything with GitHub's build provenance attestations (Sigstore,
+# keyless: no signing key is stored anywhere), and publishes a GitHub release.
+#
+# The tag must match the workspace version in Cargo.toml, so a mistyped tag stops here.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: The tag matches the version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match version $version in Cargo.toml" >&2
+            exit 1
+          fi
+      - name: Toolchain
+        run: rustup show
+      - name: Build
+        run: cargo build --release --locked -p falak-cli -p falak-office -p falak-studio
+      - name: Package
+        shell: bash
+        run: |
+          name="falak-$GITHUB_REF_NAME-$(uname -s | tr A-Z a-z)-$(uname -m)"
+          mkdir -p dist
+          tar -czf "dist/$name.tar.gz" -C target/release falak falak-office falak-studio
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+      - name: Software bill of materials and checksums
+        run: |
+          python3 scripts/release/sbom.py > "dist/falak-$GITHUB_REF_NAME.cdx.json"
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Sign (build provenance attestation)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "no section for $version in CHANGELOG.md" >&2; exit 1; }
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flag=""
+          case "$GITHUB_REF_NAME" in *-*) flag="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Falak $GITHUB_REF_NAME" --notes-file notes.md $flag

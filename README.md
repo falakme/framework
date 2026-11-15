@@ -10,7 +10,7 @@ It is built as three independently versioned products:
 
 ## Status
 
-**Design stage (`M0`).** The foundational decisions are recorded as ADRs ([ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions)); the workspace skeleton and shared contracts exist, and no specification is frozen yet.
+**Milestones M0 to M4 are built; v1.0 is being released** (see [CHANGELOG.md](./CHANGELOG.md), including its known limits). Core runs on SQLite, PostgreSQL and Cloudflare Workers with D1. Falak Office (sign in once, app registry, revocation, key rotation) and Falak Studio (a generated admin interface) are in `crates/falak-office` and `crates/falak-studio`. The SCHEMA, AUTHORIZATION, DRIVER and API specifications are frozen at 1.0; the foundational decisions are ADRs ([ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions)).
 
 ## Design
 
