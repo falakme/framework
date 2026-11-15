@@ -372,6 +372,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "falak-egress"
+version = "0.0.0"
+dependencies = [
+ "falak-contracts",
+]
+
+[[package]]
 name = "falak-migrate"
 version = "0.0.0"
 dependencies = [

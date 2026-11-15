@@ -102,7 +102,7 @@ Not considered: a compromised host operating system, and a malicious infrastruct
 | :-- | :-- | :-- | :-- |
 | Malware or wrong type uploaded | T, E | Size and type in presign conditions, magic-byte check, quarantine prefix until checked, separate origin served as attachment. | T3.11 |
 | Cross-tenant object access | I | Server-generated keys under a tenant prefix; short presign lifetime. | T3.11 |
-| Server-side request forgery | I, E | Outbound allow-list; private, loopback, link-local and metadata addresses blocked after DNS resolution; redirects re-checked. | T3.12 |
+| Server-side request forgery | I, E | Outbound allow-list; private, loopback, link-local and metadata addresses blocked after DNS resolution; redirects re-checked. | T3.12 built (library); callers T3.11, T7.x |
 
 ### B8. Events and workers
 
