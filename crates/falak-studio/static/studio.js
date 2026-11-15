@@ -63,7 +63,7 @@ function loginView(message) {
     el("label", {}, "Password", password),
     el("button", { type: "submit" }, "Sign in"),
     out);
-  show(el("h2", {}, "Sign in"), message ? el("p", { class: "note" }, message) : "", form);
+  show(el("div", { class: "center" }, el("h1", {}, "Sign in to Studio"), message ? el("p", { class: "note" }, message) : "", el("div", { class: "card" }, form)));
 }
 
 function start(me) {
@@ -126,7 +126,7 @@ async function openEntity(path, after, filter) {
         ...cols.map((c) => cell(meta, row, c))))));
   const more = page.meta && page.meta.has_more
     ? el("button", { on: { click: () => openEntity(path, page.meta.next_cursor, filter) } }, "Next page") : "";
-  renderShell(bar, page.data.length ? table : el("p", { class: "note" }, "No rows."), more);
+  renderShell(bar, page.data.length ? table : el("div", { class: "empty" }, "No rows."), more);
 }
 
 function cell(meta, row, name) {
@@ -222,7 +222,7 @@ function editView(meta, row) {
       },
     },
   }, ...rows, el("div", { class: "bar" }, ...buttons), out);
-  renderShell(el("h3", {}, `${creating ? "New" : "Edit"} ${meta.admin.label || meta.name}`), form);
+  renderShell(el("h1", {}, `${creating ? "New" : "Edit"} ${meta.admin.label || meta.name}`), el("div", { class: "card" }, form));
 }
 
 logoutButton.addEventListener("click", async () => {

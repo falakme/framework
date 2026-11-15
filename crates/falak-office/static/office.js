@@ -250,7 +250,7 @@ const views = {
           if (!confirm(`Cut ${a.name} off from Office? It stops accepting sign-ins within seconds.`)) return;
           await api("POST", `/v1/_office/apps/${encodeURIComponent(a.name)}/revoke`, {}); go("apps");
         } } }, "Cut off") : "",
-      ])) : el("p", { class: "note" }, "No apps yet."),
+      ])) : el("div", { class: "empty" }, "No apps yet. Make an enrollment code below."),
       el("h2", {}, "Connect an app"), el("div", { class: "card" }, form));
   },
 
@@ -274,7 +274,7 @@ const views = {
       el("label", { class: "check" }, admin, "Administrator"), el("button", { class: "primary", type: "submit" }, "Add person")), out);
     show(el("h1", {}, "People"),
       el("p", { class: "note" }, "Accounts are made here. There is no public sign-up. People who use an identity provider are linked to the account with the same verified email."),
-      table(["Email", "Role", "Added"], people.map((p) => [p.email, p.roles.includes("office_admin") ? el("span", { class: "pill" }, "administrator") : "", when(p.created_at)])),
+      table(["Email", "Role", "Added"], people.map((p) => [p.email, p.roles.includes("office_admin") ? el("span", { class: "pill info" }, "administrator") : "", when(p.created_at)])),
       el("h2", {}, "Add a person"), el("div", { class: "card" }, form));
   },
 
@@ -307,9 +307,9 @@ const views = {
       m.data.length ? table(["Person", "App", "Roles", "Workspace", ""], m.data.map((x) => [
         x.email, x.app, x.roles.join(", "), x.tenant,
         el("button", { class: "danger", on: { click: async () => { await api("DELETE", "/v1/_office/memberships", { user_id: x.user_id, app: x.app }); go("access"); } } }, "Remove"),
-      ])) : el("p", { class: "note" }, "Nobody has access to any app yet."),
+      ])) : el("div", { class: "empty" }, "Nobody has access to any app yet."),
       apps.data.length && people.data.length ? el("div", {}, el("h2", {}, "Give access"), el("div", { class: "card" }, form))
-        : el("p", { class: "note" }, "Connect an app and add a person first."));
+        : el("div", { class: "empty" }, "Connect an app and add a person first."));
   },
 
   async signin() {
@@ -351,7 +351,7 @@ const views = {
     }, el("div", { class: "row" }, el("label", {}, "Public address", addr), el("button", { type: "submit" }, "Save address")), addrOut);
     show(banner(), el("h1", {}, "Sign-in"),
       el("p", {}, "People sign in with a password you gave them, or through an identity provider such as Clerk, Auth0, Keycloak or Google. The provider does passkeys and multi-factor; Office only checks its signed ID token."),
-      el("div", { class: "card" }, el("h2", {}, o ? "Identity provider: on" : "Identity provider: off"), form),
+      el("div", { class: "card" }, el("h2", {}, "Identity provider"), el("p", { class: "note" }, o ? "On" : "Off"), form),
       el("p", { class: "note" }, "The sign-in page of your app gets an ID token from the provider and sends it to Office at ", el("code", {}, "POST /v1/auth/oidc/exchange"), "."),
       el("div", { class: "card" }, el("h2", {}, "Public address"), addrForm));
   },
@@ -384,7 +384,7 @@ const views = {
   async activity() {
     const log = (await api("GET", "/v1/_office/audit")).data;
     show(el("h1", {}, "Activity"), el("p", { class: "note" }, "Administrative actions, newest first. Each entry commits to the one before it."),
-      log.length ? table(["#", "When", "Who", "What", "Detail"], log.map((l) => [String(l.seq), when(l.at), l.actor.slice(0, 12), l.action, l.detail])) : el("p", { class: "note" }, "Nothing yet."));
+      log.length ? table(["#", "When", "Who", "What", "Detail"], log.map((l) => [String(l.seq), when(l.at), l.actor.slice(0, 12), l.action, l.detail])) : el("div", { class: "empty" }, "Nothing yet."));
   },
 };
 

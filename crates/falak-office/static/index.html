@@ -4,19 +4,22 @@
 <meta charset="utf-8">
 <title>Falak Office</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/office.css">
 </head>
 <body>
 <header>
-  <strong>Falak Office</strong>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#000" stroke-width="2"/><circle cx="12" cy="12" r="3.6" fill="#000"/></svg>
+    Falak <i>/</i> <span>Office</span>
+  </div>
+  <div class="grow"></div>
   <span id="who"></span>
   <button id="logout" hidden>Sign out</button>
 </header>
-<div id="layout">
-  <nav id="tabs" hidden></nav>
-  <main id="main"><p class="note">Loading…</p></main>
-</div>
+<nav id="tabs" hidden></nav>
+<main id="main"><p class="note">Loading…</p></main>
 <script src="/office.js"></script>
 </body>
 </html>
