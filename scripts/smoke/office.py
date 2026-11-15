@@ -24,6 +24,7 @@ import urllib.request
 import uuid
 
 FALAK, OFFICE_BIN, NOTEBOOK = sys.argv[1], sys.argv[2], sys.argv[3]
+ACADEMY = os.path.join(os.path.dirname(NOTEBOOK), "academy")
 OFFICE_DB = sys.argv[4] if len(sys.argv) > 4 else ""
 PASSWORD = "correct horse battery staple 42"
 STALENESS = 5  # seconds; the apps' limit before tier 2 goes read only
@@ -172,8 +173,9 @@ def main():
          "--password-env", "OFFICE_PW", "--role", "office_admin"], pw)
     run([OFFICE_BIN, "user", "add", "--data", data, "--email", "alice@example.com",
          "--password-env", "OFFICE_PW"], pw)
-    run([OFFICE_BIN, "user", "add", "--data", data, "--email", "bob@example.com",
-         "--password-env", "OFFICE_PW"], pw)
+    for who in ("bob", "carol", "erin"):
+        run([OFFICE_BIN, "user", "add", "--data", data, "--email", f"{who}@example.com",
+             "--password-env", "OFFICE_PW"], pw)
 
     office = start(office_argv, "office.log", office_env)
     wait_up(office_url, "office", office)
@@ -198,10 +200,11 @@ def main():
 
     # Two apps, enrolled with one-time tokens.
     apps = {}
-    for name, tier in (("notebook", 1), ("journal", 2)):
+    for name, tier in (("notebook", 1), ("journal", 2), ("academy", 1)):
         d = os.path.join(work, name)
-        shutil.copytree(NOTEBOOK, d, ignore=shutil.ignore_patterns("web", ".falak", "node_modules"))
-        if name != "notebook":
+        source = ACADEMY if name == "academy" else NOTEBOOK
+        shutil.copytree(source, d, ignore=shutil.ignore_patterns("web", ".falak", "node_modules"))
+        if name == "journal":
             path = os.path.join(d, "app.yaml")
             text = open(path).read().replace("name: notebook", f"name: {name}")
             open(path, "w").write(text)
@@ -217,10 +220,14 @@ def main():
         apps[name] = d
 
     # Alice and Bob are members of both apps.
-    for who in ("alice", "bob"):
+    teachers = ("alice", "erin")
+    for who in ("alice", "bob", "carol", "erin"):
         for name in apps:
+            if name != "academy" and who in ("carol", "erin"):
+                continue
+            roles = ["teacher"] if name == "academy" and who in teachers else []
             s, v = call(office_url, "PUT", "/v1/_office/memberships",
-                        {"email": f"{who}@example.com", "app": name, "roles": []}, admin)
+                        {"email": f"{who}@example.com", "app": name, "roles": roles}, admin)
             check(f"{who} is a member of {name}", s == 200, f"{s} {v}")
 
     env = {"FALAK_OFFICE_SYNC_SECS": str(SYNC), "FALAK_OFFICE_MAX_STALENESS": str(STALENESS)}
@@ -268,6 +275,39 @@ def main():
     check("an enrolled app has no sign-up of its own", s in (404, 405), s)
     s, _ = call(urls["notebook"], "GET", "/v1/notebooks", token=session("alice@example.com"))
     check("an Office session token is not an app token", s == 401, s)
+
+    # A third app, with relationship rules: teachers reach their own course's work.
+    def tok(who, name="academy"):
+        return app_token(session(f"{who}@example.com"), name)
+
+    A, teacher, bob_t, carol_t, erin_t = urls["academy"], tok("alice"), tok("bob"), tok("carol"), tok("erin")
+    s, course = call(A, "POST", "/v1/courses", {"title": "Maths", "description": "d", "published": True}, teacher)
+    check("a teacher makes a course", s == 201, f"{s} {course}")
+    s, _ = call(A, "POST", "/v1/courses", {"title": "Nope"}, bob_t)
+    check("a student cannot make a course", s in (403, 404), s)
+    s, _ = call(A, "POST", "/v1/enrollments", {"course_id": course["id"]}, bob_t)
+    check("a student enrolls", s == 201, s)
+    s, mine = call(A, "POST", "/v1/submissions", {"course_id": course["id"], "title": "Bob's essay", "body": "x"}, bob_t)
+    check("a student submits work", s == 201, f"{s} {mine}")
+    s, _ = call(A, "POST", "/v1/submissions", {"course_id": course["id"], "title": "Carol's essay", "body": "y"}, carol_t)
+    titles = lambda path, t: sorted(r.get("title", r.get("name", "")) for r in (call(A, "GET", path, token=t)[1] or {}).get("data", []))
+    check("the course's teacher reads every submission", titles("/v1/submissions", teacher) == ["Bob's essay", "Carol's essay"], titles("/v1/submissions", teacher))
+    check("a student reads only their own", titles("/v1/submissions", bob_t) == ["Bob's essay"], titles("/v1/submissions", bob_t))
+    check("another teacher reads none of them", titles("/v1/submissions", erin_t) == [], titles("/v1/submissions", erin_t))
+    s, roster = call(A, "GET", "/v1/enrollments", token=teacher)
+    check("the teacher sees the roster", s == 200 and len(roster["data"]) == 1, f"{s} {roster}")
+    s, _ = call(A, "GET", f"/v1/submissions/{mine['id']}", token=erin_t)
+    check("a teacher of another course gets 404 on the work", s == 404, s)
+    s, review = call(A, "POST", "/v1/reviews", {"submission_id": mine["id"], "grade": 90, "feedback": "good"}, teacher)
+    check("the teacher reviews it", s == 201, f"{s} {review}")
+    s, mine_reviews = call(A, "GET", "/v1/reviews", token=bob_t)
+    check("the student sees the review of their own work", s == 200 and len(mine_reviews["data"]) == 1, f"{s} {mine_reviews}")
+    s, other = call(A, "GET", "/v1/reviews", token=carol_t)
+    check("another student does not", s == 200 and other["data"] == [], f"{s} {other}")
+    s, _ = call(A, "POST", "/v1/reviews", {"submission_id": mine["id"], "grade": 100}, bob_t)
+    check("a student cannot grade themselves", s in (403, 404), s)
+    s, _ = call(A, "PATCH", f"/v1/courses/{course['id']}", {"title": "mine now"}, bob_t)
+    check("a student cannot change a course", s in (403, 404), s)
 
     # Revocation reaches the apps.
     from_jti = app_token(alice, "notebook")

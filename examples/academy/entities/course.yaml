@@ -1,0 +1,12 @@
+schema_version: 1
+entity: course
+owner: teacher_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  description: { type: text, max_length: 5000 }
+  published: { type: bool, default: false }
+  teacher_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Courses
+  list_columns: [title, published]
+  search_fields: [title]

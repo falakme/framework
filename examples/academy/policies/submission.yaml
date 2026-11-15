@@ -1,0 +1,9 @@
+schema_version: 1
+entity: submission
+rules:
+  - id: students_own_work
+    actions: [create, read, update]
+    allow: { owner: true }
+  - id: teacher_reads_work
+    actions: [read]
+    allow: { owner: true, related: course }

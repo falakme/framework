@@ -1,0 +1,10 @@
+schema_version: 1
+entity: enrollment
+rules:
+  - id: students_enroll
+    actions: [create, read, delete]
+    allow: { owner: true }
+  # The teacher of the course sees who is enrolled in it.
+  - id: teacher_sees_roster
+    actions: [read]
+    allow: { owner: true, related: course }

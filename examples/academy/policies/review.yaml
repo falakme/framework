@@ -1,0 +1,14 @@
+schema_version: 1
+entity: review
+rules:
+  # Only teachers write reviews. A review is owned by its writer.
+  - id: teachers_create
+    actions: [create]
+    allow: { role: teacher }
+  - id: reviewer_manages
+    actions: [read, update, delete]
+    allow: { owner: true }
+  # The student sees the review of their own submission.
+  - id: student_reads_review
+    actions: [read]
+    allow: { owner: true, related: submission }

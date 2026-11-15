@@ -1,0 +1,14 @@
+schema_version: 1
+entity: submission
+owner: student_id
+fields:
+  course_id: { type: uuid, required: true, indexed: true, references: course.id }
+  title: { type: text, required: true, max_length: 200 }
+  body: { type: text, max_length: 20000 }
+  student_id: { type: uuid, required: true, indexed: true }
+relations:
+  course: { kind: belongs_to, entity: course, field: course_id }
+admin:
+  label: Submissions
+  list_columns: [title, course_id]
+  search_fields: [title]

@@ -1,0 +1,13 @@
+schema_version: 1
+entity: review
+owner: teacher_id
+fields:
+  submission_id: { type: uuid, required: true, indexed: true, references: submission.id }
+  grade: { type: int64, required: true, min: 0, max: 100 }
+  feedback: { type: text, max_length: 5000 }
+  teacher_id: { type: uuid, required: true, indexed: true }
+relations:
+  submission: { kind: belongs_to, entity: submission, field: submission_id }
+admin:
+  label: Reviews
+  list_columns: [submission_id, grade]

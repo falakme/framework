@@ -1,0 +1,11 @@
+schema_version: 1
+entity: enrollment
+owner: student_id
+fields:
+  course_id: { type: uuid, required: true, indexed: true, references: course.id }
+  student_id: { type: uuid, required: true, indexed: true }
+relations:
+  course: { kind: belongs_to, entity: course, field: course_id }
+admin:
+  label: Enrollments
+  list_columns: [course_id, student_id]

@@ -1,0 +1,7 @@
+schema_version: 1
+name: academy
+version: 0.1.0
+description: Courses, enrollments, submissions and reviews. Teachers see their own courses' work through relationship rules.
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

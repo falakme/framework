@@ -1,0 +1,17 @@
+schema_version: 1
+entity: course
+rules:
+  # Only teachers make courses; the maker owns the course.
+  - id: teachers_create
+    actions: [create]
+    allow: { role: teacher }
+  - id: owner_manages
+    actions: [read, update, delete]
+    allow: { owner: true }
+  # Everyone signed in can see a published course, but not its draft state.
+  - id: catalogue
+    actions: [read]
+    allow:
+      authenticated: true
+      where: { published: true }
+      fields: [title, description, published]

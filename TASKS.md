@@ -222,7 +222,7 @@ Target: three apps share one login and one admin interface.
 
 **Dev5**
 - [ ] **T4.11** Studio: admin UI generated from `admin:` metadata, backend-for-frontend with `HttpOnly` cookies, strict CSP, PII masking, audit of admin actions. Reaches app data only through each app's API. *Needs:* T4.2, T4.8.
-- [ ] **T4.12** Academy app in `examples/academy/`: courses, enrollments, submissions.
+- [x] **T4.12** Academy app in `examples/academy/`: courses, enrollments, submissions. *Plus reviews. Teachers reach their course's work through `related` rules; checked through Office in `scripts/smoke/office.sh`.*
 - [ ] **T4.13** `scripts/smoke/office.sh`: log in once and reach Notebook, Falak.me and Academy; edit a record in two apps from Studio; rotate the signing key; stop Office and confirm each app behaves as its tier specifies. *Needs:* T4.6, T4.9, T4.11, T4.12.
 
 **Gate (Dev1)**
