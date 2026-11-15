@@ -68,8 +68,8 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 - [x] **T0.4** Draft `SCHEMA_SPECIFICATION.md` and JSON Schema files for each YAML file type. *Works when:* the Notebook YAML from T0.11 validates against the JSON Schemas in an editor. *Done:* the spec and four JSON Schemas are in `specifications/`, with a minimal example that validates and negative cases that are rejected; T0.11 will confirm against the Notebook fixture.
 
 **Dev2**
-- [ ] **T0.5** Draft `DRIVER_SPECIFICATION.md` with capability profiles for SQLite and PostgreSQL. *Works when:* each capability in ARCHITECTURE §4.4 has a value for both drivers.
-- [ ] **T0.6** Draft `API_SPECIFICATION.md`: pagination, filters, error format, idempotency keys, `ETag`. *Works when:* Dev5 can write an example request and response for every Notebook operation from it.
+- [x] **T0.5** Draft `DRIVER_SPECIFICATION.md` with capability profiles for SQLite and PostgreSQL. *Works when:* each capability in ARCHITECTURE §4.4 has a value for both drivers.
+- [x] **T0.6** Draft `API_SPECIFICATION.md`: pagination, filters, error format, idempotency keys, `ETag`. *Works when:* Dev5 can write an example request and response for every Notebook operation from it.
 
 **Dev3**
 - [x] **T0.7** Verify current Cloudflare Workers and D1 limits and record them in the DRIVER spec (recorded in `specifications/CLOUDFLARE_LIMITS.md`, checked 2026-11-15; Dev2 folds it into the DRIVER spec with T0.5). *Works when:* each limit cites the vendor documentation page and the date checked.
