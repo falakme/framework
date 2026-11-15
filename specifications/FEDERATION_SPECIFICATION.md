@@ -93,6 +93,10 @@ Administrators revoke with `POST /v1/_office/revocations {kind, id}`.
 
 The cached key set is used for as long as tokens signed by it can still be valid. An app that has never reached Office since it started has no keys and refuses every token.
 
-## 9. Not in this draft
+## 9. Signing in through an identity provider
 
-OIDC provider wrapping and passkeys (ADR-0004: the provider is an owner decision), sender-constrained tokens (tier 3), step-up authentication, events, sagas and the Studio protocol.
+Office accepts ID tokens from one configured OpenID Connect provider (ADR-0011). `POST /v1/auth/oidc/exchange` with `{"id_token": "..."}` returns the same body as `/v1/auth/login` (`access_token`, `refresh_token`, `expires_in`). The token must verify against the provider's key set (algorithm from the asymmetric list only), name the configured issuer, carry the configured audience in `aud` or `azp`, be unexpired, and carry a verified `email`. Office links `(iss, sub)` to an account on first use. A subject revoked in the feed cannot sign in again. Without a configured provider the route answers `404`. Every refusal is `401` with the same body.
+
+## 10. Not in this draft
+
+Passkeys (the identity provider's job, ADR-0011), sender-constrained tokens (tier 3), step-up authentication, events, sagas and the Studio protocol.

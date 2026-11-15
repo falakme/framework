@@ -32,6 +32,10 @@ use crate::{
 
 type Shared = Arc<Office>;
 
+/// The role a step-up token carries, and how long the proof and the token last.
+const STEP_UP_ROLE: &str = "step_up";
+const STEP_UP_SECS: i64 = 300;
+
 /// Everything Office serves. `login` is the sign-in service behind `/v1/auth/*`.
 pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
     let auth = auth_router(login, Arc::new(|_, _| {})).layer(axum::middleware::from_fn(
@@ -52,7 +56,9 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/enroll", post(enroll))
         .route("/v1/_office/enrollments", post(make_enrollment))
         .route("/v1/_office/manifest", get(manifest))
+        .route("/v1/auth/oidc/exchange", post(oidc_exchange))
         .route("/v1/_office/token", post(token))
+        .route("/v1/_office/stepup", post(step_up))
         .route("/v1/_office/users", post(make_user))
         .route("/v1/_office/memberships", put(membership))
         .route("/v1/_office/revocations", get(feed).post(revoke))
@@ -199,7 +205,7 @@ impl Office {
         Ok(r.first().map_or(0, |r| int(r.first())))
     }
 
-    async fn add_revocation(&self, kind: &str, id: &str) -> Result<i64> {
+    pub async fn add_revocation(&self, kind: &str, id: &str) -> Result<i64> {
         for _ in 0..5 {
             let done = self
                 .db
@@ -530,47 +536,104 @@ async fn token(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Resp
     let run = async {
         let me = o.session(&headers)?;
         let v = body_json(&body)?;
-        let audience = field(&v, "audience")?;
-        if o.is_subject_revoked(&me.subject).await? {
+        app_token(&o, &me.subject, field(&v, "audience")?, false).await
+    };
+    match run.await {
+        Ok(v) => json_response(StatusCode::OK, &v, &rid),
+        Err(e) => fail(&e, inst, &rid),
+    }
+}
+
+/// The token for one app, from the person's membership. `step_up` adds the role
+/// `step_up` and shortens the life: the person has just proven themselves again.
+async fn app_token(o: &Office, subject: &str, audience: &str, step_up: bool) -> Result<Json> {
+    if o.is_subject_revoked(subject).await? {
+        return Err(Error::unauthenticated());
+    }
+    let Some((app, status)) = o.app(audience).await? else {
+        return Err(Error::forbidden());
+    };
+    let member =
+        o.db.rows(
+            "SELECT tenant, roles FROM office_memberships WHERE user_id = ? AND app = ?",
+            vec![t(subject), t(audience)],
+        )
+        .await?;
+    // An app that is revoked, or one this person has no membership for, gets the same
+    // answer.
+    let Some(m) = member.first().filter(|_| status == "active") else {
+        return Err(Error::forbidden());
+    };
+    let tenant = match m.first() {
+        Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
+        _ => None,
+    };
+    let mut roles: Vec<String> = text(m.get(1))
+        .split(',')
+        .filter(|r| !r.is_empty() && *r != STEP_UP_ROLE)
+        .map(str::to_owned)
+        .collect();
+    let mut lifetime = tier_lifetime(app.tier);
+    if step_up {
+        roles.push(STEP_UP_ROLE.to_owned());
+        lifetime = lifetime.min(STEP_UP_SECS);
+    }
+    let issued_at = now();
+    let access = o.issue(
+        audience,
+        &Claims {
+            subject: subject.to_owned(),
+            tenant,
+            roles,
+            issued_at,
+            expires_at: issued_at + lifetime,
+            token_id: new_id(),
+        },
+    );
+    Ok(json!({"access_token": access, "token_type": "Bearer", "expires_in": lifetime}))
+}
+
+/// Step-up: the person proves themselves again at the identity provider, and gets an
+/// app token that carries the role `step_up` for a few minutes. Policies that guard a
+/// sensitive action ask for that role. The proof is a fresh ID token for the same
+/// provider identity (`auth_time` within five minutes).
+async fn step_up(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
+    let (rid, inst) = (extract_request_id(&headers), "/v1/_office/stepup");
+    let Some(oidc) = o.oidc.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let run = async {
+        let me = o.session(&headers)?;
+        let v = body_json(&body)?;
+        let (audience, id_token) = (field(&v, "audience")?, field(&v, "id_token")?.to_owned());
+        if oidc.wants_refresh(&id_token, now()) {
+            let fetch = oidc.clone();
+            let _ = tokio::task::spawn_blocking(move || fetch.refresh_blocking(now())).await;
+        }
+        let who = oidc.verify(&id_token).map_err(|why| {
+            eprintln!("oidc: refused a step-up token ({why})");
+            Error::unauthenticated()
+        })?;
+        // Fresh: the person signed in just now, not a session that has simply kept going.
+        if !who
+            .auth_time
+            .is_some_and(|t| now() - t <= STEP_UP_SECS && t <= now() + 30)
+        {
             return Err(Error::unauthenticated());
         }
-        let Some((app, status)) = o.app(audience).await? else {
-            return Err(Error::forbidden());
-        };
-        let member =
+        // And it is the same person as this Office session.
+        let linked =
             o.db.rows(
-                "SELECT tenant, roles FROM office_memberships WHERE user_id = ? AND app = ?",
-                vec![t(&me.subject), t(audience)],
+                "SELECT user_id FROM office_identities WHERE issuer = ? AND subject = ?",
+                vec![t(&who.issuer), t(&who.subject)],
             )
             .await?;
-        // An app that is revoked, or one this person has no membership for, gets the
-        // same answer.
-        let Some(m) = member.first().filter(|_| status == "active") else {
-            return Err(Error::forbidden());
-        };
-        let tenant = match m.first() {
-            Some(Value::Text(s)) if !s.is_empty() => Some(s.clone()),
-            _ => None,
-        };
-        let roles: Vec<String> = text(m.get(1))
-            .split(',')
-            .filter(|r| !r.is_empty())
-            .map(str::to_owned)
-            .collect();
-        let issued_at = now();
-        let lifetime = tier_lifetime(app.tier);
-        let access = o.issue(
-            audience,
-            &Claims {
-                subject: me.subject,
-                tenant,
-                roles,
-                issued_at,
-                expires_at: issued_at + lifetime,
-                token_id: new_id(),
-            },
-        );
-        Ok(json!({"access_token": access, "token_type": "Bearer", "expires_in": lifetime}))
+        if linked.first().map(|r| text(r.first())).as_deref() != Some(me.subject.as_str()) {
+            return Err(Error::unauthenticated());
+        }
+        let out = app_token(&o, &me.subject, audience, true).await?;
+        o.audit(&me.subject, "step_up", audience).await;
+        Ok(out)
     };
     match run.await {
         Ok(v) => json_response(StatusCode::OK, &v, &rid),
@@ -598,6 +661,73 @@ async fn make_user(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> 
     };
     match run.await {
         Ok(v) => json_response(StatusCode::CREATED, &v, &rid),
+        Err(e) => fail(&e, inst, &rid),
+    }
+}
+
+/// Trade an ID token from the configured OpenID Connect provider for an Office session.
+/// Every refusal looks the same from outside.
+async fn oidc_exchange(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
+    let (rid, inst) = (extract_request_id(&headers), "/v1/auth/oidc/exchange");
+    let Some(oidc) = o.oidc.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let run = async {
+        let v = body_json(&body)?;
+        let token = field(&v, "id_token")?.to_owned();
+        if oidc.wants_refresh(&token, now()) {
+            let fetch = oidc.clone();
+            let _ = tokio::task::spawn_blocking(move || fetch.refresh_blocking(now())).await;
+        }
+        let who = oidc.verify(&token).map_err(|why| {
+            eprintln!("oidc: refused a token ({why})");
+            Error::unauthenticated()
+        })?;
+        let (issuer, subject) = (who.issuer.as_str(), who.subject.as_str());
+
+        // The same person again: found by the provider's own id, not by email.
+        let linked =
+            o.db.rows(
+                "SELECT user_id FROM office_identities WHERE issuer = ? AND subject = ?",
+                vec![t(issuer), t(subject)],
+            )
+            .await?;
+        let user = if let Some(row) = linked.first() {
+            text(row.first())
+        } else {
+            // First time: link to the account with this (verified) email, or make one
+            // if the email's domain is allowed. Anyone else is refused.
+            let id = match o.users.find(&who.email).await? {
+                Some(id) => id,
+                None if oidc.may_create(&who.email) => o.users.create_linked(&who.email).await?,
+                None => return Err(Error::unauthenticated()),
+            };
+            o.db.run(
+                "INSERT INTO office_identities (issuer, subject, user_id, linked_at) VALUES (?, ?, ?, ?)",
+                vec![t(issuer), t(subject), t(&id), Value::Int64(now())],
+            )
+            .await
+            .map_err(|_| Error::unauthenticated())?;
+            o.audit("oidc", "identity_linked", &id).await;
+            id
+        };
+        if o.is_subject_revoked(&user).await? {
+            return Err(Error::unauthenticated());
+        }
+        let tokens = o
+            .users
+            .session_for(&user)
+            .await?
+            .ok_or_else(Error::unauthenticated)?;
+        Ok::<_, Error>(json!({
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "expires_in": tokens.expires_in,
+            "token_type": "Bearer",
+        }))
+    };
+    match run.await {
+        Ok(v) => json_response(StatusCode::OK, &v, &rid),
         Err(e) => fail(&e, inst, &rid),
     }
 }

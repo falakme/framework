@@ -242,6 +242,16 @@ impl<S: AuthStore, C: Clock, G: IdGenerator> LocalIdentity<S, C, G> {
         self.start_session(&user).await
     }
 
+    /// Start a session for an account whose owner was proven somewhere else, such as an
+    /// outside identity provider. No password is checked: the caller must have verified
+    /// the proof. `None` if the account does not exist.
+    pub async fn session_for_id(&self, user_id: &str) -> Result<Option<Tokens>> {
+        match self.store.user_by_id(user_id).await? {
+            Some(user) => Ok(Some(self.start_session(&user).await?)),
+            None => Ok(None),
+        }
+    }
+
     async fn start_session(&self, user: &UserRecord) -> Result<Tokens> {
         let now = self.now();
         let refresh_token = random_token();

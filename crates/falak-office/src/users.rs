@@ -3,7 +3,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use falak_auth::{
-    identity::LocalIdentity,
+    identity::{LocalIdentity, Tokens},
     store::{AuthStore, Placeholders, SqlStore},
     system::{RandomIds, SystemClock},
 };
@@ -27,6 +27,11 @@ pub trait Users: Send + Sync + 'static {
     ) -> Boxed<'a, String>;
     /// The id of the account with this email, if any.
     fn find<'a>(&'a self, email: &'a str) -> Boxed<'a, Option<String>>;
+    /// Make an account whose owner signs in through an outside identity provider. Its
+    /// password is random and never shown, and Office has no password reset.
+    fn create_linked<'a>(&'a self, email: &'a str) -> Boxed<'a, String>;
+    /// A session for an account proven elsewhere (see `LocalIdentity::session_for_id`).
+    fn session_for<'a>(&'a self, user_id: &'a str) -> Boxed<'a, Option<Tokens>>;
 }
 
 pub struct Accounts<I, S> {
@@ -81,6 +86,17 @@ macro_rules! accounts {
                 })
             }
 
+            fn create_linked<'a>(&'a self, email: &'a str) -> Boxed<'a, String> {
+                Box::pin(async move {
+                    let password = hex::encode(rand_bytes());
+                    self.identity.signup(email, &password).await
+                })
+            }
+
+            fn session_for<'a>(&'a self, user_id: &'a str) -> Boxed<'a, Option<Tokens>> {
+                Box::pin(async move { self.identity.session_for_id(user_id).await })
+            }
+
             fn find<'a>(&'a self, email: &'a str) -> Boxed<'a, Option<String>> {
                 Box::pin(async move {
                     let email = email.trim().to_lowercase();
@@ -89,6 +105,13 @@ macro_rules! accounts {
             }
         }
     };
+}
+
+fn rand_bytes() -> [u8; 32] {
+    use rand_core::RngCore;
+    let mut b = [0u8; 32];
+    rand_core::OsRng.fill_bytes(&mut b);
+    b
 }
 
 accounts!(open_sqlite, SqliteDriver, Placeholders::Question);

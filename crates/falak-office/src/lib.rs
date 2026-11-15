@@ -4,11 +4,13 @@
 //! for its own audience, publishes the keys that verify them, and keeps the revocation
 //! feed. It holds no app data.
 //!
-//! The sign-in provider sits behind `falak-runtime-native`'s `AuthService`: today it is
-//! Falak's own local identity (passwords, rotating refresh tokens). Wrapping an OIDC
-//! provider with passkeys is an owner decision (ADR-0004) and is not built.
+//! Sign-in has two doors. Falak's own local identity (passwords, rotating refresh
+//! tokens) sits behind `falak-runtime-native`'s `AuthService`. Any OpenID Connect provider
+//! (Clerk, Auth0, Keycloak, ...) can be used instead through `oidc`: passkeys and
+//! multi-factor are the provider's job (ADR-0011).
 
 pub mod db;
+pub mod oidc;
 mod routes;
 pub mod users;
 
@@ -49,6 +51,8 @@ pub struct Office {
     /// Verifies Office's own session tokens (audience `office`).
     session: Verifier,
     pub users: Arc<dyn Users>,
+    /// Sign-in through an outside OpenID Connect provider, when one is configured.
+    pub oidc: Option<Arc<oidc::Oidc>>,
 }
 
 pub fn now() -> i64 {
@@ -73,7 +77,15 @@ impl Office {
             keys_path,
             session,
             users,
+            oidc: None,
         }
+    }
+
+    /// Accept ID tokens from this provider at `POST /v1/auth/oidc/exchange`.
+    #[must_use]
+    pub fn with_oidc(mut self, oidc: oidc::OidcConfig) -> Self {
+        self.oidc = Some(Arc::new(oidc::Oidc::new(oidc)));
+        self
     }
 
     pub fn session_verifier(&self) -> &Verifier {

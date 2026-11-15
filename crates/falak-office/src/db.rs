@@ -27,6 +27,7 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS office_memberships (user_id TEXT NOT NULL, app TEXT NOT NULL, tenant TEXT, roles TEXT NOT NULL, PRIMARY KEY (user_id, app))",
     "CREATE TABLE IF NOT EXISTS office_revocations (version BIGINT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, id TEXT NOT NULL, at BIGINT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS office_nonces (app TEXT NOT NULL, nonce TEXT NOT NULL, seen_at BIGINT NOT NULL, PRIMARY KEY (app, nonce))",
+    "CREATE TABLE IF NOT EXISTS office_identities (issuer TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, linked_at BIGINT NOT NULL, PRIMARY KEY (issuer, subject))",
     "CREATE TABLE IF NOT EXISTS office_audit (seq BIGINT NOT NULL PRIMARY KEY, at BIGINT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL)",
 ];
 

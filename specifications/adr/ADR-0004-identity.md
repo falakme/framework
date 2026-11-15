@@ -9,7 +9,7 @@ Building login, passkeys, MFA and recovery from scratch is the largest security 
 
 ## Decision
 
-Office Identity wraps an existing open-source OIDC provider for login, passkeys, MFA and account recovery, and adds only what is Falak-specific: per-app audiences, App Passports, trust-tier claims and the revocation feed. The provider sits behind the `IdentityProvider` trait. The specific provider is chosen before task T4.8.
+Office Identity wraps an existing open-source OIDC provider for login, passkeys, MFA and account recovery, and adds only what is Falak-specific: per-app audiences, App Passports, trust-tier claims and the revocation feed. The provider sits behind the `IdentityProvider` trait. The specific provider is chosen before task T4.8. **Amended by ADR-0011:** Office accepts any OpenID Connect provider and keeps no passkeys.
 
 ## Consequences
 

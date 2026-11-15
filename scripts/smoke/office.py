@@ -108,11 +108,62 @@ def run(argv, env=None):
     return r.stdout
 
 
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "..", "crates", "falak-office", "tests", "fixtures")
+
+
+def b64u(raw):
+    import base64
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def idp_token(claims):
+    """An RS256 ID token, signed with the test key by `openssl` (no Python crypto needed)."""
+    head = b64u(json.dumps({"alg": "RS256", "kid": "test-1", "typ": "JWT"}).encode())
+    body = b64u(json.dumps(claims).encode())
+    sig = subprocess.run(
+        ["openssl", "dgst", "-sha256", "-sign", os.path.join(FIXTURES, "oidc_test_key.pem")],
+        input=f"{head}.{body}".encode(), capture_output=True, check=True,
+    ).stdout
+    return f"{head}.{body}.{b64u(sig)}"
+
+
+def start_idp(issuer_port):
+    """A stand-in for Clerk, Auth0 and the like: discovery and a key set."""
+    import http.server
+    issuer = f"http://127.0.0.1:{issuer_port}"
+    jwks = open(os.path.join(FIXTURES, "oidc_test_jwks.json")).read()
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/.well-known/openid-configuration":
+                out = json.dumps({"issuer": issuer, "jwks_uri": issuer + "/jwks"})
+            elif self.path == "/jwks":
+                out = jwks
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(out.encode())
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", issuer_port), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return issuer, srv
+
+
 def main():
+    idp_url, idp = start_idp(port())
     office_port = port()
     office_url = f"http://127.0.0.1:{office_port}"
     data = os.path.join(work, "office")
     office_env = {"DATABASE_URL": OFFICE_DB} if OFFICE_DB else {}
+    office_env.update({"FALAK_OIDC_ISSUER": idp_url, "FALAK_OIDC_AUDIENCE": "falak-office",
+                       "FALAK_OIDC_AUTO_CREATE": "corp.test"})
     office_argv = [OFFICE_BIN, "serve", "--port", str(office_port), "--data", data, "--issuer", office_url]
 
     # Accounts are made by an administrator.
@@ -132,6 +183,18 @@ def main():
     admin = v["access_token"]
     s, v = call(office_url, "POST", "/v1/auth/signup", {"email": "x@example.com", "password": PASSWORD})
     check("Office has no self sign-up", s == 404, s)
+
+    # Sign in through an outside identity provider (passkeys and MFA are its job).
+    claims = {"iss": idp_url, "aud": "falak-office", "sub": "idp_user_1", "email": "dana@corp.test",
+              "email_verified": True, "iat": int(time.time()), "exp": int(time.time()) + 300}
+    s, v = call(office_url, "POST", "/v1/auth/oidc/exchange", {"id_token": idp_token(claims)})
+    check("a person from the identity provider signs in to Office", s == 200 and "access_token" in v, f"{s} {v}")
+    dana = v["access_token"] if s == 200 else ""
+    s, v = call(office_url, "POST", "/v1/auth/oidc/exchange", {"id_token": idp_token({**claims, "aud": "other"})})
+    check("a token for another audience is refused", s == 401, f"{s} {v}")
+    s, v = call(office_url, "POST", "/v1/auth/oidc/exchange",
+                {"id_token": idp_token({**claims, "sub": "x", "email": "eve@elsewhere.test"})})
+    check("a stranger from another domain is refused", s == 401, f"{s} {v}")
 
     # Two apps, enrolled with one-time tokens.
     apps = {}
@@ -184,6 +247,14 @@ def main():
     t_nb, t_jr = app_token(alice, "notebook"), app_token(alice, "journal")
     b_nb = app_token(bob, "notebook")
     check("one sign-in gives a token for each app", bool(t_nb and t_jr))
+
+    s, v = call(office_url, "PUT", "/v1/_office/memberships",
+                {"email": "dana@corp.test", "app": "notebook", "roles": []}, admin)
+    check("an administrator gives the new person a membership", s == 200, f"{s} {v}")
+    s, v = call(office_url, "POST", "/v1/_office/token", {"audience": "notebook"}, dana)
+    check("the provider's person gets an app token", s == 200, f"{s} {v}")
+    s, _ = call(urls["notebook"], "POST", "/v1/notebooks", {"title": "Dana's"}, v["access_token"])
+    check("and uses the app with it", s == 201, s)
 
     s, book = call(urls["notebook"], "POST", "/v1/notebooks", {"title": "Alice's"}, t_nb)
     check("notebook accepts alice's Office token", s == 201, f"{s} {book}")
@@ -262,6 +333,7 @@ def main():
     check("the app itself stays up", s == 200, s)
 
     # Office returns.
+    idp.shutdown()
     office = start(office_argv, "office2.log", office_env)
     wait_up(office_url, "office", office)
     time.sleep(SYNC * 3)

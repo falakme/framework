@@ -216,9 +216,9 @@ Target: three apps share one login and one admin interface.
 - [x] **T4.7** CLI: `office enroll`, `office rotate-key`, `office status`. *Needs:* T4.6.
 
 **Dev4**
-- [ ] **T4.8** Office Identity wrapping the chosen OIDC provider: passkeys, per-app audiences, PKCE, refresh rotation with reuse detection. *Needs:* owner decision, T4.4.
+- [x] **T4.8** Office Identity wrapping the chosen OIDC provider: passkeys, per-app audiences, PKCE, refresh rotation with reuse detection. *Needs:* owner decision, T4.4. *Amended by ADR-0011 (owner decision): Office accepts any OpenID Connect provider (Clerk, Auth0, Keycloak, ...) through `POST /v1/auth/oidc/exchange`. Passkeys, MFA and PKCE are the provider's. Per-app audiences and Office's rotating refresh tokens with reuse detection are built.*
 - [x] **T4.9** Signing-key rotation with overlap. *Works when:* a key is rotated under load with no failed request.
-- [ ] **T4.10** Signed, versioned revocation feed and step-up authentication. *Needs:* T4.8.
+- [x] **T4.10** Signed, versioned revocation feed and step-up authentication. *Needs:* T4.8. *Step-up: `POST /v1/_office/stepup` takes a fresh provider ID token (`auth_time` within 5 minutes, same person) and returns an app token with the role `step_up` for at most 5 minutes. Policies guard a sensitive action with that role.*
 
 **Dev5**
 - [ ] **T4.11** Studio: admin UI generated from `admin:` metadata, backend-for-frontend with `HttpOnly` cookies, strict CSP, PII masking, audit of admin actions. Reaches app data only through each app's API. *Needs:* T4.2, T4.8.
@@ -343,6 +343,7 @@ Write blockers here: task id, what is blocking, who can unblock it.
   * **Not ticked, and why.** **T4.4:** no Coolify deployment yet. **T4.6:** the native runtime is done; the edge runtime (Workers) only verifies Office tokens through the JWKS mode of T2.9, with no revocation feed or read-only behaviour. **T4.3:** the spec stays a draft until Studio and the OIDC choice settle. **T4.8, T4.10:** wait for the owner's OIDC decision (ADR-0004); Office signs in with Falak's local identity meanwhile (no passkeys, no PKCE). **T4.1, T4.2, T4.11, T4.12, T4.13, T4.14:** not started. Office refuses tier 3 apps.
   * **Design:** Office has two key sets. Session keys sign its own sign-in (audience `office`). Signing keys sign app tokens, passports and the feed, and are the only keys in `/.well-known/jwks.json`. There is no self sign-up or password reset: an administrator makes accounts (`falak-office user add`, `POST /v1/_office/users`). An app fetches the key set again after 60 s, or at once (at most every 2 s) for an unknown `kid`.
   * **Changes in other agents' areas:** `falak-auth::token::token_id`; `falak-cli` gains `office` commands and a federated mode in `serve`.
+- **Phase 4, sign-in (Dev3, 2026-11-16).** ADR-0011: Office is an OpenID Connect relying party, not a provider. Any provider's ID token is traded at `POST /v1/auth/oidc/exchange` for an Office session (`FALAK_OIDC_ISSUER`, `FALAK_OIDC_AUDIENCE`, optional `FALAK_OIDC_AUTO_CREATE`). Asymmetric algorithms only; `aud` or `azp` must match; the email must be verified; a person is matched by `(iss, sub)` after the first sign-in. 8 tests (wrong issuer, audience, expiry, unsigned, HS256 key confusion, unpublished key, stranger domain, revoked person, step-up) and the live-process smoke with a stand-in provider (discovery over HTTP). **Not checked against a real Clerk or Auth0 tenant.** Clerk's default session token has no `email`; add it as a custom claim. Changes in other agents' areas: `falak-auth` `LocalIdentity::session_for_id`.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

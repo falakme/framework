@@ -116,14 +116,12 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
         .migrate()
         .await
         .map_err(|e| e.public_message().to_owned())?;
-    let office = Arc::new(Office::new(
-        issuer,
-        db,
-        keys,
-        Some(keys_path),
-        verifier,
-        users,
-    ));
+    let mut office = Office::new(issuer, db, keys, Some(keys_path), verifier, users);
+    if let Some(cfg) = falak_office::oidc::OidcConfig::from_env()? {
+        println!("sign-in through {} is on", cfg.issuer);
+        office = office.with_oidc(cfg);
+    }
+    let office = Arc::new(office);
     Ok((office, login))
 }
 
