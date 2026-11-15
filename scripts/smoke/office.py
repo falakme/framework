@@ -6,7 +6,7 @@ enrolls them, and checks: sign in once, a token per app, no sign-up on an app, r
 reaching the apps, key rotation under load with no failed request, and what each tier does
 when Office stops.
 
-usage: office.py <falak> <falak-office> <examples/notebook> [office DATABASE_URL]
+usage: office.py <falak> <falak-office> <examples/notebook> <falak-studio> [office DATABASE_URL]
 """
 
 import json
@@ -25,7 +25,10 @@ import uuid
 
 FALAK, OFFICE_BIN, NOTEBOOK = sys.argv[1], sys.argv[2], sys.argv[3]
 ACADEMY = os.path.join(os.path.dirname(NOTEBOOK), "academy")
-OFFICE_DB = sys.argv[4] if len(sys.argv) > 4 else ""
+FALAKME = os.path.join(os.path.dirname(NOTEBOOK), "falakme")
+TENANTS = {"alice": "aaaaaaaa-0000-4000-8000-000000000001", "bob": "bbbbbbbb-0000-4000-8000-000000000002", "admin": "aaaaaaaa-0000-4000-8000-000000000001"}
+STUDIO_BIN = sys.argv[4]
+OFFICE_DB = sys.argv[5] if len(sys.argv) > 5 else ""
 PASSWORD = "correct horse battery staple 42"
 STALENESS = 5  # seconds; the apps' limit before tier 2 goes read only
 SYNC = 1
@@ -200,9 +203,9 @@ def main():
 
     # Two apps, enrolled with one-time tokens.
     apps = {}
-    for name, tier in (("notebook", 1), ("journal", 2), ("academy", 1)):
+    for name, tier in (("notebook", 1), ("journal", 2), ("academy", 1), ("falakme", 1)):
         d = os.path.join(work, name)
-        source = ACADEMY if name == "academy" else NOTEBOOK
+        source = {"academy": ACADEMY, "falakme": FALAKME}.get(name, NOTEBOOK)
         shutil.copytree(source, d, ignore=shutil.ignore_patterns("web", ".falak", "node_modules"))
         if name == "journal":
             path = os.path.join(d, "app.yaml")
@@ -226,8 +229,10 @@ def main():
             if name != "academy" and who in ("carol", "erin"):
                 continue
             roles = ["teacher"] if name == "academy" and who in teachers else []
-            s, v = call(office_url, "PUT", "/v1/_office/memberships",
-                        {"email": f"{who}@example.com", "app": name, "roles": roles}, admin)
+            member = {"email": f"{who}@example.com", "app": name, "roles": roles}
+            if name == "falakme":
+                member["tenant"] = TENANTS[who]
+            s, v = call(office_url, "PUT", "/v1/_office/memberships", member, admin)
             check(f"{who} is a member of {name}", s == 200, f"{s} {v}")
 
     env = {"FALAK_OFFICE_SYNC_SECS": str(SYNC), "FALAK_OFFICE_MAX_STALENESS": str(STALENESS)}
@@ -308,6 +313,101 @@ def main():
     check("a student cannot grade themselves", s in (403, 404), s)
     s, _ = call(A, "PATCH", f"/v1/courses/{course['id']}", {"title": "mine now"}, bob_t)
     check("a student cannot change a course", s in (403, 404), s)
+
+    # Studio: one admin interface, two apps, no app-specific code.
+    studio_port = port()
+    studio_url = f"http://127.0.0.1:{studio_port}"
+    cfg_path = os.path.join(work, "studio.json")
+    json.dump({"office_url": office_url, "apps": [{"name": n, "url": urls[n]} for n in ("notebook", "journal", "falakme")]},
+              open(cfg_path, "w"))
+    for name in ("notebook", "journal", "falakme"):
+        member = {"email": "admin@example.com", "app": name, "roles": ["admin"]}
+        if name == "falakme":
+            member["tenant"] = TENANTS["admin"]
+        s, v = call(office_url, "PUT", "/v1/_office/memberships", member, admin)
+        check(f"the administrator is a member of {name}", s == 200, f"{s} {v}")
+    start([STUDIO_BIN, "serve", "--config", cfg_path, "--port", str(studio_port), "--data", os.path.join(work, "studio")],
+          "studio.log")
+    wait_up(studio_url, "studio", procs[-1])
+    st = urllib.request.urlopen(studio_url + "/").headers
+    check("Studio's page has a strict content security policy",
+          "script-src 'self'" in (st.get("Content-Security-Policy") or "") and "unsafe-inline" not in (st.get("Content-Security-Policy") or ""))
+    s, _ = call(studio_url, "GET", "/api/me")
+    check("Studio answers 401 without a session", s == 401, s)
+    s, v = call(studio_url, "POST", "/api/login", {"email": "alice@example.com", "password": PASSWORD})
+    check("a person with no Studio role cannot sign in", s == 401, f"{s} {v}")
+
+    class Studio:
+        cookie = csrf = None
+
+        def req(self, method, path, body=None):
+            data = None if body is None else json.dumps(body).encode()
+            r = urllib.request.Request(studio_url + path, data=data, method=method)
+            if data is not None:
+                r.add_header("Content-Type", "application/json")
+            if self.cookie:
+                r.add_header("Cookie", self.cookie)
+            if self.csrf and method != "GET":
+                r.add_header("X-Studio-CSRF", self.csrf)
+            try:
+                with urllib.request.urlopen(r, timeout=15) as resp:
+                    return resp.status, parse(resp.read()), resp.headers
+            except urllib.error.HTTPError as e:
+                return e.code, parse(e.read()), e.headers
+
+    st = Studio()
+    s, v, h = st.req("POST", "/api/login", {"email": "admin@example.com", "password": PASSWORD})
+    check("the administrator signs in to Studio", s == 200, f"{s} {v}")
+    st.cookie, st.csrf = h["Set-Cookie"].split(";")[0], v["csrf"]
+    check("Studio's cookie is HttpOnly and SameSite=Strict", "HttpOnly" in h["Set-Cookie"] and "SameSite=Strict" in h["Set-Cookie"])
+    check("Studio lists the apps from its config", v["apps"] == ["notebook", "journal", "falakme"], v)
+    edited = {}
+    for name in ("notebook", "journal"):
+        s, sch, _ = st.req("GET", f"/api/apps/{name}/schema")
+        paths = [e["path"] for e in (sch or {}).get("entities", [])]
+        check(f"Studio reads {name}'s schema and `admin:` metadata", s == 200 and "notebooks" in paths, f"{s} {sch}")
+        label = next(e for e in sch["entities"] if e["path"] == "notebooks")["admin"]["label"]
+        check(f"the label for {name} comes from the app, not from Studio", bool(label), label)
+        s, rec, _ = st.req("POST", f"/api/apps/{name}/notebooks", {"values": {"title": f"made in Studio ({name})"}})
+        check(f"Studio creates a record in {name}", s == 201, f"{s} {rec}")
+        s, rec2, _ = st.req("PATCH", f"/api/apps/{name}/notebooks/{rec['id']}",
+                            {"changes": {"title": f"edited in Studio ({name})"}, "version": rec["version"]})
+        check(f"Studio edits it in {name}", s == 200 and rec2["title"].startswith("edited"), f"{s} {rec2}")
+        s, stale, _ = st.req("PATCH", f"/api/apps/{name}/notebooks/{rec['id']}",
+                             {"changes": {"title": "again"}, "version": rec["version"]})
+        check(f"an edit from a stale version is refused in {name}", s in (409, 412), f"{s} {stale}")
+        edited[name] = rec["id"]
+    # Personal data: Falak.me's `bio` is marked `pii`. Studio masks it and reveals on request.
+    s, p_rec, _ = st.req("POST", "/api/apps/falakme/profiles", {"values": {"display_name": "Dana", "bio": "Lives at 12 Secret Street"}})
+    check("Studio creates a Falak.me profile", s == 201, f"{s} {p_rec}")
+    s, page, _ = st.req("GET", "/api/apps/falakme/profiles")
+    row = next((r for r in (page or {}).get("data", []) if r.get("id") == p_rec.get("id")), {})
+    check("Studio masks personal data in lists", "Secret Street" not in json.dumps(page) and "•" in str(row.get("bio")), page)
+    s, shown, _ = st.req("POST", f"/api/apps/falakme/profiles/{p_rec['id']}/reveal", {})
+    check("revealing is a separate step that returns the real value", s == 200 and shown["data"]["bio"] == "Lives at 12 Secret Street", f"{s} {shown}")
+    s, _, _ = st.req("PATCH", f"/api/apps/falakme/profiles/{p_rec['id']}", {"changes": {"bio": "A•••••"}, "version": p_rec["version"]})
+    check("a masked value cannot be saved over the real one", s == 400, s)
+    bob_t = tok("bob", "falakme")
+    s, others = call(urls["falakme"], "GET", "/v1/profiles", token=bob_t)
+    check("another workspace sees none of it", s == 200 and others["data"] == [], f"{s} {others}")
+
+    # The change is really in the app, read there with the same person's token.
+    for name in ("notebook", "journal"):
+        tok = app_token(session("admin@example.com"), name)
+        s, got = call(urls[name], "GET", f"/v1/notebooks/{edited[name]}", token=tok)
+        check(f"the edit is in {name} itself", s == 200 and got["title"].startswith("edited"), f"{s} {got}")
+    # The apps' policies still decide: Studio cannot reach someone else's record.
+    s, other = call(urls["notebook"], "POST", "/v1/notebooks", {"title": "Alice's private"}, t_nb)
+    s2, _, _ = st.req("PATCH", f"/api/apps/notebook/notebooks/{other['id']}", {"changes": {"title": "x"}, "version": other["version"]})
+    s3, after = call(urls["notebook"], "GET", f"/v1/notebooks/{other['id']}", token=t_nb)
+    check("Studio cannot change a record the app does not give this person",
+          s2 in (403, 404, 412) and s3 == 200 and after["title"] == "Alice's private", f"{s2} {after}")
+    log = os.path.join(work, "studio", "audit.jsonl")
+    out = subprocess.run([STUDIO_BIN, "audit-verify", log], capture_output=True, text=True)
+    check("Studio's audit log verifies and has the writes", out.returncode == 0 and "entries" in out.stdout, out.stdout + out.stderr)
+    check("the audit log holds who and what, never the values", "edited in Studio" not in open(log).read())
+    s, _, _ = st.req("POST", "/api/logout", {})
+    check("the administrator signs out of Studio", s == 200, s)
 
     # Revocation reaches the apps.
     from_jti = app_token(alice, "notebook")

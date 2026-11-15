@@ -672,6 +672,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "falak-studio"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64",
+ "hex",
+ "http-body-util",
+ "rand_core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+ "ureq",
+]
+
+[[package]]
 name = "falak-worker"
 version = "0.0.0"
 

@@ -35,6 +35,61 @@ use crate::{
     json::{json_to_driver_value, row_to_json_object},
 };
 
+/// `GET /v1/_schema`: what this caller can manage in the app, for generic tools such as
+/// Studio. Only entities the caller may read are listed, with the actions they may take
+/// and the presentation metadata from `admin:`. The caller's own policy decides: nothing
+/// here widens access.
+pub async fn schema_handler<D: NativeDriver>(
+    State(state): State<Arc<AppState<D>>>,
+    headers: HeaderMap,
+) -> Response {
+    let req_id = extract_request_id(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), "/v1/_schema", &req_id, vec![]);
+    };
+    let entities: Vec<serde_json::Value> = state
+        .ir
+        .entities
+        .iter()
+        .filter(|e| !authorize(e, IrAction::Read, Some(&principal)).is_denied())
+        .map(|e| {
+            let can = |a| !authorize(e, a, Some(&principal)).is_denied();
+            serde_json::json!({
+                "name": e.name,
+                "path": e.table,
+                "owner": e.owner,
+                "can": {
+                    "read": true,
+                    "create": can(IrAction::Create),
+                    "update": can(IrAction::Update),
+                    "delete": can(IrAction::Delete),
+                },
+                "admin": {
+                    "label": e.admin.label,
+                    "list_columns": e.admin.list_columns,
+                    "search_fields": e.admin.search_fields,
+                },
+                "fields": e.fields.iter().map(|f| serde_json::json!({
+                    "name": f.name,
+                    "type": f.ty,
+                    "nullable": f.nullable,
+                    "pii": f.pii,
+                    "encrypted": f.encrypted,
+                    "builtin": f.builtin,
+                    "references": f.references.as_ref().map(|(entity, _)| entity),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    build_response(
+        StatusCode::OK,
+        serde_json::json!({"app": state.ir.app.name, "entities": entities}),
+        None,
+        &req_id,
+        false,
+    )
+}
+
 fn now_micros() -> i64 {
     use falak_contracts::support::Clock;
     falak_auth::system::SystemClock.now_micros()

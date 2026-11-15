@@ -8,11 +8,12 @@
 # Set FALAK_BIN and FALAK_OFFICE_BIN to use binaries that are already built.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-if [ -z "${FALAK_BIN:-}" ] || [ -z "${FALAK_OFFICE_BIN:-}" ]; then
-  (cd "$root" && cargo build --locked -q -p falak-cli -p falak-office)
+if [ -z "${FALAK_BIN:-}" ] || [ -z "${FALAK_OFFICE_BIN:-}" ] || [ -z "${FALAK_STUDIO_BIN:-}" ]; then
+  (cd "$root" && cargo build --locked -q -p falak-cli -p falak-office -p falak-studio)
 fi
 exec python3 "$root/scripts/smoke/office.py" \
   "${FALAK_BIN:-$root/target/debug/falak}" \
   "${FALAK_OFFICE_BIN:-$root/target/debug/falak-office}" \
   "$root/examples/notebook" \
+  "${FALAK_STUDIO_BIN:-$root/target/debug/falak-studio}" \
   "${OFFICE_DATABASE_URL:-}"

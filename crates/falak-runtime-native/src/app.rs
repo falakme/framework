@@ -97,6 +97,7 @@ pub fn create_router_with<D: NativeDriver>(
                 },
             ),
         )
+        .route("/v1/_schema", get(crate::handlers::schema_handler::<D>))
         .route("/v1/_queries/{name}", get(query_handler::<D>))
         .route("/v1/_files", post(begin_handler::<D>))
         .route("/v1/_files/{id}", get(file_get_handler::<D>))

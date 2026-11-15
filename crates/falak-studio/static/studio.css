@@ -1,0 +1,18 @@
+:root { font-family: system-ui, sans-serif; color: #1b1f24; background: #f6f7f9; }
+body { margin: 0; }
+header { display: flex; gap: 1rem; align-items: center; padding: .6rem 1rem; background: #1b1f24; color: #fff; }
+header span { flex: 1; opacity: .7; font-size: .9rem; }
+main { padding: 1rem; max-width: 70rem; margin: 0 auto; }
+nav { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+nav button.on { background: #1b1f24; color: #fff; }
+table { border-collapse: collapse; width: 100%; background: #fff; }
+th, td { border: 1px solid #dde1e6; padding: .35rem .6rem; text-align: left; font-size: .9rem; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tr.row:hover { background: #eef3fb; cursor: pointer; }
+form { display: grid; gap: .6rem; background: #fff; padding: 1rem; border: 1px solid #dde1e6; max-width: 36rem; }
+label { display: grid; gap: .2rem; font-size: .85rem; }
+input[type=text], input[type=number], input[type=password], textarea { padding: .4rem; font: inherit; }
+button { padding: .4rem .8rem; font: inherit; cursor: pointer; }
+.err { color: #b00020; }
+.note { color: #5a6270; font-size: .85rem; }
+.masked { color: #7a8190; }
+.bar { display: flex; gap: .5rem; margin: .5rem 0; align-items: center; }
