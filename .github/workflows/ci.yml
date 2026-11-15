@@ -62,10 +62,15 @@ jobs:
           FALAK_TARGET: postgres
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
         run: bash scripts/smoke/notebook.sh
+      # Its own database: the notebook smoke test left its tables, and a migration of the
+      # test's app would be asked to drop them.
       - name: Row-level security conformance
         env:
-          FALAK_TEST_PG_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/notebook
-        run: cargo test --locked -p falak-runtime-native --test rls_tests
+          FALAK_TEST_PG_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/rls
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE rls'
+          cargo test --locked -p falak-runtime-native --test rls_tests
       - name: Isolation smoke test on PostgreSQL
         env:
           FALAK_TARGET: postgres
@@ -77,6 +82,32 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/isolation bash scripts/smoke/isolation.sh
       - name: A schema change on a running app, no downtime
         run: DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/live bash scripts/smoke/migrate-live.sh
+
+  # Office, Studio and three apps as real processes (T4.13): sign in once, revocation, key
+  # rotation under load, what each tier does with Office stopped. Run on SQLite, then with
+  # Office on PostgreSQL.
+  smoke-office:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: office
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d office"
+          --health-interval 2s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Toolchain
+        run: rustup show
+      - name: Office smoke test, SQLite
+        run: bash scripts/smoke/office.sh
+      - name: Office smoke test, Office on PostgreSQL
+        env:
+          OFFICE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/office
+        run: bash scripts/smoke/office.sh
 
   # The same smoke test on Workers (T2.11). It deploys a throwaway Worker and database to
   # the Cloudflare account in the repository secrets, tests it, and deletes both. It runs

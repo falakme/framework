@@ -32,6 +32,8 @@ async fn run() -> Result<(), String> {
         Some("serve") => {
             let (mut config, mut listen, mut data) =
                 (None, 8790u16, PathBuf::from(".falak-studio"));
+            let mut bind =
+                std::env::var("FALAK_STUDIO_HOST").unwrap_or_else(|_| "127.0.0.1".into());
             let mut it = argv.iter().skip(1);
             while let Some(a) = it.next() {
                 let mut value =
@@ -44,13 +46,14 @@ async fn run() -> Result<(), String> {
                             .map_err(|_| "`--port` is not a number".to_owned())?;
                     }
                     "--data" => data = PathBuf::from(value("--data")?),
+                    "--host" => bind = value("--host")?,
                     other => return Err(format!("unknown option `{other}`\n{}", usage())),
                 }
             }
             let cfg = Config::load(&config.ok_or_else(usage)?)?;
             let audit = Audit::open(Some(data.join("audit.jsonl")))?;
             let studio = Arc::new(Studio::new(cfg, audit));
-            let socket = tokio::net::TcpListener::bind(("127.0.0.1", listen))
+            let socket = tokio::net::TcpListener::bind((bind.as_str(), listen))
                 .await
                 .map_err(|e| format!("cannot listen on {listen}: {e}"))?;
             println!("falak-studio on http://127.0.0.1:{listen}");

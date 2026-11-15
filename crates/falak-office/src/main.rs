@@ -5,7 +5,8 @@
 //!
 //! `DATABASE_URL` selects PostgreSQL; without it Office keeps a SQLite file in the data
 //! directory (for development). Signing keys live in the data directory with owner-only
-//! permissions.
+//! permissions. In a container, set `FALAK_OFFICE_HOST=0.0.0.0`, `FALAK_OFFICE_PORT`,
+//! `FALAK_OFFICE_DATA` and `FALAK_OFFICE_ISSUER` instead of flags.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -25,6 +26,7 @@ use falak_runtime_native::{NativeDriver, auth_routes::AuthService};
 
 struct Args {
     command: Vec<String>,
+    host: String,
     port: u16,
     data: PathBuf,
     issuer: Option<String>,
@@ -36,9 +38,17 @@ struct Args {
 fn parse() -> Result<Args, String> {
     let mut a = Args {
         command: vec![],
-        port: 8788,
-        data: PathBuf::from(".falak-office"),
-        issuer: None,
+        host: std::env::var("FALAK_OFFICE_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
+        port: std::env::var("FALAK_OFFICE_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8788),
+        data: PathBuf::from(
+            std::env::var("FALAK_OFFICE_DATA").unwrap_or_else(|_| ".falak-office".into()),
+        ),
+        issuer: std::env::var("FALAK_OFFICE_ISSUER")
+            .ok()
+            .filter(|v| !v.is_empty()),
         email: None,
         password_env: None,
         roles: vec![],
@@ -47,6 +57,7 @@ fn parse() -> Result<Args, String> {
     while let Some(arg) = it.next() {
         let mut value = |name: &str| it.next().ok_or(format!("`{name}` needs a value"));
         match arg.as_str() {
+            "--host" => a.host = value("--host")?,
             "--port" => a.port = value("--port")?.parse().map_err(|_| "bad port")?,
             "--data" => a.data = PathBuf::from(value("--data")?),
             "--issuer" => a.issuer = Some(value("--issuer")?),
@@ -149,12 +160,12 @@ async fn run(a: Args) -> Result<(), String> {
         ["serve"] => {
             let (office, login) = open(&a).await?;
             let app = router(office.clone(), login);
-            let listener = tokio::net::TcpListener::bind(("127.0.0.1", a.port))
+            let listener = tokio::net::TcpListener::bind((a.host.as_str(), a.port))
                 .await
                 .map_err(|e| format!("cannot listen on port {}: {e}", a.port))?;
             println!(
-                "falak-office on http://127.0.0.1:{} (issuer {})",
-                a.port, office.issuer
+                "falak-office on http://{}:{} (issuer {})",
+                a.host, a.port, office.issuer
             );
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {

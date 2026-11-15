@@ -1,0 +1,60 @@
+# Office with its PostgreSQL database, and Studio. For Coolify: create a "Docker Compose"
+# resource from this file, set the variables below, and give `office` and `studio` their
+# own https domains. Office's issuer MUST be the https address people and apps reach it by.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: office
+      POSTGRES_PASSWORD: ${OFFICE_DB_PASSWORD:?set OFFICE_DB_PASSWORD}
+      POSTGRES_DB: office
+    volumes:
+      - office-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U office"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  office:
+    build:
+      context: ../..
+      dockerfile: deploy/office/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://office:${OFFICE_DB_PASSWORD}@postgres:5432/office
+      FALAK_OFFICE_ISSUER: ${OFFICE_URL:?set OFFICE_URL, for example https://office.example.com}
+      # Optional: sign in through an OpenID Connect provider (Clerk, Auth0, ...).
+      FALAK_OIDC_ISSUER: ${OIDC_ISSUER:-}
+      FALAK_OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      FALAK_OIDC_AUTO_CREATE: ${OIDC_AUTO_CREATE:-}
+    volumes:
+      # The signing keys. Back this up: losing it signs everyone out of every app.
+      - office-data:/data
+    ports:
+      - "8788"
+
+  studio:
+    build:
+      context: ../..
+      dockerfile: deploy/office/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - office
+    command: ["falak-studio", "serve", "--config", "/config/studio.json", "--data", "/data", "--port", "8790"]
+    environment:
+      FALAK_STUDIO_HOST: 0.0.0.0
+    volumes:
+      - studio-data:/data
+      - ./studio.json:/config/studio.json:ro
+    ports:
+      - "8790"
+
+volumes:
+  office-db:
+  office-data:
+  studio-data:

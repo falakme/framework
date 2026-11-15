@@ -13,7 +13,13 @@ ignore = [
 
 [licenses]
 version = 2
-allow = ["Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unicode-3.0", "Zlib", "CC0-1.0"]
+allow = [
+    "Apache-2.0", "MIT", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unicode-3.0", "Zlib", "CC0-1.0",
+    # Permissive, and each is a dependency of one tool: Apache-2.0 with the LLVM exception
+    # (ar_archive_writer, a build tool) and CDLA-Permissive-2.0 (webpki-roots: the web's
+    # root certificates, used by `ureq` for https to Office).
+    "Apache-2.0 WITH LLVM-exception", "CDLA-Permissive-2.0",
+]
 
 [bans]
 multiple-versions = "warn"
