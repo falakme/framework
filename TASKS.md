@@ -311,3 +311,17 @@ Write blockers here: task id, what is blocking, who can unblock it.
 - **T0.8 (Dev3).** Needs a Cloudflare account and API token (owner decision in §4). Can be unblocked by the owner. Until then Dev3 can only run the Workers half locally (`wrangler dev`, no account), which does not satisfy "on Workers". It also needs Dev2's SQLite driver (T1.6) for the native half.
 - **T2.6 (Dev3), status.** The D1 driver is written in `crates/falak-driver-d1` against the `falak-contracts` traits: batch, limits checks, error mapping, session bookmarks, and a `workers-rs` binding for `wasm32`. 25 unit tests pass against a fake binding and the crate lints clean for native and `wasm32`. It has not run against a real or local D1 database, so the box stays unticked until T2.7 can run it.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
+
+## 7. Interfaces available from Dev1
+
+Use these instead of writing your own. All live in `falak-core` and build for `wasm32`.
+
+* `falak_core::compile::compile(files, framework_version)`: sources in, `Compiled { ir, lock }` out, with diagnostics. `SourceFile { path, text }` paths are relative to the app root (`app.yaml`, `entities/x.yaml`, ...). Call this from `falak build` and `falak check`.
+* `Diagnostic` implements `Display` as `file:line:col: error[code]: message` plus a `help:` line. Print it as is.
+* `falak_core::policy::authorize(entity, action, principal)` returns `Access::{Denied, Unrestricted, OwnedBy(subject)}`.
+* `falak_core::sql::{get, list, insert, update, delete}` take a `Request { ir, entity, dialect, access, scope }` and return `Ok(None)` when access is denied. Run nothing in that case: list gives an empty page, get/update/delete give `NotFound`, create gives `Forbidden`. `Scope` carries the verified tenant and subject. Placeholders are `?N` for SQLite and D1, `$N` for PostgreSQL. UUIDs are `Value::Uuid`; the driver converts them.
+* `falak_core::sql::{resolve_sort, cursor_from_row}` support keyset paging. The runtime signs and encodes the cursor.
+* `falak_core::ddl::create_all(ir, dialect)` returns the `CREATE TABLE` and index statements in dependency order (T1.8).
+* `falak_core::values::{parse_uuid, format_uuid, parse_timestamp, coerce_text, check_value}` convert and validate values.
+* The IR is `falak_contracts::ir::Ir` (v1). It serialises with serde; `falak_core::build::verify_hash` checks it has not been altered.
+* Input is not yet NFC-normalised. T1.7 should normalise text input before calling the builders.
