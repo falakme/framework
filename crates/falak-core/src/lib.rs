@@ -2,9 +2,13 @@
 //! Query AST. Performs no I/O and builds for `wasm32`.
 
 pub mod build;
+pub mod ddl;
 pub mod diagnostics;
 pub mod load;
 pub mod lock;
+pub mod policy;
 pub mod reader;
 pub mod schema;
+pub mod sql;
+pub mod values;
 pub mod yaml;
