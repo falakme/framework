@@ -308,4 +308,6 @@ Do not start until the legal-advice item in §4 is ticked.
 
 Write blockers here: task id, what is blocking, who can unblock it.
 
-*(none yet)*
+- **T0.8 (Dev3).** Needs a Cloudflare account and API token (owner decision in §4). Can be unblocked by the owner. Until then Dev3 can only run the Workers half locally (`wrangler dev`, no account), which does not satisfy "on Workers". It also needs Dev2's SQLite driver (T1.6) for the native half.
+- **T2.6 (Dev3), status.** The D1 driver is written in `crates/falak-driver-d1` against the `falak-contracts` traits: batch, limits checks, error mapping, session bookmarks, and a `workers-rs` binding for `wasm32`. 25 unit tests pass against a fake binding and the crate lints clean for native and `wasm32`. It has not run against a real or local D1 database, so the box stays unticked until T2.7 can run it.
+- **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
