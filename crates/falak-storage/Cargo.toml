@@ -11,4 +11,14 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The S3 and R2 backend over HTTP. Off for the edge build, which uses R2 bindings.
+default = ["s3"]
+s3 = ["dep:ureq"]
+
 [dependencies]
+falak-contracts.workspace = true
+hmac = "0.12"
+sha2.workspace = true
+hex = "0.4"
+ureq = { version = "2", optional = true }
