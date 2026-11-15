@@ -1,0 +1,37 @@
+[package]
+name = "falak-office"
+description = "Falak Office: identity, registry and key service for federated apps."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "falak-office"
+path = "src/main.rs"
+
+[dependencies]
+falak-auth = { path = "../falak-auth" }
+falak-contracts.workspace = true
+falak-driver-postgres = { path = "../falak-driver-postgres" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-runtime-native = { path = "../falak-runtime-native" }
+axum = { version = "0.8.9", default-features = false, features = ["json", "query", "tokio", "http1"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros", "time"] }
+base64 = "0.22"
+ed25519-dalek = "2"
+hex = "0.4"
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+falak-federation = { path = "../falak-federation" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

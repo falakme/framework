@@ -44,6 +44,16 @@ pub struct Claims {
     pub token_id: String,
 }
 
+/// The `jti` of a token. Reads the payload without checking anything, so call it only on
+/// a token that [`Verifier::verify`] has accepted.
+pub fn token_id(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    decode_json(payload)?
+        .get("jti")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 /// Create a signed token.
 pub fn issue(key: &SigningKey, kid: &str, config: &TokenConfig, claims: &Claims) -> String {
     let header = json!({ "alg": "EdDSA", "typ": "JWT", "kid": kid });
