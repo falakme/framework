@@ -12,3 +12,4 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+saphyr-parser = "0.3.4"

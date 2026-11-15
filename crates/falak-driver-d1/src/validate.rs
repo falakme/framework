@@ -39,7 +39,9 @@ pub fn check_statement(statement: &Statement, limits: &Limits) -> Result<()> {
 fn check_value(value: &Value, limits: &Limits) -> Result<()> {
     let too_big = |len: usize| limits.max_row_bytes.is_some_and(|max| len > max as usize);
     match value {
-        Value::Int64(n) | Value::TimestampMicros(n) if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(n) => {
+        Value::Int64(n) | Value::TimestampMicros(n)
+            if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(n) =>
+        {
             Err(Error::invalid_input(
                 "storage_integer_range",
                 "A number is outside the range the storage layer can hold exactly.",

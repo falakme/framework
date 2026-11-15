@@ -91,6 +91,8 @@ These are Dev3's reading of the limits above, not vendor statements. Dev1 decide
 9. **Edge relay (T5.4)** has 15 minutes of wall time per Cron Trigger or Queue consumer invocation, and Cron CPU time of 30 s under hourly intervals.
 10. **Request body limit depends on the zone plan.** Large uploads must go straight to object storage through presigned URLs (T3.11), not through the Worker.
 
+11. **Integers above 2^53 − 1 cannot be passed to D1 exactly from a Worker.** The `workers-rs` 0.9 binding sends numbers as JavaScript doubles (`D1Type::Integer` is `i32`, and larger values go through `f64`). The D1 driver refuses such a value with `storage_integer_range` instead of rounding it. Money in minor units stays exact up to 9,007,199,254,740,991 (about 90 trillion units of a two-decimal currency). Phase 8 must decide whether that is enough on D1 or whether the ledger runs on PostgreSQL only. This was read from the `workers-rs` source, not tested against a live database.
+
 ## Open items
 
 - The pricing of D1 (rows read and written) was not checked. It does not limit correctness, but it affects the cost of the `database` tenancy mode. Check before T3.9.

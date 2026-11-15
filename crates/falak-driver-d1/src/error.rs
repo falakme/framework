@@ -42,7 +42,7 @@ pub fn map_d1_error(message: &str) -> Error {
             "storage_query_limit",
             "The request needed too many storage calls.",
         )
-    } else if lower.contains("timeout") || lower.contains("exceeded") && lower.contains("time") {
+    } else if lower.contains("timeout") || (lower.contains("exceeded") && lower.contains("time")) {
         (
             ErrorKind::Timeout,
             "storage_timeout",
