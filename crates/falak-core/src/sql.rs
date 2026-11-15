@@ -10,11 +10,14 @@ use falak_contracts::{
     Error, Result,
     capability::{CapabilityProfile, D1, POSTGRES, SQLITE},
     driver::{Statement, Value},
-    ir::{FieldType, Ir, IrAction, IrDefault, IrEntity, IrField, Tenancy},
+    ir::{
+        FieldType, Ir, IrAction, IrCmp, IrCondValue, IrCondition, IrDefault, IrEntity, IrField,
+        Tenancy,
+    },
 };
 
 use crate::{
-    policy::Access,
+    policy::{Access, Grant},
     values::{DEFAULT_TEXT_MAX, check_value, parse_uuid},
 };
 
@@ -89,6 +92,167 @@ fn columns(entity: &IrEntity) -> String {
         .join(", ")
 }
 
+// ------------------------------------------------------------------ stage 2: grants
+
+fn value_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Int64(x), Value::Int64(y)) => x == y,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Text(x), Value::Text(y)) => x == y,
+        (Value::Uuid(x), Value::Uuid(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// The value a condition compares `field` with, in the field's own type.
+fn cond_value(entity: &IrEntity, field: &str, v: &IrCondValue, subject: &str) -> Option<Value> {
+    let f = entity.field(field)?;
+    Some(match (v, &f.ty) {
+        (IrCondValue::Bool(b), _) => Value::Bool(*b),
+        (IrCondValue::Int(i), _) => Value::Int64(*i),
+        (IrCondValue::Text(s), FieldType::Uuid) => Value::Uuid(parse_uuid(s)?),
+        (IrCondValue::Text(s), _) => Value::Text(s.clone()),
+        (IrCondValue::Subject, FieldType::Uuid) => Value::Uuid(parse_uuid(subject)?),
+        (IrCondValue::Subject, _) => Value::Text(subject.to_owned()),
+    })
+}
+
+/// Whether a condition holds for a value being written. `None`: cannot be evaluated, so
+/// the grant is unusable.
+fn cond_holds_for(entity: &IrEntity, g: &Grant, c: &IrCondition, written: &Value) -> Option<bool> {
+    let mut any = false;
+    for v in &c.values {
+        let expected = cond_value(entity, &c.field, v, &g.subject)?;
+        any |= value_eq(written, &expected);
+    }
+    Some(match c.cmp {
+        IrCmp::Eq | IrCmp::In => any,
+        IrCmp::Ne => !any,
+    })
+}
+
+/// The conditions of a grant that still have to be checked against stored rows, after
+/// the ones on fields being written have been settled against the new values. `None`:
+/// the grant cannot apply (a written value fails a condition, or a value is unusable).
+fn pending_conds<'a>(
+    entity: &IrEntity,
+    g: &'a Grant,
+    written: &[(String, Value)],
+) -> Option<Vec<&'a IrCondition>> {
+    let mut pending = Vec::new();
+    for c in &g.conds {
+        match written.iter().find(|(n, _)| *n == c.field) {
+            Some((_, v)) => {
+                if !cond_holds_for(entity, g, c, v)? {
+                    return None;
+                }
+            }
+            None => pending.push(c),
+        }
+    }
+    // An owner rule needs a subject that is a uuid.
+    if g.owner.as_deref().is_some_and(|s| parse_uuid(s).is_none()) {
+        return None;
+    }
+    Some(pending)
+}
+
+/// SQL for the row conditions of one grant.
+fn grant_sql(
+    entity: &IrEntity,
+    g: &Grant,
+    pending: &[&IrCondition],
+    b: &mut Builder,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(subject) = &g.owner {
+        let owner = entity.owner.as_deref()?;
+        let p = b.bind(Value::Uuid(parse_uuid(subject)?));
+        parts.push(format!("{} = {p}", q(owner)));
+    }
+    for c in pending {
+        let col = q(&c.field);
+        let mut ps = Vec::new();
+        for v in &c.values {
+            ps.push(b.bind(cond_value(entity, &c.field, v, &g.subject)?));
+        }
+        parts.push(match c.cmp {
+            IrCmp::Eq => format!("{col} = {}", ps.first()?),
+            IrCmp::Ne => format!("{col} <> {}", ps.first()?),
+            IrCmp::In => format!("{col} IN ({})", ps.join(", ")),
+        });
+    }
+    Some(format!("({})", parts.join(" AND ")))
+}
+
+/// The row condition for a set of grants: `Ok(None)` if they reach every row, `Err(())`
+/// if none can apply (run nothing). `written` are the values a write sets: conditions on
+/// those fields are checked against the new values instead of the stored ones.
+#[allow(clippy::result_unit_err)]
+fn grants_predicate(
+    entity: &IrEntity,
+    grants: &[&Grant],
+    written: &[(String, Value)],
+    b: &mut Builder,
+) -> std::result::Result<Option<String>, ()> {
+    let usable: Vec<(&Grant, Vec<&IrCondition>)> = grants
+        .iter()
+        .filter_map(|g| pending_conds(entity, g, written).map(|p| (*g, p)))
+        .collect();
+    if usable.is_empty() {
+        return Err(());
+    }
+    if usable
+        .iter()
+        .any(|(g, pending)| g.owner.is_none() && pending.is_empty())
+    {
+        return Ok(None);
+    }
+    let alts: Vec<String> = usable
+        .iter()
+        .filter_map(|(g, pending)| grant_sql(entity, g, pending, b))
+        .collect();
+    if alts.is_empty() {
+        return Err(());
+    }
+    Ok(Some(format!("({})", alts.join(" OR "))))
+}
+
+/// The columns to return. A field that every grant allows is plain. A field that only
+/// some grants allow is returned only for rows those grants reach; otherwise it is NULL.
+fn select_list(entity: &IrEntity, access: &Access, b: &mut Builder) -> String {
+    let Access::Grants(grants) = access else {
+        return columns(entity);
+    };
+    entity
+        .fields
+        .iter()
+        .map(|f| {
+            let col = q(&f.name);
+            if grants.iter().all(|g| g.allows_field(f)) {
+                return col;
+            }
+            let allowing: Vec<&Grant> = grants.iter().filter(|g| g.allows_field(f)).collect();
+            match grants_predicate(entity, &allowing, &[], b) {
+                Ok(None) => col,
+                Ok(Some(pred)) => format!("CASE WHEN {pred} THEN {col} END AS {col}"),
+                Err(()) => format!("NULL AS {col}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn unreadable(what: &'static str, f: &str) -> Error {
+    // The same words as for a field that does not exist, so the answer reveals nothing.
+    let message = match what {
+        "invalid_filter" => format!("cannot filter on unknown field `{f}`"),
+        "invalid_sort" => format!("cannot sort by unknown field `{f}`"),
+        _ => format!("unknown field `{f}`"),
+    };
+    Error::invalid_input(what, message)
+}
+
 /// Accumulates SQL text and bound values in step.
 struct Builder {
     dialect: Dialect,
@@ -139,10 +303,18 @@ fn base_conditions(
     b: &mut Builder,
 ) -> Option<Vec<String>> {
     let mut conds = Vec::new();
-    if ir.app.tenancy == Tenancy::Row {
-        let tenant = parse_uuid(scope.tenant.as_deref()?)?;
-        let p = b.bind(Value::Uuid(tenant));
-        conds.push(format!("{} = {p}", q("tenant_id")));
+    match ir.app.tenancy {
+        Tenancy::Row => {
+            let tenant = parse_uuid(scope.tenant.as_deref()?)?;
+            let p = b.bind(Value::Uuid(tenant));
+            conds.push(format!("{} = {p}", q("tenant_id")));
+        }
+        // The tenant's rows are in a database of their own, chosen by the runtime. A
+        // caller with no tenant has no database to reach.
+        Tenancy::Database => {
+            scope.tenant.as_deref().filter(|t| !t.is_empty())?;
+        }
+        Tenancy::None => {}
     }
     if entity.soft_delete {
         conds.push(format!("{} IS NULL", q("deleted_at")));
@@ -155,6 +327,14 @@ fn base_conditions(
             let id = parse_uuid(subject)?;
             let p = b.bind(Value::Uuid(id));
             conds.push(format!("{} = {p}", q(owner)));
+        }
+        Access::Grants(grants) => {
+            let all: Vec<&Grant> = grants.iter().collect();
+            match grants_predicate(entity, &all, &[], b) {
+                Ok(None) => {}
+                Ok(Some(p)) => conds.push(p),
+                Err(()) => return None,
+            }
         }
     }
     Some(conds)
@@ -177,9 +357,9 @@ pub fn get(req: Request, id: [u8; 16]) -> Result<Option<Statement>> {
     };
     let p = b.bind(Value::Uuid(id));
     conds.insert(0, format!("{} = {p}", q("id")));
+    let list = select_list(entity, access, &mut b);
     let sql = format!(
-        "SELECT {} FROM {} WHERE {}",
-        columns(entity),
+        "SELECT {list} FROM {} WHERE {}",
         q(&entity.table),
         conds.join(" AND ")
     );
@@ -382,7 +562,21 @@ pub fn list(req: Request, query: &ListQuery) -> Result<Option<ListPlan>> {
         ));
     }
     for f in &query.filters {
+        // A field the caller cannot read in every visible row is not a field they may
+        // filter on: the rows that come back would reveal its values.
+        if let Some(field) = entity.field(&f.field)
+            && !access.reads_everywhere(field)
+        {
+            return Err(unreadable("invalid_filter", &f.field));
+        }
         check_filter(entity, dialect, f)?;
+    }
+    for k in &query.sort {
+        if let Some(field) = entity.field(&k.field)
+            && !access.reads_everywhere(field)
+        {
+            return Err(unreadable("invalid_sort", &k.field));
+        }
     }
     let sort = resolve_sort(entity, &query.sort)?;
 
@@ -465,9 +659,9 @@ pub fn list(req: Request, query: &ListQuery) -> Result<Option<ListPlan>> {
         })
         .collect();
     let fetch = page_size + 1;
+    let list = select_list(entity, access, &mut b);
     let sql = format!(
-        "SELECT {} FROM {} WHERE {} ORDER BY {} LIMIT {fetch}",
-        columns(entity),
+        "SELECT {list} FROM {} WHERE {} ORDER BY {} LIMIT {fetch}",
         q(&entity.table),
         conds.join(" AND "),
         order.join(", ")
@@ -526,17 +720,23 @@ pub fn insert(
     ctx: &WriteContext,
 ) -> Result<Option<Statement>> {
     let Request {
+        ir,
         entity,
         access,
         scope,
         dialect,
-        ..
     } = req;
     if access.is_denied() {
         return Ok(None);
     }
+    if ir.app.tenancy == Tenancy::Database && scope.tenant.as_deref().is_none_or(str::is_empty) {
+        return Ok(None);
+    }
     for (name, _) in input {
-        declared(entity, name)?;
+        let f = declared(entity, name)?;
+        if !access.writes(f) {
+            return Err(unreadable("invalid_field", name));
+        }
         if entity.owner.as_deref() == Some(name.as_str()) {
             return Err(Error::invalid_input(
                 "invalid_field",
@@ -557,6 +757,7 @@ pub fn insert(
     let mut b = Builder::new(dialect);
     let mut cols = Vec::new();
     let mut vals = Vec::new();
+    let mut written: Vec<(String, Value)> = Vec::new();
     for f in &entity.fields {
         let value = match f.name.as_str() {
             "id" => Value::Uuid(ctx.new_id),
@@ -594,15 +795,26 @@ pub fn insert(
         if !f.builtin {
             check_value(f, &value)?;
         }
+        written.push((f.name.clone(), value.clone()));
         cols.push(q(&f.name));
         vals.push(b.bind(value));
     }
+    // The new row must be one a rule lets the caller create: some grant's conditions
+    // hold for the values being written.
+    if let Access::Grants(grants) = access {
+        let admitted = grants
+            .iter()
+            .any(|g| pending_conds(entity, g, &written).is_some_and(|p| p.is_empty()));
+        if !admitted {
+            return Err(Error::forbidden());
+        }
+    }
+    let list = select_list(entity, access, &mut b);
     let sql = format!(
-        "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
+        "INSERT INTO {} ({}) VALUES ({}) RETURNING {list}",
         q(&entity.table),
         cols.join(", "),
-        vals.join(", "),
-        columns(entity)
+        vals.join(", ")
     );
     b.finish(sql).map(Some)
 }
@@ -627,10 +839,16 @@ pub fn update(
     if changes.is_empty() {
         return Err(Error::invalid_input("invalid_field", "nothing to update"));
     }
+    if access.is_denied() {
+        return Ok(None);
+    }
     let mut b = Builder::new(dialect);
     let mut sets = Vec::new();
     for (name, value) in changes {
         let f = declared(entity, name)?;
+        if !access.writes(f) {
+            return Err(unreadable("invalid_field", name));
+        }
         if entity.owner.as_deref() == Some(name.as_str()) {
             return Err(Error::invalid_input(
                 "invalid_field",
@@ -654,12 +872,29 @@ pub fn update(
         let p = b.bind(Value::Int64(v));
         conds.push(format!("{} = {p}", q("version")));
     }
+    // The row after the update must still be one a rule reaches (like a WITH CHECK). The
+    // conditions on fields being changed are settled against the new values.
+    if let Access::Grants(grants) = access {
+        let touches = grants.iter().any(|g| {
+            g.conds
+                .iter()
+                .any(|c| changes.iter().any(|(n, _)| *n == c.field))
+        });
+        if touches {
+            let all: Vec<&Grant> = grants.iter().collect();
+            match grants_predicate(entity, &all, changes, &mut b) {
+                Ok(None) => {}
+                Ok(Some(p)) => conds.push(p),
+                Err(()) => return Err(Error::forbidden()),
+            }
+        }
+    }
+    let list = select_list(entity, access, &mut b);
     let sql = format!(
-        "UPDATE {} SET {} WHERE {} RETURNING {}",
+        "UPDATE {} SET {} WHERE {} RETURNING {list}",
         q(&entity.table),
         sets.join(", "),
-        conds.join(" AND "),
-        columns(entity)
+        conds.join(" AND ")
     );
     b.finish(sql).map(Some)
 }

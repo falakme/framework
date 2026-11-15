@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use falak_contracts::{
     capability::Capability,
     identity::TrustTier,
-    ir::{FieldType, Tenancy},
+    ir::{FieldType, IrCmp, IrCondValue, IrCondition, Tenancy},
 };
 
 use crate::{
@@ -229,7 +229,8 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     }
 
     validate_entities(&mut diags, &entities);
-    validate_policies(&mut diags, &entities, &policies);
+    let tenancy = app.as_ref().map_or(Tenancy::None, |a| a.tenancy);
+    validate_policies(&mut diags, tenancy, &entities, &policies);
     validate_commands(&mut diags, &entities, &mut commands);
 
     if entities.len() > MAX_ENTITIES {
@@ -1065,11 +1066,32 @@ fn read_rule(ctx: &mut Ctx, node: &Node) -> Option<Rule> {
             list
         })
         .unwrap_or_default();
+    let mut when: Vec<IrCondition> = Vec::new();
+    let mut fields: Option<Vec<String>> = None;
     let allow = m.require(ctx, "allow").and_then(|n| {
-        let mut a = MapReader::new(ctx, n, "allow", &["owner", "role", "authenticated"])?;
+        let mut a = MapReader::new(
+            ctx,
+            n,
+            "allow",
+            &["owner", "role", "authenticated", "where", "fields"],
+        )?;
         let owner = a.take("owner");
         let role = a.take("role");
         let authenticated = a.take("authenticated");
+        if let Some(w) = a.take("where") {
+            when = read_when(ctx, w);
+        }
+        if let Some(f) = a.take("fields") {
+            let list = read_list(ctx, f, "fields", |ctx, n| read_name(ctx, n, "field"));
+            if list.is_empty() {
+                ctx.error(
+                    "empty_list",
+                    f.position,
+                    "`fields` must list at least one field",
+                );
+            }
+            fields = Some(list);
+        }
         let count = [owner, role, authenticated]
             .iter()
             .filter(|x| x.is_some())
@@ -1118,8 +1140,100 @@ fn read_rule(ctx: &mut Ctx, node: &Node) -> Option<Rule> {
         id: id?,
         actions,
         allow: allow?,
+        when,
+        fields,
         position: node.position,
     })
+}
+
+/// `where:` under `allow`. Each key is a field; the value is a literal (equals), `$subject`
+/// (equals the caller), `{ in: [..] }` or `{ ne: <value> }`.
+fn read_when(ctx: &mut Ctx, node: &Node) -> Vec<IrCondition> {
+    let Some(entries) = node.as_map() else {
+        ctx.error(
+            "invalid_where",
+            node.position,
+            "`where` must be a map of field to value",
+        );
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in entries {
+        let scalar = |ctx: &mut Ctx, n: &Node| -> Option<IrCondValue> {
+            match &n.value {
+                Value::Bool(b) => Some(IrCondValue::Bool(*b)),
+                Value::Int(i) => Some(IrCondValue::Int(*i)),
+                Value::Str(s) if s == "$subject" => Some(IrCondValue::Subject),
+                Value::Str(s) if s.starts_with('$') => {
+                    ctx.error_help(
+                        "invalid_where",
+                        n.position,
+                        format!("unknown variable `{s}`"),
+                        "the only variable is `$subject`",
+                    );
+                    None
+                }
+                Value::Str(s) => Some(IrCondValue::Text(s.clone())),
+                _ => {
+                    ctx.error(
+                        "invalid_where",
+                        n.position,
+                        "a value must be text, a number, true or false",
+                    );
+                    None
+                }
+            }
+        };
+        let cond = match e.value.as_map() {
+            Some([single]) if single.key == "in" => {
+                let values = read_list(ctx, &single.value, "in", |ctx, n| scalar(ctx, n));
+                if values.is_empty() {
+                    ctx.error(
+                        "invalid_where",
+                        single.value.position,
+                        "`in` needs at least one value",
+                    );
+                    continue;
+                }
+                IrCondition {
+                    field: e.key.clone(),
+                    cmp: IrCmp::In,
+                    values,
+                }
+            }
+            Some([single]) if single.key == "ne" => {
+                let Some(v) = scalar(ctx, &single.value) else {
+                    continue;
+                };
+                IrCondition {
+                    field: e.key.clone(),
+                    cmp: IrCmp::Ne,
+                    values: vec![v],
+                }
+            }
+            Some(_) => {
+                ctx.error_help(
+                    "invalid_where",
+                    e.value.position,
+                    format!("cannot read the condition for `{}`", e.key),
+                    "use a value, `{ in: [..] }` or `{ ne: <value> }`",
+                );
+                continue;
+            }
+            None => {
+                let Some(v) = scalar(ctx, &e.value) else {
+                    continue;
+                };
+                IrCondition {
+                    field: e.key.clone(),
+                    cmp: IrCmp::Eq,
+                    values: vec![v],
+                }
+            }
+        };
+        out.push(cond);
+    }
+    out
 }
 
 // ---------------------------------------------------------------- commands
@@ -1441,8 +1555,75 @@ fn closest_help<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) -> St
     )
 }
 
+/// Attribute conditions and field masks (stage 2) must name declared fields and compare
+/// them with values of the right type.
+fn validate_stage2(ctx: &mut Ctx, entity: &Entity, r: &Rule) {
+    for c in &r.when {
+        let Some(f) = entity.field(&c.field) else {
+            ctx.error_help(
+                "unknown_where_field",
+                r.position,
+                format!(
+                    "rule `{}`: `where` names `{}`, which `{}` does not declare",
+                    r.id, c.field, entity.name
+                ),
+                closest_help(&c.field, entity.fields.iter().map(|f| f.name.as_str())),
+            );
+            continue;
+        };
+        if f.encrypted || matches!(f.ty, FieldType::Json | FieldType::Bytes) {
+            ctx.error(
+                "invalid_where",
+                r.position,
+                format!(
+                    "rule `{}`: `where` cannot use `{}` (encrypted, json and bytes fields cannot be compared)",
+                    r.id, c.field
+                ),
+            );
+            continue;
+        }
+        for v in &c.values {
+            let fits = match (v, &f.ty) {
+                (IrCondValue::Bool(_), FieldType::Bool) => true,
+                (IrCondValue::Int(_), t) => is_int_type(t),
+                (IrCondValue::Text(_), FieldType::Text) => true,
+                (IrCondValue::Text(s), FieldType::Uuid) => crate::values::parse_uuid(s).is_some(),
+                (IrCondValue::Subject, FieldType::Uuid | FieldType::Text) => true,
+                _ => false,
+            };
+            if !fits {
+                ctx.error(
+                    "invalid_where",
+                    r.position,
+                    format!(
+                        "rule `{}`: a value in `where` does not fit the type of `{}`",
+                        r.id, c.field
+                    ),
+                );
+            }
+        }
+    }
+    if let Some(fields) = &r.fields {
+        for name in fields {
+            match entity.field(name) {
+                Some(_) => {}
+                None => ctx.error_help(
+                    "unknown_mask_field",
+                    r.position,
+                    format!(
+                        "rule `{}`: `fields` names `{name}`, which `{}` does not declare",
+                        r.id, entity.name
+                    ),
+                    closest_help(name, entity.fields.iter().map(|f| f.name.as_str())),
+                ),
+            }
+        }
+    }
+}
+
 fn validate_policies(
     diags: &mut Vec<Diagnostic>,
+    tenancy: Tenancy,
     entities: &[(String, Entity)],
     policies: &[(String, Policy)],
 ) {
@@ -1468,6 +1649,7 @@ fn validate_policies(
             continue;
         };
         for r in &p.rules {
+            validate_stage2(&mut ctx, entity, r);
             if r.allow == Allow::Owner && entity.owner.is_none() {
                 ctx.error_help(
                     "owner_without_owner_field",
@@ -1494,11 +1676,25 @@ fn validate_policies(
     for (path, e) in entities {
         if !policies.iter().any(|(_, p)| p.entity == e.name) {
             let mut ctx = Ctx { file: path, diags };
-            ctx.warn(
-                "no_policy",
-                e.position,
-                format!("entity `{}` has no policy; all access is denied", e.name),
-            );
+            // A table that holds tenant or owner data and has no policy is almost always
+            // a mistake, and PostgreSQL row-level security is generated from policies.
+            if tenancy != Tenancy::None || e.owner.is_some() {
+                ctx.error_help(
+                    "scoped_without_policy",
+                    e.position,
+                    format!(
+                        "entity `{}` is tenant or owner scoped but has no policy",
+                        e.name
+                    ),
+                    format!("add `policies/{}.yaml`", e.name),
+                );
+            } else {
+                ctx.warn(
+                    "no_policy",
+                    e.position,
+                    format!("entity `{}` has no policy; all access is denied", e.name),
+                );
+            }
         }
     }
 }

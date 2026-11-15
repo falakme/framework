@@ -10,7 +10,7 @@ fn ir(drop_policy: bool) -> Ir {
         path: p.into(),
         text: t.into(),
     };
-    let mut files = vec![
+    let files = vec![
         f(
             "app.yaml",
             include_str!("../../../specifications/examples/minimal/app.yaml"),
@@ -24,10 +24,15 @@ fn ir(drop_policy: bool) -> Ir {
             include_str!("../../../specifications/examples/minimal/policies/note.yaml"),
         ),
     ];
+    let mut ir = build_ir(&load_project(&files).0.unwrap());
     if drop_policy {
-        files.pop();
+        // The compiler refuses an owner-scoped entity with no policy, but the runtime
+        // must still deny when an IR from elsewhere has none.
+        for e in &mut ir.entities {
+            e.policy.rules.clear();
+        }
     }
-    build_ir(&load_project(&files).0.unwrap())
+    ir
 }
 
 fn who(subject: &str, roles: &[&str]) -> Principal {

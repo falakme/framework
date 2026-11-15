@@ -97,6 +97,8 @@ fn convert_entity(project: &Project, e: &schema::Entity) -> IrEntity {
                 .map(|r| IrRule {
                     id: r.id.clone(),
                     actions: r.actions.iter().copied().map(convert_action).collect(),
+                    when: r.when.clone(),
+                    fields: r.fields.clone(),
                     allow: match &r.allow {
                         schema::Allow::Owner => IrAllow::Owner,
                         schema::Allow::Role(n) => IrAllow::Role(n.clone()),

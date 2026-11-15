@@ -7,7 +7,7 @@ use falak_contracts::{
         Capability, CapabilityProfile, D1, Limits, POSTGRES, Requirements, SQLITE, Unmet,
     },
     identity::TrustTier,
-    ir::Ir,
+    ir::{Ir, Tenancy},
 };
 
 use crate::{
@@ -102,6 +102,23 @@ fn limit_needs(ir: &Ir, dialect: crate::sql::Dialect) -> Limits {
 pub fn check_drivers(project: &Project, ir: &Ir) -> Vec<Diagnostic> {
     let needs = infer_needs(project);
     let mut out = Vec::new();
+    // One database per tenant is a SQLite and D1 mode (ADR-0003). PostgreSQL isolates
+    // tenants with row-level security instead.
+    if project.app.tenancy == Tenancy::Database
+        && project.app.drivers.contains(&DriverKind::Postgres)
+    {
+        out.push(
+            Diagnostic::error(
+                "tenancy_unsupported",
+                "app.yaml",
+                Position { line: 1, column: 1 },
+                "`tenancy: database` is not available on `postgres`",
+            )
+            .with_suggestion(
+                "remove `postgres` from `drivers`, or use `tenancy: row`, which PostgreSQL enforces with row-level security",
+            ),
+        );
+    }
     for driver in &project.app.drivers {
         let dialect = match driver {
             DriverKind::Sqlite => crate::sql::Dialect::Sqlite,

@@ -134,6 +134,8 @@ pub struct Rule {
     pub id: String,
     pub actions: Vec<Action>,
     pub allow: Allow,
+    pub when: Vec<falak_contracts::ir::IrCondition>,
+    pub fields: Option<Vec<String>>,
     pub position: Position,
 }
 

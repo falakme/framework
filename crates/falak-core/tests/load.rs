@@ -1,5 +1,5 @@
 use falak_core::{
-    diagnostics::{Severity, has_errors},
+    diagnostics::Severity,
     load::{SourceFile, load_project},
     schema::*,
 };
@@ -218,18 +218,17 @@ fn project_level_problems_are_reported() {
 }
 
 #[test]
-fn an_entity_without_a_policy_is_a_warning_not_an_error() {
+fn an_owner_scoped_entity_without_a_policy_is_an_error() {
     let f: Vec<_> = minimal()
         .into_iter()
         .filter(|f| f.path != "policies/note.yaml")
         .collect();
     let (project, diags) = load_project(&f);
-    assert!(project.is_some());
-    assert!(!has_errors(&diags));
+    assert!(project.is_none());
     assert!(
         diags
             .iter()
-            .any(|d| d.code == "no_policy" && d.severity == Severity::Warning)
+            .any(|d| d.code == "scoped_without_policy" && d.severity == Severity::Error)
     );
 }
 

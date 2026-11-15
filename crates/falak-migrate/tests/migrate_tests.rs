@@ -138,6 +138,10 @@ fn test_schema_diff_and_expand_contract_planning() {
         path: "entities/tag.yaml".into(),
         text: "schema_version: 1\nentity: tag\nowner: owner_id\nfields:\n  name: { type: text, required: true }\n  owner_id: { type: uuid, required: true }\n".into(),
     });
+    files2.push(SourceFile {
+        path: "policies/tag.yaml".into(),
+        text: "schema_version: 1\nentity: tag\nrules:\n  - id: own\n    actions: [read]\n    allow: { owner: true }\n".into(),
+    });
     let p2 = load_project(&files2).0.unwrap();
     let ir2 = build_ir(&p2);
 

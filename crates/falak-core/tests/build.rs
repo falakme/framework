@@ -101,18 +101,20 @@ fn row_tenancy_adds_a_tenant_column() {
 }
 
 #[test]
-fn an_entity_without_a_policy_has_no_rules() {
+fn an_owner_scoped_entity_without_a_policy_does_not_build() {
+    // Default deny still holds at runtime, but a table that holds owner or tenant data
+    // with no policy is a mistake, so the build refuses it (ARCHITECTURE §4.7).
     let files: Vec<_> = minimal()
         .into_iter()
         .filter(|f| f.path != "policies/note.yaml")
         .collect();
+    let (project, diags) = load_project(&files);
+    assert!(project.is_none());
     assert!(
-        build(&files)
-            .entity("note")
-            .unwrap()
-            .policy
-            .rules
-            .is_empty()
+        diags
+            .iter()
+            .any(|d| d.to_string().contains("scoped_without_policy")),
+        "{diags:?}"
     );
 }
 

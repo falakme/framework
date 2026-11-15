@@ -88,6 +88,41 @@ pub struct IrRule {
     pub id: String,
     pub actions: Vec<IrAction>,
     pub allow: IrAllow,
+    /// Attribute conditions (stage 2). The rule applies only to rows that satisfy every
+    /// one of them. Empty for a stage 1 rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub when: Vec<IrCondition>,
+    /// Field mask (stage 2). The rule grants only these declared fields. `None` grants
+    /// every field. Built-in fields are always included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IrCmp {
+    Eq,
+    Ne,
+    In,
+}
+
+/// A value an attribute condition compares a field with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IrCondValue {
+    Bool(bool),
+    Int(i64),
+    Text(String),
+    /// The verified caller's subject.
+    Subject,
+}
+
+/// `field <cmp> values`. `Eq` and `Ne` have one value; `In` has one or more.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrCondition {
+    pub field: String,
+    pub cmp: IrCmp,
+    pub values: Vec<IrCondValue>,
 }
 
 /// Rules for one entity. Empty means every action is denied.
