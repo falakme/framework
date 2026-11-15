@@ -51,6 +51,7 @@ Agents cannot do these. Phase 0 cannot close without the first two.
 - [ ] Provide a Cloudflare account and API token for Workers and D1 (needed from T0.8).
 - [ ] Provide a Coolify server and an R2 or S3 bucket (needed from Phase 3).
 - [ ] Choose the OIDC provider that Office Identity wraps (needed before T4.8). Dev4 brings a recommendation.
+- [ ] Give a security contact address for `SECURITY.md`, and turn on GitHub private vulnerability reporting for the repository (Dev4 cannot do either).
 - [ ] Take legal advice on BlockBanking (needed before Phase 8).
 
 ---
@@ -76,8 +77,8 @@ Dev1's T0.1 and T0.3 unblock everyone. They go first; the other agents start on 
 - [ ] **T0.8** Spike: a stub of the portable core, built for `wasm32`, serving one hard-coded entity from D1 on Workers and from SQLite natively. *Needs:* T0.1, Cloudflare account. *Works when:* the same request returns the same JSON from both, and the WASM size is recorded.
 
 **Dev4**
-- [ ] **T0.9** `THREAT_MODEL.md` v1 and `SECURITY.md`. *Works when:* every boundary in ARCHITECTURE §4.7 has at least one named threat and its control.
-- [ ] **T0.10** Draft `AUTHORIZATION_SPECIFICATION.md` covering ownership and roles, default deny. *Works when:* the Notebook policies from T0.11 can be written in it without ambiguity.
+- [x] **T0.9** `THREAT_MODEL.md` v1 and `SECURITY.md`. *Works when:* every boundary in ARCHITECTURE §4.7 has at least one named threat and its control.
+- [x] **T0.10** Draft `AUTHORIZATION_SPECIFICATION.md` covering ownership and roles, default deny. *Works when:* the Notebook policies from T0.11 can be written in it without ambiguity.
 
 **Dev5**
 - [x] **T0.11** Notebook app definition in `examples/notebook/` (entities, policies, commands). This is the shared fixture for Phases 1 and 2. *Works when:* Dev1 and Dev4 confirm it covers ownership, roles, a relation and one custom command.
