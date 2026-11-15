@@ -409,6 +409,14 @@ def main():
     s, _, _ = st.req("POST", "/api/logout", {})
     check("the administrator signs out of Studio", s == 200, s)
 
+    # The page itself, in a real Chrome (needs `npm ci` in scripts/ui; set FALAK_UI_DIR).
+    ui = os.environ.get("FALAK_UI_DIR")
+    if ui:
+        script = os.path.join(os.path.dirname(__file__), "..", "ui", "studio-ui.mjs")
+        r = subprocess.run(["node", script, studio_url, "admin@example.com", PASSWORD, ui], capture_output=True, text=True)
+        print(r.stdout.rstrip())
+        check("Studio's page works in Chrome: forms, masking, no injected markup, fits a phone", r.returncode == 0, r.stdout[-800:] + r.stderr[-400:])
+
     # Revocation reaches the apps.
     from_jti = app_token(alice, "notebook")
     s, _ = call(urls["notebook"], "GET", "/v1/notebooks", token=from_jti)

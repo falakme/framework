@@ -45,6 +45,27 @@ jobs:
           name: dist-${{ matrix.os }}
           path: dist/*
 
+  # The Office and Studio image, for pulling and for Coolify.
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build and push
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/falak-office"
+          echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -f deploy/office/Dockerfile -t "$image:$GITHUB_REF_NAME" .
+          docker push "$image:$GITHUB_REF_NAME"
+          case "$GITHUB_REF_NAME" in
+            *-*) ;;  # a candidate does not move latest
+            *) docker tag "$image:$GITHUB_REF_NAME" "$image:latest"; docker push "$image:latest" ;;
+          esac
+
   release:
     needs: build
     runs-on: ubuntu-latest

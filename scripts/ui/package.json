@@ -1,0 +1,9 @@
+{
+  "name": "falak-ui-checks",
+  "private": true,
+  "description": "Browser checks for the Office and Studio pages. Test tooling only: nothing here ships.",
+  "type": "module",
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}

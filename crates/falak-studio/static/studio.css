@@ -222,3 +222,18 @@ tr.row { cursor: pointer; }
 form { max-width: 40rem; }
 main nav { margin: 0 0 1rem; }
 .trio .tv { display: flex; align-items: center; gap: .45rem; margin: 0; }
+td, th { overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  table { display: block; overflow-x: auto; }
+  header { padding: 0 1rem; }
+  nav { margin: 0 1rem; max-width: calc(100% - 2rem); }
+  .chart-head { flex-wrap: wrap; }
+  .trio { gap: 1.2rem; }
+}
+#logout { white-space: nowrap; }
+@media (max-width: 40rem) {
+  #who { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .kpi { padding: .9rem 1rem; }
+  .kpi .value b { font-size: 1.5rem; }
+}

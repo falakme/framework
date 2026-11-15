@@ -74,10 +74,16 @@ fn files(project_policy: &str, task_policy: &str) -> Vec<SourceFile> {
 }
 
 async fn app() -> Router {
+    app_on(Arc::new(SqliteDriver::in_memory().await.unwrap())).await
+}
+
+/// The app on any driver, with its tables made.
+async fn app_on<D: falak_runtime_native::NativeDriver + falak_contracts::driver::StorageDriver>(
+    driver: Arc<D>,
+) -> Router {
     let (project, diags) = load_project(&files(PROJECT_POLICY, TASK_POLICY));
     assert!(!falak_core::diagnostics::has_errors(&diags), "{diags:?}");
     let ir = Arc::new(build_ir(&project.unwrap()));
-    let driver = Arc::new(SqliteDriver::in_memory().await.unwrap());
     let ctx = RequestContext {
         principal: None,
         request_id: "t".into(),
@@ -128,7 +134,10 @@ struct World {
 }
 
 async fn world() -> World {
-    let app = app().await;
+    world_on(app().await).await
+}
+
+async fn world_on(app: Router) -> World {
     let staff = token("00000000-0000-0000-0000-0000000000ff", &["staff"]);
     let mut out = Vec::new();
     for (who, name) in [(ALICE, "A"), (BOB, "B")] {
@@ -182,7 +191,10 @@ fn names(page: &Value, key: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn an_owner_reaches_rows_through_one_and_two_steps_and_no_others() {
-    let w = world().await;
+    reads(world().await).await;
+}
+
+async fn reads(w: World) {
     let alice = token(ALICE, &[]);
 
     let (s, page) = call(&w.app, "GET", "/v1/projects", &alice, None).await;
@@ -230,7 +242,10 @@ async fn an_owner_reaches_rows_through_one_and_two_steps_and_no_others() {
 
 #[tokio::test]
 async fn writes_follow_the_same_path_and_only_the_actions_the_rule_lists() {
-    let w = world().await;
+    writes(world().await).await;
+}
+
+async fn writes(w: World) {
     let alice = token(ALICE, &[]);
 
     let (_, got) = call(
@@ -347,4 +362,49 @@ fn bad_relationship_rules_are_build_errors() {
         assert!(!errors(PROJECT_POLICY, &policy).is_empty(), "{name}");
     }
     assert!(errors(PROJECT_POLICY, TASK_POLICY).is_empty());
+}
+
+/// The same two scenarios on PostgreSQL 16, each in a database of its own. Runs when
+/// `FALAK_TEST_PG_ADMIN_URL` names a server and a role that may create databases.
+#[tokio::test]
+async fn the_same_rules_hold_on_postgresql() {
+    use falak_contracts::driver::Statement;
+    use falak_driver_postgres::{PostgresConfig, PostgresDriver};
+
+    let Ok(admin_url) = std::env::var("FALAK_TEST_PG_ADMIN_URL") else {
+        eprintln!("skipped: FALAK_TEST_PG_ADMIN_URL is not set");
+        return;
+    };
+    let open = |url: String| async move {
+        PostgresDriver::open(PostgresConfig {
+            url,
+            ..PostgresConfig::default()
+        })
+        .await
+        .unwrap()
+    };
+    let admin = open(admin_url.clone()).await;
+    let ctx = RequestContext {
+        principal: None,
+        request_id: "t".into(),
+    };
+    let (base, _) = admin_url.rsplit_once('/').unwrap();
+    for (name, scenario) in [("reads", 0), ("writes", 1)] {
+        let db = format!("related_{name}_{}", std::process::id());
+        use falak_contracts::driver::StorageDriver as _;
+        admin
+            .batch(
+                &ctx,
+                vec![Statement::new(format!("CREATE DATABASE \"{db}\""), vec![])],
+            )
+            .await
+            .unwrap();
+        let driver = open(format!("{base}/{db}")).await;
+        let w = world_on(app_on(Arc::new(driver)).await).await;
+        if scenario == 0 {
+            reads(w).await;
+        } else {
+            writes(w).await;
+        }
+    }
 }

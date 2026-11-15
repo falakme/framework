@@ -71,6 +71,10 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE rls'
           cargo test --locked -p falak-runtime-native --test rls_tests
+      - name: Relationship rules on PostgreSQL
+        env:
+          FALAK_TEST_PG_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: cargo test --locked -p falak-runtime-native --test related_policy_tests
       - name: Isolation smoke test on PostgreSQL
         env:
           FALAK_TARGET: postgres
@@ -102,12 +106,61 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Toolchain
         run: rustup show
-      - name: Office smoke test, SQLite
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Browser tooling (test only)
+        run: npm ci --ignore-scripts
+        working-directory: scripts/ui
+      - name: Office smoke test, SQLite, with Studio's page in Chrome
+        env:
+          FALAK_UI_DIR: ${{ runner.temp }}/ui-studio
         run: bash scripts/smoke/office.sh
+      - name: Office console in Chrome (setup, every tab, a phone-sized screen)
+        run: node scripts/ui/office-ui.mjs target/debug/falak-office "$RUNNER_TEMP/ui-office"
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-screenshots
+          path: |
+            ${{ runner.temp }}/ui-studio
+            ${{ runner.temp }}/ui-office
+          if-no-files-found: ignore
       - name: Office smoke test, Office on PostgreSQL
         env:
           OFFICE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/office
         run: bash scripts/smoke/office.sh
+
+  # Sign-in through a real OpenID Connect provider: Dex, an independent open-source server.
+  smoke-oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Toolchain
+        run: rustup show
+      - name: Office with Dex
+        run: bash scripts/smoke/office-oidc.sh
+
+  # The Office and Studio image builds, starts, and offers browser setup.
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build the image
+        run: docker build -f deploy/office/Dockerfile -t falak-office:ci .
+      - name: Run it
+        run: |
+          docker run -d --name office -p 127.0.0.1:8788:8788 falak-office:ci
+          for _ in $(seq 1 40); do curl -fsS http://127.0.0.1:8788/readyz >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8788/readyz
+          test "$(curl -fsS http://127.0.0.1:8788/v1/_office/status | python3 -c 'import sys,json; print(json.load(sys.stdin)["setup_needed"])')" = True
+          docker logs office 2>&1 | grep -q '/?setup='
+          curl -fsS http://127.0.0.1:8788/ | grep -q 'Falak Office'
+          docker exec office id -u | grep -qv '^0$'
+      - name: Logs
+        if: failure()
+        run: docker logs office
 
   # The same smoke test on Workers (T2.11). It deploys a throwaway Worker and database to
   # the Cloudflare account in the repository secrets, tests it, and deletes both. It runs
