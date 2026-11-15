@@ -2,10 +2,7 @@
 
 use serde_json::Value;
 
-use crate::{
-    AppKey, Federation, OfficeConfig, enroll_request, now, random_nonce, request_headers,
-    verify_feed,
-};
+use crate::{AppKey, Federation, OfficeConfig, enroll_request, now, random_nonce, request_headers};
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
@@ -66,17 +63,12 @@ pub fn sync_once(fed: &Federation, cfg: &OfficeConfig, key: &AppKey) -> Result<(
         if fed.wants_jwks(t) {
             fed.load_jwks(&fetch_jwks(cfg)?, t)?;
         }
-        let path = format!("/v1/_office/revocations?since={}", fed.feed_version());
-        let doc = signed_get(cfg, key, &path)?;
-        let feed = match verify_feed(&doc, &fed.keys()) {
-            Ok(f) => f,
-            Err(first) => {
-                // The feed may be signed with a key we have not seen: one refetch.
-                fed.load_jwks(&fetch_jwks(cfg)?, t)?;
-                verify_feed(&doc, &fed.keys()).map_err(|_| first)?
-            }
-        };
-        fed.apply_feed(&feed, now());
+        let doc = signed_get(cfg, key, &fed.feed_path())?;
+        if let Err(first) = fed.apply_document(&doc, now()) {
+            // The feed may be signed with a key we have not seen: one refetch.
+            fed.load_jwks(&fetch_jwks(cfg)?, t)?;
+            fed.apply_document(&doc, now()).map_err(|_| first)?;
+        }
         Ok(())
     })();
     if let Err(e) = &result {

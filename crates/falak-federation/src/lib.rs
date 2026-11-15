@@ -59,6 +59,23 @@ impl AppKey {
         Self(SigningKey::generate(&mut rand_core::OsRng))
     }
 
+    /// From the text of the key file (`{"secret": "..."}`), for a runtime that keeps the
+    /// key in a secret instead of a file.
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        let v: Value = serde_json::from_str(text).map_err(|_| "the app key is not valid")?;
+        let bytes = v["secret"]
+            .as_str()
+            .and_then(|s| B64.decode(s).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or("the app key is not valid")?;
+        Ok(Self(SigningKey::from_bytes(&bytes)))
+    }
+
+    /// The key file's text.
+    pub fn to_json(&self) -> String {
+        json!({"secret": B64.encode(self.0.to_bytes())}).to_string()
+    }
+
     /// Load the key file, or make one (owner-only permissions on Unix).
     pub fn load_or_create(path: &Path) -> Result<Self, String> {
         match std::fs::read_to_string(path) {
@@ -146,6 +163,14 @@ impl OfficeConfig {
             .map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
         let cfg: Self = serde_json::from_str(&text)
             .map_err(|e| format!("`{}` is not valid: {e}", path.display()))?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    /// From text, for a runtime that gets its configuration from the environment.
+    pub fn from_json(text: &str) -> Result<Self, String> {
+        let cfg: Self = serde_json::from_str(text)
+            .map_err(|e| format!("the Office config is not valid: {e}"))?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -404,6 +429,57 @@ impl Federation {
         true
     }
 
+    /// What a runtime with no memory between requests saves, so a new instance starts
+    /// from what the last one knew instead of from nothing: the feed version, when the
+    /// feed last arrived, and what it revoked.
+    pub fn snapshot(&self) -> Value {
+        let i = self.read();
+        json!({
+            "feed_version": i.feed_version,
+            "last_feed_ok": i.last_feed_ok,
+            "tokens": i.revoked_tokens.iter().collect::<Vec<_>>(),
+            "subjects": i.revoked_subjects.iter().collect::<Vec<_>>(),
+            "app_revoked": i.app_revoked,
+        })
+    }
+
+    /// Start from a [`snapshot`](Self::snapshot). Ignored once a feed has been applied
+    /// here, so a stale save never overrides fresher knowledge.
+    pub fn restore(&self, v: &Value) {
+        let mut i = self.write();
+        if i.feed_version != 0 || i.last_feed_ok.is_some() {
+            return;
+        }
+        let strings = |k: &str| -> HashSet<String> {
+            v[k].as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        i.revoked_tokens = strings("tokens");
+        i.revoked_subjects = strings("subjects");
+        i.app_revoked = v["app_revoked"].as_bool().unwrap_or(false);
+        i.feed_version = v["feed_version"].as_i64().unwrap_or(0);
+        i.last_feed_ok = v["last_feed_ok"].as_i64();
+    }
+
+    /// The path of the next feed request.
+    pub fn feed_path(&self) -> String {
+        format!("/v1/_office/revocations?since={}", self.feed_version())
+    }
+
+    /// Check a feed document against the key set and apply it. `Err` if it does not
+    /// verify (for example it is signed by a key not fetched yet): the caller fetches
+    /// the key set once and tries again.
+    pub fn apply_document(&self, doc: &Value, now: i64) -> Result<(), String> {
+        let feed = verify_feed(doc, &self.keys())?;
+        self.apply_feed(&feed, now);
+        Ok(())
+    }
+
     pub fn note_error(&self, message: String) {
         self.write().last_error = Some(message);
     }
@@ -540,6 +616,47 @@ mod tests {
         assert!(!t2.read_only(1200));
         assert!(!t2.read_only(1300));
         assert!(t2.read_only(1301));
+    }
+
+    #[test]
+    fn a_snapshot_lets_a_new_instance_pick_up_where_the_old_one_was() {
+        let a = Federation::new(&cfg(2), 300);
+        let feed = Feed {
+            version: 7,
+            issued_at: 50,
+            ttl_secs: 60,
+            entries: vec![
+                Entry {
+                    kind: "subject".into(),
+                    id: "u1".into(),
+                },
+                Entry {
+                    kind: "token".into(),
+                    id: "t1".into(),
+                },
+            ],
+        };
+        a.apply_feed(&feed, 50);
+        let saved = a.snapshot();
+        let b = Federation::new(&cfg(2), 300);
+        assert!(b.read_only(60), "nothing known yet");
+        b.restore(&saved);
+        assert_eq!(b.feed_version(), 7);
+        assert!(!b.read_only(60), "the last feed was 10 seconds ago");
+        assert!(b.read_only(400), "and the limit still counts from then");
+        // Knowledge gained since is not overwritten by an older save.
+        let c = Federation::new(&cfg(2), 300);
+        c.apply_feed(
+            &Feed {
+                version: 9,
+                issued_at: 90,
+                ttl_secs: 60,
+                entries: vec![],
+            },
+            90,
+        );
+        c.restore(&saved);
+        assert_eq!(c.feed_version(), 9);
     }
 
     #[test]

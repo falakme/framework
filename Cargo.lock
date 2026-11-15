@@ -614,6 +614,7 @@ dependencies = [
  "falak-contracts",
  "falak-core",
  "falak-driver-d1",
+ "falak-federation",
  "falak-migrate",
  "falak-runtime-native",
  "getrandom",

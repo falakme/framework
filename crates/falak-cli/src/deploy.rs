@@ -44,7 +44,12 @@ pub enum Identity {
     Local,
     /// The Worker only verifies tokens, against another service's key set.
     KeySet { jwks_url: String, issuer: String },
+    /// The app is enrolled with Falak Office: sign-in is Office's, and the Worker follows
+    /// its key set and revocation feed. `config` is `.falak/office.json`.
+    Office { config: String },
 }
+
+const APP_KEY_SECRET: &str = "FALAK_APP_KEY";
 
 impl Options {
     fn identity(&self) -> Result<Identity, String> {
@@ -183,6 +188,16 @@ pub fn wrangler_config(
     if let Identity::KeySet { jwks_url, issuer } = identity {
         vars.push(format!("FALAK_JWKS_URL = {}", toml_string(jwks_url)));
         vars.push(format!("FALAK_ISSUER = {}", toml_string(issuer)));
+    }
+    if let Identity::Office { config } = identity {
+        vars.push(format!("FALAK_OFFICE_CONFIG = {}", toml_string(config)));
+        // How long a tier 2 Worker keeps writing without a fresh feed (seconds).
+        if let Some(n) = std::env::var("FALAK_OFFICE_MAX_STALENESS")
+            .ok()
+            .filter(|v| v.parse::<u32>().is_ok_and(|n| n > 0))
+        {
+            vars.push(format!("FALAK_OFFICE_MAX_STALENESS = \"{n}\""));
+        }
     }
     if allow_destructive {
         vars.push("FALAK_ALLOW_DESTRUCTIVE = \"1\"".to_owned());
@@ -333,7 +348,16 @@ pub fn add_tenant(dir: &Path, options: &Options, tenant: &str) -> Result<u8, Str
 }
 
 pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
-    let identity = options.identity()?;
+    let identity = match options.identity()? {
+        // No flags, but enrolled with Office: follow Office.
+        Identity::Local => match crate::office_cmd::load(dir)? {
+            Some((cfg, _)) => Identity::Office {
+                config: serde_json::to_string(&cfg).map_err(|e| e.to_string())?,
+            },
+            None => Identity::Local,
+        },
+        other => other,
+    };
     let Some(compiled) = project::build(dir)? else {
         return Ok(1);
     };
@@ -412,11 +436,16 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
     println!("publishing");
     let published = wrangler(&["deploy", "--config", &config_arg], &edge_out, &envs, None)?;
 
-    // 5. The keys secret, only if the Worker does not have it yet.
-    if identity != Identity::Local {
-        println!("deployed: {}", deployed_url(&published));
-        return Ok(0);
-    }
+    // 5. The secret the Worker needs, only if it does not have it yet: its signing keys,
+    // or (enrolled with Office) the app's own key.
+    let (secret_name, secret_path) = match &identity {
+        Identity::Local => (KEYS_SECRET, keys_path.clone()),
+        Identity::Office { .. } => (APP_KEY_SECRET, crate::office_cmd::key_path(&dir)),
+        Identity::KeySet { .. } => {
+            println!("deployed: {}", deployed_url(&published));
+            return Ok(0);
+        }
+    };
     let secrets = wrangler(
         &[
             "secret",
@@ -434,12 +463,12 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
         .find('[')
         .and_then(|i| serde_json::from_str::<Value>(&secrets[i..]).ok())
         .and_then(|v| v.as_array().cloned())
-        .is_some_and(|items| items.iter().any(|s| s["name"] == KEYS_SECRET));
+        .is_some_and(|items| items.iter().any(|s| s["name"] == secret_name));
     if !has_keys {
-        println!("setting the signing keys");
-        let text = std::fs::read_to_string(&keys_path)
-            .map_err(|e| format!("cannot read the signing keys: {e}"))?;
-        let bulk = serde_json::json!({ KEYS_SECRET: text }).to_string();
+        println!("setting `{secret_name}`");
+        let text = std::fs::read_to_string(&secret_path)
+            .map_err(|e| format!("cannot read `{}`: {e}", secret_path.display()))?;
+        let bulk = serde_json::json!({ secret_name: text }).to_string();
         wrangler(
             &["secret", "bulk", "--config", &config_arg],
             &edge_out,
@@ -512,6 +541,27 @@ mod tests {
             issuer: iss.map(str::to_owned),
             allow_destructive: false,
         }
+    }
+
+    #[test]
+    fn an_office_worker_gets_the_config_as_a_variable_and_no_key_in_the_file() {
+        let text = wrangler_config(
+            "app",
+            Path::new("/s.mjs"),
+            None,
+            "app-db",
+            "u",
+            &Identity::Office {
+                config: "{\"app\":\"app\"}".into(),
+            },
+            false,
+            &[],
+        );
+        assert!(
+            text.contains("FALAK_OFFICE_CONFIG = \"{\\\"app\\\":\\\"app\\\"}\""),
+            "{text}"
+        );
+        assert!(!text.contains("FALAK_APP_KEY") && !text.contains("FALAK_KEYS"));
     }
 
     #[test]

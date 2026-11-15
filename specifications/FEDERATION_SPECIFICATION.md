@@ -1,6 +1,6 @@
 # Federation Specification
 
-* **Status:** Draft 1 (2026-11-15). Candidate when the Registry, Identity and the federation client have run together (T4.13).
+* **Status:** Candidate 1 (2026-11-16). The Registry, sign-in, the federation client on both runtimes, key rotation and Studio have run together in `scripts/smoke/office.sh` (SQLite and PostgreSQL) and `scripts/smoke/office-workers.py` (Workers, D1). Frozen at 1.0 with the release (T4.14). Tier 3, events and sagas are Phase 5.
 * **Owner:** Dev3 for this draft. Office: Dev2 (registry), Dev4 (identity).
 * **Scope:** how an app joins Falak Office, how a person signs in once and reaches several apps, how an app learns that a token or an app was revoked, and what an app does when Office cannot be reached. Events and sagas are specified at M5.
 
@@ -91,12 +91,22 @@ Administrators revoke with `POST /v1/_office/revocations {kind, id}`.
 | 2 | Local, cached keys | The feed, with a staleness limit (default 5 minutes) | After the limit the app is **read only**: `GET` and `HEAD` work, anything else answers `503` `office_unavailable`. |
 | 3 | Local, plus an online check per sensitive command | Online | Sensitive commands stop. Not implemented in this draft: an app declared tier 3 refuses to start under Office. |
 
-The cached key set is used for as long as tokens signed by it can still be valid. An app that has never reached Office since it started has no keys and refuses every token.
+The cached key set is used for as long as tokens signed by it can still be valid. An app that has never reached Office has no keys and refuses every token.
+
+**Runtimes with no memory between requests (Workers).** Isolates start and stop at will and have no timers. Such a runtime keeps up with Office on requests, at most once every 20 seconds per instance, before it routes the request, and saves the last good key set and feed state (version, time of the last feed, what it revoked) in the app's own database, in the table `falak_office_cache`. A new instance starts from that save, so tier 1 keeps working, revocations stay honored and the tier 2 staleness limit keeps counting from the last feed even when Office is down and the instance is new.
 
 ## 9. Signing in through an identity provider
 
 Office accepts ID tokens from one configured OpenID Connect provider (ADR-0011). `POST /v1/auth/oidc/exchange` with `{"id_token": "..."}` returns the same body as `/v1/auth/login` (`access_token`, `refresh_token`, `expires_in`). The token must verify against the provider's key set (algorithm from the asymmetric list only), name the configured issuer, carry the configured audience in `aud` or `azp`, be unexpired, and carry a verified `email`. Office links `(iss, sub)` to an account on first use. A subject revoked in the feed cannot sign in again. Without a configured provider the route answers `404`. Every refusal is `401` with the same body.
 
-## 10. Not in this draft
+## 10. Step-up
 
-Passkeys (the identity provider's job, ADR-0011), sender-constrained tokens (tier 3), step-up authentication, events, sagas and the Studio protocol.
+For a sensitive action, `POST /v1/_office/stepup` with an Office session, `{"audience": "<app>", "id_token": "<fresh provider ID token>"}`. The ID token MUST carry `auth_time` within the last 5 minutes and MUST be for the provider identity linked to the session's person. The reply is an app token like `/v1/_office/token`, with the role `step_up` added and a life of at most 5 minutes. Office never grants `step_up` through a membership. Policies that guard the action require that role. Without a configured provider the route answers `404`.
+
+## 11. Studio
+
+Studio is an app of Office, not part of it. It signs people in through Office (`/v1/auth/login` or the exchange in §9) and only for people holding the Office role `office_admin` or `studio`. It keeps the Office session on the server behind an `HttpOnly`, `SameSite=Strict` cookie, takes an app token per app with `/v1/_office/token`, and reads and writes only through each app's API, so each app's policies decide. Apps describe themselves to it with `GET /v1/_schema` (the entities the caller may read, what they may do, field types and the `admin:` metadata). Personal fields (`pii`, `encrypted`) are masked by Studio; showing one is a separate call that is written to Studio's hash-chained audit log, as is every sign-in and write. The log holds who, what and which record, never values.
+
+## 12. Not in this version
+
+Passkeys (the identity provider's job, ADR-0011), sender-constrained tokens (tier 3), events and sagas.

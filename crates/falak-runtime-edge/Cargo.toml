@@ -22,6 +22,7 @@ falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
 falak-core.workspace = true
 falak-driver-d1 = { path = "../falak-driver-d1" }
+falak-federation = { path = "../falak-federation", default-features = false }
 falak-migrate = { path = "../falak-migrate" }
 falak-runtime-native = { path = "../falak-runtime-native", default-features = false }
 axum = { version = "0.8.9", default-features = false, features = ["json", "query"] }

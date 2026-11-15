@@ -9,7 +9,7 @@
 # that says why.
 set -euo pipefail
 
-BUDGET_GZIP_KIB="${BUDGET_GZIP_KIB:-800}"
+BUDGET_GZIP_KIB="${BUDGET_GZIP_KIB:-900}"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"

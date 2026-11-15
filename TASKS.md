@@ -204,7 +204,7 @@ Target: three apps share one login and one admin interface.
 **Dev1**
 - [x] **T4.1** Relationship rules with bounded traversal depth. *`allow: { owner: true, related: project.workspace }`, at most 3 `belongs_to` steps, nested `EXISTS`, AUTHORIZATION §11. Checked on SQLite only (3 tests).*
 - [x] **T4.2** `admin:` presentation metadata in schema and IR. *Already built in Phase 1 (`label`, `list_columns`, `search_fields`, validated); `tests/admin.rs` now pins it into the IR.*
-- [ ] **T4.3** `FEDERATION_SPECIFICATION.md` to candidate. *Needs:* T4.5, T4.8 drafts.
+- [x] **T4.3** `FEDERATION_SPECIFICATION.md` to candidate. *Needs:* T4.5, T4.8 drafts.
 - [ ] **T4.14** Release v1.0: tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
 
 **Dev2**
@@ -212,7 +212,7 @@ Target: three apps share one login and one admin interface.
 - [x] **T4.5** Registry: single-use enrollment tokens, asymmetric app keys, signed App Passports, `GET /v1/_office/manifest`, passport revocation. *Needs:* T4.4.
 
 **Dev3**
-- [ ] **T4.6** Federation client in both runtimes: enroll, present passport, fetch JWKS, consume the revocation feed, apply the per-tier outage behaviour. *Needs:* T4.5.
+- [x] **T4.6** Federation client in both runtimes: enroll, present passport, fetch JWKS, consume the revocation feed, apply the per-tier outage behaviour. *Needs:* T4.5.
 - [x] **T4.7** CLI: `office enroll`, `office rotate-key`, `office status`. *Needs:* T4.6.
 
 **Dev4**
@@ -347,6 +347,7 @@ Write blockers here: task id, what is blocking, who can unblock it.
 - **Phase 4, Studio and Academy (Dev3, 2026-11-16).** `crates/falak-studio` is one binary (`falak-studio serve --config studio.json`). The page is generated from each app's `GET /v1/_schema`; a new app is one config entry. Browser holds only an `HttpOnly`, `SameSite=Strict` cookie; Office and app tokens stay on the server. Writes need a CSRF header and a same-origin `Origin`. CSP is `default-src 'none'; script-src 'self'; ...` with no inline script or style, and the page uses `textContent` only. Personal fields (`pii`, `encrypted`) are masked on the server; revealing is a separate audited call; a masked value cannot be written back; filters on personal fields are refused. Every sign-in, write and reveal goes to a hash-chained log (`falak-studio audit-verify`) that holds no values, and an action is refused if the log cannot be written. Studio may only be used by Office people with the role `office_admin` or `studio`, and it reaches data only with an Office token for that app, so each app's policies decide (checked: the administrator cannot change another person's note). Studio does not check Falak.me/Notebook/Journal code: it has none.
   * **Limits.** The page was not run in a browser here. Search is an exact match on the first `search_fields` entry. Studio sessions live in memory (a restart signs everyone out). `/v1/_schema` exists on the native runtime and on Workers (shared router) but Workers was not re-deployed. Relationship rules (T4.1) were checked on SQLite only. Tier 3 is refused by Office.
   * **Changes in other agents' areas:** `falak-runtime-native` gains `GET /v1/_schema`; `falak-contracts` IR gains `IrRule.related`, `IrRelated`, `IrHop`; `falak-core` policy/SQL gain `Via`; `specifications/AUTHORIZATION_SPECIFICATION.md` §11 and `schemas/policy.schema.json`.
+- **Phase 4, Workers (Dev3, 2026-11-16).** A Worker enrolled with Office (`falak office enroll`, then `falak deploy`) follows Office on requests (every 20 s per isolate, before routing) and saves the last good key set and feed state in its own D1 (`falak_office_cache`), so a new isolate still verifies tokens and honors revocations with Office down. `scripts/smoke/office-workers.py` ran it for real on the Falak account against a local Office behind a Cloudflare quick tunnel: Office token accepted, foreign token refused, revoked person refused within the interval, tier 2 reads with Office down and pauses writes after the limit, writes resume when Office returns. The Worker, D1 database and tunnel were deleted afterwards. **The edge WASM is now 800 KiB gzip; the budget is raised from 800 to 900 KiB** (Workers allows 3 MiB on the free plan) because ed25519 signing, the feed and the saved state came with it.
 - **Shared working directory.** Several agents commit from one checkout, and a broad `git add` sweeps other agents' unfinished files into the wrong commit (Dev3's D1 files went into Dev1's commits). Stage by explicit path.
 
 ## 7. Interfaces available from Dev1

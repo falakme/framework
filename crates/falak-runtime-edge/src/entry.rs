@@ -38,6 +38,7 @@ use crate::{
     driver::EdgeDriver,
     gate::EdgeGate,
     jwks::JwksAuth,
+    office::OfficeLink,
     tenants::EdgeTenants,
 };
 
@@ -55,6 +56,8 @@ struct App {
     router: Router,
     /// Present in key set mode: it must fetch keys before a request is routed.
     jwks: Option<Arc<JwksAuth>>,
+    /// Present when the app is enrolled with Office: it follows Office's keys and feed.
+    office: Option<Arc<OfficeLink>>,
 }
 
 thread_local! {
@@ -159,7 +162,38 @@ async fn build_app(env: &Env) -> Result<App, String> {
         Arc::new(driver.clone())
     };
 
-    let (router, jwks) = if let Some(url) = var(env, "FALAK_JWKS_URL") {
+    let mut office_link = None;
+    let (router, jwks) = if let Some(config) = var(env, "FALAK_OFFICE_CONFIG") {
+        let key = env
+            .secret("FALAK_APP_KEY")
+            .map_err(|e| format!("no secret `FALAK_APP_KEY`: {e}"))?
+            .to_string();
+        let staleness = var(env, "FALAK_OFFICE_MAX_STALENESS")
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(falak_federation::DEFAULT_MAX_STALENESS_SECS);
+        let link = Arc::new(OfficeLink::new(
+            &config,
+            &key,
+            staleness,
+            Arc::new(data.clone()),
+        )?);
+        let fed = link.federation();
+        if fed.app != ir.app.name {
+            return Err(format!(
+                "this Worker is enrolled with Office as `{}` but the app is `{}`",
+                fed.app, ir.app.name
+            ));
+        }
+        let authenticator: Arc<dyn Authenticator> =
+            Arc::new(falak_federation::FederatedAuthenticator(fed.clone()));
+        let router =
+            create_router_with(ir.clone(), Arc::new(data.clone()), authenticator, options).layer(
+                axum::middleware::from_fn_with_state(fed, falak_federation::read_only_gate),
+            );
+        office_link = Some(link);
+        (router, None)
+    } else if let Some(url) = var(env, "FALAK_JWKS_URL") {
         let issuer =
             var(env, "FALAK_ISSUER").ok_or("FALAK_JWKS_URL is set but FALAK_ISSUER is not")?;
         let config = TokenConfig {
@@ -226,7 +260,11 @@ async fn build_app(env: &Env) -> Result<App, String> {
             }
         }),
     );
-    Ok(App { router, jwks })
+    Ok(App {
+        router,
+        jwks,
+        office: office_link,
+    })
 }
 
 async fn app(env: &Env) -> Result<App, String> {
@@ -259,6 +297,10 @@ async fn fetch(
         }
     };
 
+    if let Some(office) = &app.office {
+        let token = bearer_token(req.headers()).map(str::to_owned);
+        office.refresh_if_needed(token.as_deref()).await;
+    }
     if let Some(jwks) = &app.jwks {
         let token = bearer_token(req.headers()).map(str::to_owned);
         jwks.refresh_if_needed(token.as_deref()).await;
