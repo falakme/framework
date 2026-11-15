@@ -31,6 +31,12 @@ First release: Falak Core (milestones M1 to M3) and a minimal Falak Office (M4).
 * Step-up: a fresh provider sign-in gives a short-lived `step_up` role.
 * What an app does when Office is unreachable, by trust tier: tier 1 keeps working; tier 2 reads but pauses writes after a limit (default 5 minutes). Both runtimes, including Workers, which save Office's state in their own database.
 
+**Web console and install**
+
+* Office serves a web console at `/`: first-run setup with a one-time code printed on the terminal (or `falak-office setup` for scripts), then an overview dashboard (sign-ins, app tokens, failed sign-ins, people, with bar and line charts drawn as plain SVG), Apps (single-use enrollment codes with the exact command), People, Access, Sign-in (identity provider on or off, live), Keys and revocation, Activity. No dependencies and nothing loaded from outside; strict content security policy.
+* `scripts/install.sh`: installs `falak`, `falak-office` and `falak-studio` from a release after checking `SHA256SUMS`.
+* An image with Office and Studio (`deploy/office/`), published to GHCR on each release.
+
 **Falak Studio** (`falak-studio`)
 
 * One admin interface for every app, generated from each app's `GET /v1/_schema` and its `admin:` metadata. No code of its own for any app.
@@ -46,9 +52,8 @@ SCHEMA, AUTHORIZATION (stages 1 to 3), DRIVER and API are frozen at 1.0 (ADR-000
 
 * Tier 3 (online check per sensitive command) is not built. Office refuses tier 3 apps.
 * Office is one instance. Sessions and signing keys are per instance.
-* Studio's page was checked by its HTTP calls and a syntax check, not driven in a browser. Studio search is an exact match on the first search field.
-* Relationship rules were checked on SQLite only.
-* Office and Studio container files (`deploy/office/`) are written but were not built or deployed from here.
+* Studio search is an exact match on the first search field.
 * `/v1/_files` answers `501` on Workers.
 * The edge runtime is 800 KiB gzipped (budget 900 KiB).
-* Sign-in through a real Clerk or Auth0 tenant has not been tried; a stand-in OpenID Connect provider was used.
+* Not tried: sign-in through Clerk or Auth0 themselves. It is checked against Dex, an independent OpenID Connect server. Clerk's default session value has no email: add it as a custom claim.
+* No hosted Office exists yet: the container image is built and started in CI, but the project has not deployed it anywhere.

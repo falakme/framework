@@ -17,7 +17,7 @@ use falak_core::{
     load::{SourceFile, load_project},
 };
 use falak_driver_sqlite::SqliteDriver;
-use falak_migrate::apply_initial_migration;
+use falak_migrate::{MigrateOptions, migrate};
 use falak_runtime_native::{context::DevAuthenticator, create_router};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -88,7 +88,9 @@ async fn app_on<D: falak_runtime_native::NativeDriver + falak_contracts::driver:
         principal: None,
         request_id: "t".into(),
     };
-    apply_initial_migration(&*driver, &ctx, &ir).await.unwrap();
+    migrate(&*driver, &ctx, &ir, MigrateOptions::default())
+        .await
+        .unwrap();
     create_router(ir, driver, Arc::new(DevAuthenticator))
 }
 
