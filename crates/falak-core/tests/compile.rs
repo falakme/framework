@@ -108,7 +108,7 @@ fn explicit_requires_are_checked() {
 fn an_entity_wider_than_the_d1_parameter_limit_is_rejected() {
     let mut f = files();
     f.retain(|x| x.path != "commands/archive_note.yaml");
-    let cols: String = (0..100)
+    let cols: String = (0..98)
         .map(|i| format!("  c{i}: {{ type: int64 }}\n"))
         .collect();
     f[1].text = format!(
