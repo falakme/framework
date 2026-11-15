@@ -8,7 +8,7 @@
 
 use falak_contracts::{
     identity::Principal,
-    ir::{IrAction, IrAllow, IrCondition, IrEntity, IrField},
+    ir::{IrAction, IrAllow, IrCondition, IrEntity, IrField, IrRelated},
 };
 
 /// One satisfied rule: the rows it reaches and the fields it grants.
@@ -24,12 +24,22 @@ pub struct Grant {
     pub conds: Vec<IrCondition>,
     /// The declared fields the rule grants. `None` grants all of them.
     pub fields: Option<Vec<String>>,
+    /// A relationship rule: only rows whose related row is owned by the subject.
+    pub via: Option<Via>,
+}
+
+/// The relationship a grant follows, and who the caller is in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Via {
+    pub related: IrRelated,
+    /// The caller's tenant, for tables that are tenant scoped.
+    pub tenant: Option<String>,
 }
 
 impl Grant {
     /// The rule reaches every row.
     pub fn is_unconditional(&self) -> bool {
-        self.owner.is_none() && self.conds.is_empty()
+        self.owner.is_none() && self.conds.is_empty() && self.via.is_none()
     }
 
     /// Whether the rule grants `field`. Built-in fields are always granted.
@@ -94,6 +104,24 @@ pub fn authorize(entity: &IrEntity, action: IrAction, principal: Option<&Princip
         .iter()
         .filter(|r| r.actions.contains(&action))
     {
+        if let Some(related) = &rule.related {
+            // Reached through the owner of a related row. Never a plain owner rule.
+            if !matches!(rule.allow, IrAllow::Owner) {
+                continue;
+            }
+            grants.push(Grant {
+                rule: rule.id.clone(),
+                owner: None,
+                subject: principal.subject.clone(),
+                conds: rule.when.clone(),
+                fields: rule.fields.clone(),
+                via: Some(Via {
+                    related: related.clone(),
+                    tenant: principal.tenant.clone(),
+                }),
+            });
+            continue;
+        }
         let owner = match &rule.allow {
             IrAllow::Authenticated => None,
             IrAllow::Role(role) if principal.roles.iter().any(|r| r == role) => None,
@@ -109,6 +137,7 @@ pub fn authorize(entity: &IrEntity, action: IrAction, principal: Option<&Princip
             subject: principal.subject.clone(),
             conds: rule.when.clone(),
             fields: rule.fields.clone(),
+            via: None,
         });
     }
     if grants.is_empty() {
@@ -117,7 +146,7 @@ pub fn authorize(entity: &IrEntity, action: IrAction, principal: Option<&Princip
     // Stage 1 shapes keep their simple form.
     if grants
         .iter()
-        .all(|g| g.conds.is_empty() && g.fields.is_none())
+        .all(|g| g.conds.is_empty() && g.fields.is_none() && g.via.is_none())
     {
         return match grants.iter().find(|g| g.owner.is_none()) {
             Some(_) => Access::Unrestricted,
@@ -149,7 +178,18 @@ pub fn explain(entity: &IrEntity, action: IrAction, principal: Option<&Principal
     let access = authorize(entity, action, principal);
     let mut rules = Vec::new();
     for rule in &entity.policy.rules {
-        let (applies, detail) = if !rule.actions.contains(&action) {
+        let (applies, detail) = if let (Some(rel), true, Some(_)) =
+            (&rule.related, rule.actions.contains(&action), principal)
+        {
+            (
+                true,
+                format!(
+                    "rows whose `{}` has `{}` equal to the subject",
+                    rel.path.join("."),
+                    rel.owner_column
+                ),
+            )
+        } else if !rule.actions.contains(&action) {
             (false, format!("does not list `{action:?}`").to_lowercase())
         } else {
             match (&rule.allow, principal) {
@@ -239,6 +279,7 @@ mod tests {
             allow,
             when: vec![],
             fields: None,
+            related: None,
         }
     }
 

@@ -1078,18 +1078,41 @@ fn read_rule(ctx: &mut Ctx, node: &Node) -> Option<Rule> {
         .unwrap_or_default();
     let mut when: Vec<IrCondition> = Vec::new();
     let mut fields: Option<Vec<String>> = None;
+    let mut related: Vec<String> = Vec::new();
     let allow = m.require(ctx, "allow").and_then(|n| {
         let mut a = MapReader::new(
             ctx,
             n,
             "allow",
-            &["owner", "role", "authenticated", "where", "fields"],
+            &[
+                "owner",
+                "role",
+                "authenticated",
+                "where",
+                "fields",
+                "related",
+            ],
         )?;
         let owner = a.take("owner");
         let role = a.take("role");
         let authenticated = a.take("authenticated");
         if let Some(w) = a.take("where") {
             when = read_when(ctx, w);
+        }
+        if let Some(r) = a.take("related") {
+            // `related: notebook` or `related: notebook.workspace`: belongs_to relation
+            // names, followed in order.
+            if let Some(text) = read_str(ctx, r, "related") {
+                related = text.split('.').map(str::to_owned).collect();
+                if related.iter().any(|n| !crate::reader::is_name(n)) {
+                    ctx.error(
+                        "invalid_related",
+                        r.position,
+                        "`related` is relation names joined by `.`",
+                    );
+                    related.clear();
+                }
+            }
         }
         if let Some(f) = a.take("fields") {
             let list = read_list(ctx, f, "fields", |ctx, n| read_name(ctx, n, "field"));
@@ -1152,6 +1175,7 @@ fn read_rule(ctx: &mut Ctx, node: &Node) -> Option<Rule> {
         allow: allow?,
         when,
         fields,
+        related,
         position: node.position,
     })
 }
@@ -1565,6 +1589,84 @@ fn closest_help<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) -> St
     )
 }
 
+/// A relationship rule follows `belongs_to` relations (at most `MAX_RELATED_DEPTH`) to an
+/// entity with an owner, and says who may reach the row through that owner.
+fn validate_related(ctx: &mut Ctx, all: &HashMap<&str, &Entity>, entity: &Entity, r: &Rule) {
+    if r.related.is_empty() {
+        return;
+    }
+    let bad = |ctx: &mut Ctx, code: &'static str, msg: String| ctx.error(code, r.position, msg);
+    if r.allow != Allow::Owner {
+        bad(
+            ctx,
+            "related_needs_owner",
+            format!("rule `{}`: `related` goes with `owner: true`", r.id),
+        );
+    }
+    if r.actions.contains(&Action::Create) {
+        bad(
+            ctx,
+            "related_on_create",
+            format!(
+                "rule `{}`: a relationship rule cannot allow `create` (the related row is not known until it is written)",
+                r.id
+            ),
+        );
+    }
+    if r.related.len() > falak_contracts::ir::MAX_RELATED_DEPTH {
+        bad(
+            ctx,
+            "related_too_deep",
+            format!(
+                "rule `{}`: `related` follows {} relations; the limit is {}",
+                r.id,
+                r.related.len(),
+                falak_contracts::ir::MAX_RELATED_DEPTH
+            ),
+        );
+        return;
+    }
+    let mut current = entity;
+    for name in &r.related {
+        let Some(rel) = current.relations.iter().find(|x| x.name == *name) else {
+            bad(
+                ctx,
+                "unknown_relation",
+                format!(
+                    "rule `{}`: `{}` has no relation `{name}`",
+                    r.id, current.name
+                ),
+            );
+            return;
+        };
+        if rel.kind != RelationKind::BelongsTo {
+            bad(
+                ctx,
+                "related_not_belongs_to",
+                format!(
+                    "rule `{}`: relation `{name}` is not `belongs_to`; a rule follows only `belongs_to`",
+                    r.id
+                ),
+            );
+            return;
+        }
+        let Some(next) = all.get(rel.entity.as_str()) else {
+            return; // reported where the relation is declared
+        };
+        current = next;
+    }
+    if current.owner.is_none() {
+        bad(
+            ctx,
+            "related_without_owner",
+            format!(
+                "rule `{}`: `{}` declares no `owner` field to compare with the caller",
+                r.id, current.name
+            ),
+        );
+    }
+}
+
 /// Attribute conditions and field masks (stage 2) must name declared fields and compare
 /// them with values of the right type.
 fn validate_stage2(ctx: &mut Ctx, entity: &Entity, r: &Rule) {
@@ -1660,7 +1762,8 @@ fn validate_policies(
         };
         for r in &p.rules {
             validate_stage2(&mut ctx, entity, r);
-            if r.allow == Allow::Owner && entity.owner.is_none() {
+            validate_related(&mut ctx, &by_name, entity, r);
+            if r.allow == Allow::Owner && r.related.is_empty() && entity.owner.is_none() {
                 ctx.error_help(
                     "owner_without_owner_field",
                     r.position,

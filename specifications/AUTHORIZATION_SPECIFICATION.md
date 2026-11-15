@@ -142,3 +142,27 @@ Stage 2 adds two optional keys under `allow`. Both only narrow what a rule grant
 **Tenancy** (ADR-0003). Under `row` and `database` tenancy a caller with no tenant is denied. An entity that is tenant or owner scoped and has no policy file is a build error (`scoped_without_policy`). `tenancy: database` is not available with the `postgres` driver.
 
 **PostgreSQL.** The same rules are compiled to row-level security as a second wall (see `falak-migrate::rls`): tenant policy `RESTRICTIVE`, one permissive policy per action, `FORCE ROW LEVEL SECURITY`, a runtime role `falak_app` with no ownership and no `BYPASSRLS`, and the caller read from `falak.subject`, `falak.tenant_id` and `falak.roles`, set per transaction. RLS works on rows only; field masks are the runtime's. Because PostgreSQL applies the `SELECT` policy to the rows an `UPDATE`, `DELETE` or `INSERT ... RETURNING` touches, the `SELECT` policy covers a rule granting any action; the runtime's own SQL still limits reads to rules that list `read`.
+
+---
+
+## 11. Stage 3: relationship rules (T4.1)
+
+One optional key under `allow`, used with `owner: true`:
+
+```yaml
+- id: workspace_owner
+  actions: [read, update]
+  allow: { owner: true, related: workspace }        # one step
+- id: via_project_workspace
+  actions: [read, update, delete]
+  allow: { owner: true, related: project.workspace } # two steps
+```
+
+`related` is a list of relation names joined by `.`. Each name MUST be a `belongs_to` relation of the entity reached so far. The entity at the end MUST declare an `owner`. The rule reaches a row if the owner of the row at the end of the path is the caller. The entity with the rule needs no `owner` of its own.
+
+* **Bounded:** at most 3 steps (`MAX_RELATED_DEPTH`). More is a build error.
+* **No `create`:** a rule with `related` MUST NOT list `create`, because the related row is not known until the write. Grant `create` with another rule.
+* **Only `owner`:** `related` with `role` or `authenticated` is a build error.
+* **Evaluation:** one nested `EXISTS` per step, in the same statement as the read or write. A related row that is soft deleted does not count. With `tenancy: row`, every step stays in the caller's tenant. A missing row, a missing tenant or a subject that is not a uuid all give no access.
+* **Same answers:** a row not reached is `404`, as for any other policy. Field masks (`fields`) and conditions (`where`) combine with `related`; every condition must hold.
+* **Fail closed:** an IR whose path does not resolve drops the rule.

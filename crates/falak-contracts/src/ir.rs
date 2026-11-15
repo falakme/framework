@@ -83,6 +83,35 @@ pub enum IrAllow {
     Authenticated,
 }
 
+/// The most `belongs_to` steps a relationship rule may follow.
+pub const MAX_RELATED_DEPTH: usize = 3;
+
+/// One step of a relationship rule: this table's `column` holds the id of a row in `table`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrHop {
+    pub column: String,
+    pub table: String,
+    /// The table hides deleted rows (`deleted_at`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub soft_delete: bool,
+}
+
+/// A relationship rule (stage 3): the row is reached through `belongs_to` steps, and the
+/// owner column of the row at the end must equal the caller. At most
+/// [`MAX_RELATED_DEPTH`] steps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrRelated {
+    /// The relation names, as written.
+    pub path: Vec<String>,
+    pub hops: Vec<IrHop>,
+    /// The owner column of the table at the end of the path.
+    pub owner_column: String,
+    /// The tables have a `tenant_id` column (`tenancy: row`), and each step stays in the
+    /// caller's tenant.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tenant_scoped: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IrRule {
     pub id: String,
@@ -96,6 +125,10 @@ pub struct IrRule {
     /// every field. Built-in fields are always included.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fields: Option<Vec<String>>,
+    /// Relationship (stage 3). With `allow: owner`, the rule reaches rows whose related
+    /// row is owned by the caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related: Option<IrRelated>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

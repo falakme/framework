@@ -94,11 +94,17 @@ fn convert_entity(project: &Project, e: &schema::Entity) -> IrEntity {
             rules: p
                 .rules
                 .iter()
+                // A relationship rule whose path does not resolve is dropped, never
+                // widened into an ordinary owner rule.
+                .filter(|r| {
+                    r.related.is_empty() || related_of(project, &e.name, &r.related).is_some()
+                })
                 .map(|r| IrRule {
                     id: r.id.clone(),
                     actions: r.actions.iter().copied().map(convert_action).collect(),
                     when: r.when.clone(),
                     fields: r.fields.clone(),
+                    related: related_of(project, &e.name, &r.related),
                     allow: match &r.allow {
                         schema::Allow::Owner => IrAllow::Owner,
                         schema::Allow::Role(n) => IrAllow::Role(n.clone()),
@@ -257,4 +263,31 @@ fn hex(bytes: &[u8]) -> String {
             let _ = write!(s, "{b:02x}");
             s
         })
+}
+
+/// The steps of a relationship rule, resolved to tables and columns. The loader has
+/// already checked the path, so a path that does not resolve yields `None` and the rule
+/// then reaches nothing (fail closed).
+fn related_of(project: &Project, entity: &str, path: &[String]) -> Option<IrRelated> {
+    if path.is_empty() {
+        return None;
+    }
+    let mut current = project.entity(entity)?;
+    let mut hops = Vec::new();
+    for name in path {
+        let rel = current.relations.iter().find(|r| r.name == *name)?;
+        let next = project.entity(&rel.entity)?;
+        hops.push(IrHop {
+            column: rel.field.clone(),
+            table: next.table.clone(),
+            soft_delete: next.lifecycle.soft_delete,
+        });
+        current = next;
+    }
+    Some(IrRelated {
+        path: path.to_vec(),
+        hops,
+        owner_column: current.owner.clone()?,
+        tenant_scoped: project.app.tenancy == Tenancy::Row,
+    })
 }

@@ -202,8 +202,8 @@ Target: Falak.me, a multi-tenant app with file uploads.
 Target: three apps share one login and one admin interface.
 
 **Dev1**
-- [ ] **T4.1** Relationship rules with bounded traversal depth.
-- [ ] **T4.2** `admin:` presentation metadata in schema and IR.
+- [x] **T4.1** Relationship rules with bounded traversal depth. *`allow: { owner: true, related: project.workspace }`, at most 3 `belongs_to` steps, nested `EXISTS`, AUTHORIZATION §11. Checked on SQLite only (3 tests).*
+- [x] **T4.2** `admin:` presentation metadata in schema and IR. *Already built in Phase 1 (`label`, `list_columns`, `search_fields`, validated); `tests/admin.rs` now pins it into the IR.*
 - [ ] **T4.3** `FEDERATION_SPECIFICATION.md` to candidate. *Needs:* T4.5, T4.8 drafts.
 - [ ] **T4.14** Release v1.0: tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
 

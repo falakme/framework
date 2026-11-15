@@ -17,7 +17,7 @@ use falak_contracts::{
 };
 
 use crate::{
-    policy::{Access, Grant},
+    policy::{Access, Grant, Via},
     values::{DEFAULT_TEXT_MAX, check_value, parse_uuid},
 };
 
@@ -154,7 +154,48 @@ fn pending_conds<'a>(
     if g.owner.as_deref().is_some_and(|s| parse_uuid(s).is_none()) {
         return None;
     }
+    if g.via.is_some() && parse_uuid(&g.subject).is_none() {
+        return None;
+    }
     Some(pending)
+}
+
+/// A relationship rule as nested `EXISTS`: each step finds the related row by the id in
+/// this row's column, and the last one must be owned by the caller. A related row that is
+/// soft deleted, or in another tenant, does not count.
+fn via_sql(base: &str, g: &Grant, via: &Via, b: &mut Builder) -> Option<String> {
+    let related = &via.related;
+    let subject = parse_uuid(&g.subject)?;
+    let tenant = if related.tenant_scoped {
+        Some(parse_uuid(via.tenant.as_deref()?)?)
+    } else {
+        None
+    };
+    let mut open = String::new();
+    let mut close = String::new();
+    let mut outer = q(base);
+    for (i, hop) in related.hops.iter().enumerate() {
+        let alias = format!("r{}", i + 1);
+        let mut on = format!("{alias}.{} = {outer}.{}", q("id"), q(&hop.column));
+        if let Some(t) = tenant {
+            let p = b.bind(Value::Uuid(t));
+            on.push_str(&format!(" AND {alias}.{} = {p}", q("tenant_id")));
+        }
+        if hop.soft_delete {
+            on.push_str(&format!(" AND {alias}.{} IS NULL", q("deleted_at")));
+        }
+        open.push_str(&format!(
+            "EXISTS (SELECT 1 FROM {} AS {alias} WHERE {on} AND ",
+            q(&hop.table)
+        ));
+        close.push(')');
+        outer = alias;
+    }
+    let p = b.bind(Value::Uuid(subject));
+    Some(format!(
+        "{open}{outer}.{} = {p}{close}",
+        q(&related.owner_column)
+    ))
 }
 
 /// SQL for the row conditions of one grant.
@@ -169,6 +210,9 @@ fn grant_sql(
         let owner = entity.owner.as_deref()?;
         let p = b.bind(Value::Uuid(parse_uuid(subject)?));
         parts.push(format!("{} = {p}", q(owner)));
+    }
+    if let Some(via) = &g.via {
+        parts.push(via_sql(&entity.table, g, via, b)?);
     }
     for c in pending {
         let col = q(&c.field);
@@ -204,7 +248,7 @@ fn grants_predicate(
     }
     if usable
         .iter()
-        .any(|(g, pending)| g.owner.is_none() && pending.is_empty())
+        .any(|(g, pending)| g.owner.is_none() && g.via.is_none() && pending.is_empty())
     {
         return Ok(None);
     }

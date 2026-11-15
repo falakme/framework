@@ -136,6 +136,8 @@ pub struct Rule {
     pub allow: Allow,
     pub when: Vec<falak_contracts::ir::IrCondition>,
     pub fields: Option<Vec<String>>,
+    /// Relation names to follow (`belongs_to`), outermost first. Empty: none.
+    pub related: Vec<String>,
     pub position: Position,
 }
 
