@@ -23,6 +23,9 @@ pub enum ErrorKind {
     PreconditionFailed,
     /// A rate or size limit was exceeded.
     RateLimited,
+    /// The request is well formed but cannot be processed (for example an idempotency
+    /// key reused with a different body).
+    Unprocessable,
     /// The driver or runtime lacks a required capability.
     Unsupported,
     /// A dependency did not answer in time.
@@ -43,6 +46,7 @@ impl ErrorKind {
             Self::NotFound => 404,
             Self::Conflict => 409,
             Self::PreconditionFailed => 412,
+            Self::Unprocessable => 422,
             Self::RateLimited => 429,
             Self::Unsupported => 501,
             Self::Unavailable => 503,

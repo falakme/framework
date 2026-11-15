@@ -15,13 +15,14 @@ use axum::{
 use falak_contracts::{
     Error, ErrorKind,
     driver::Value,
+    identity::{Principal, RequestContext},
     ir::{IrAction, IrEntity},
 };
 use falak_core::{
     command::{self, Plan},
     policy::authorize,
     sql::{
-        self, Condition, Dialect, Filter, ListQuery, Op, Request, SortKey, WriteContext,
+        self, Condition, Dialect, Filter, ListQuery, Op, Request, Scope, SortKey, WriteContext,
         cursor_from_row,
     },
     values::{format_uuid, parse_uuid},
@@ -31,7 +32,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::{
     app::AppState,
-    context::{extract_principal, extract_request_id, make_context, make_scope},
+    context::{extract_request_id, make_context, make_scope},
     driver::NativeDriver,
     error::problem_response,
     idempotency::{CachedResponse, CheckResult, IdempotencyKeyScope},
@@ -46,14 +47,8 @@ fn now_micros() -> i64 {
 }
 
 fn fresh_uuid() -> [u8; 16] {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let mut b = [0u8; 16];
-    b[..8].copy_from_slice(&(nanos as u64).to_be_bytes());
-    b[8..].copy_from_slice(&((nanos >> 64) as u64 ^ 0xf00d_cafe_1234_5678).to_be_bytes());
-    b
+    use falak_contracts::support::IdGenerator;
+    falak_auth::system::RandomIds.new_id()
 }
 
 fn dialect_for_driver<D: NativeDriver>(driver: &D) -> Dialect {
@@ -61,6 +56,57 @@ fn dialect_for_driver<D: NativeDriver>(driver: &D) -> Dialect {
         "postgres" => Dialect::Postgres,
         "d1" => Dialect::D1,
         _ => Dialect::Sqlite,
+    }
+}
+
+/// A write changed no rows. With `If-Match` that means either the version moved on or
+/// the row is not there for this caller. Say 412 only if the caller can read the row;
+/// otherwise 404, so a caller cannot tell a row they may not see from one that does not
+/// exist.
+#[allow(clippy::too_many_arguments)]
+async fn nothing_changed<D: NativeDriver>(
+    state: &AppState<D>,
+    entity: &IrEntity,
+    id: [u8; 16],
+    principal: Option<&Principal>,
+    scope: &Scope,
+    ctx: &RequestContext,
+    if_match: Option<i64>,
+    instance: &str,
+    req_id: &str,
+) -> Response {
+    let not_found = || problem_response(&Error::not_found(), instance, req_id, vec![]);
+    if if_match.is_none() {
+        return not_found();
+    }
+    let access = authorize(entity, IrAction::Read, principal);
+    if access.is_denied() {
+        return not_found();
+    }
+    let req = Request {
+        ir: &state.ir,
+        entity,
+        dialect: dialect_for_driver(&*state.driver),
+        access: &access,
+        scope,
+    };
+    let visible = match sql::get(req, id) {
+        Ok(Some(stmt)) => state
+            .driver
+            .query(ctx, stmt)
+            .await
+            .is_ok_and(|rows| !rows.rows.is_empty()),
+        _ => false,
+    };
+    if visible {
+        let err = Error::new(
+            ErrorKind::PreconditionFailed,
+            "precondition_failed",
+            "Precondition failed: resource version mismatch",
+        );
+        problem_response(&err, instance, req_id, vec![])
+    } else {
+        not_found()
     }
 }
 
@@ -131,7 +177,10 @@ pub async fn list_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
     let access = authorize(entity, IrAction::Read, principal.as_ref());
@@ -275,7 +324,10 @@ pub async fn get_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
     let access = authorize(entity, IrAction::Read, principal.as_ref());
@@ -332,7 +384,10 @@ pub async fn create_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
 
@@ -513,7 +568,10 @@ pub async fn update_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
     let if_match = parse_if_match(&headers);
@@ -644,16 +702,18 @@ pub async fn update_handler<D: NativeDriver>(
         if let Some(ref iscope) = idempotency_scope {
             state.idempotency.release(iscope);
         }
-        if if_match.is_some() {
-            let err = Error::new(
-                ErrorKind::PreconditionFailed,
-                "precondition_failed",
-                "Precondition failed: resource version mismatch",
-            );
-            return problem_response(&err, &instance, &req_id, vec![]);
-        } else {
-            return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
-        }
+        return nothing_changed(
+            &state,
+            entity,
+            id_bytes,
+            principal.as_ref(),
+            &scope,
+            &ctx,
+            if_match,
+            &instance,
+            &req_id,
+        )
+        .await;
     }
 
     let updated_json = if !outcome.rows.rows.is_empty() {
@@ -706,7 +766,10 @@ pub async fn delete_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
     let if_match = parse_if_match(&headers);
@@ -742,16 +805,18 @@ pub async fn delete_handler<D: NativeDriver>(
 
     let outcome = outcomes.into_iter().next().unwrap_or_default();
     if outcome.rows_affected == 0 {
-        if if_match.is_some() {
-            let err = Error::new(
-                ErrorKind::PreconditionFailed,
-                "precondition_failed",
-                "Precondition failed: resource version mismatch",
-            );
-            return problem_response(&err, &instance, &req_id, vec![]);
-        } else {
-            return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
-        }
+        return nothing_changed(
+            &state,
+            entity,
+            id_bytes,
+            principal.as_ref(),
+            &scope,
+            &ctx,
+            if_match,
+            &instance,
+            &req_id,
+        )
+        .await;
     }
 
     let mut res = StatusCode::NO_CONTENT.into_response();
@@ -782,7 +847,10 @@ pub async fn command_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let principal = extract_principal(&headers);
+    let Some(principal) = state.auth.authenticate(&headers) else {
+        return problem_response(&Error::unauthenticated(), &instance, &req_id, vec![]);
+    };
+    let principal = Some(principal);
     let ctx = make_context(req_id.clone(), principal.clone());
     let scope = make_scope(principal.as_ref());
     let if_match = parse_if_match(&headers);
@@ -848,16 +916,18 @@ pub async fn command_handler<D: NativeDriver>(
 
     let outcome = outcomes.into_iter().next().unwrap_or_default();
     if outcome.rows_affected == 0 {
-        if if_match.is_some() {
-            let err = Error::new(
-                ErrorKind::PreconditionFailed,
-                "precondition_failed",
-                "Precondition failed: resource version mismatch",
-            );
-            return problem_response(&err, &instance, &req_id, vec![]);
-        } else {
-            return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
-        }
+        return nothing_changed(
+            &state,
+            entity,
+            id_bytes,
+            principal.as_ref(),
+            &scope,
+            &ctx,
+            if_match,
+            &instance,
+            &req_id,
+        )
+        .await;
     }
 
     let updated_json = if !outcome.rows.rows.is_empty() {

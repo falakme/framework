@@ -108,19 +108,19 @@ Target: the Notebook app runs as one binary with no external service.
 - [ ] **T1.9** Structured logs, traces, liveness and readiness endpoints, and a Litestream config. *Works when:* a restore from the Litestream replica brings back the Notebook data.
 
 **Dev3**
-- [ ] **T1.10** CLI: `init`, `check`, `build`, `dev` (watch and reload), `serve`, `doctor`. *Needs:* T1.3. *Works when:* `falak init` then `falak dev` serves a new app with no other steps.
+- [x] **T1.10** CLI: `init`, `check`, `build`, `dev` (watch and reload), `serve`, `doctor`. *Needs:* T1.3. *Works when:* `falak init` then `falak dev` serves a new app with no other steps.
 - [x] **T1.11** OpenAPI 3.1 document generated from the IR. *Needs:* T1.3. *Works when:* the document loads in a standard OpenAPI viewer without errors.
 
 **Dev4**
 - [x] **T1.12** Local identity: sign-up, login, Argon2id, rate-limited attempts, revocable sessions, single-use reset tokens. *Needs:* T0.3.
 - [x] **T1.13** Local key provider and `Ed25519` token issue and verify, with `kid` from the start. *Needs:* T0.3.
-- [ ] **T1.14** Auth middleware that puts the verified subject into the request context, and secret references resolved at runtime. *Needs:* T1.7, T1.13. *Works when:* a request with a user id in a header but no valid token is rejected.
+- [x] **T1.14** Auth middleware that puts the verified subject into the request context, and secret references resolved at runtime. *Needs:* T1.7, T1.13. *Works when:* a request with a user id in a header but no valid token is rejected.
 
 **Dev5**
 - [x] **T1.15** TypeScript SDK codegen (`falak sync`). *Needs:* T1.11.
 - [ ] **T1.16** Notebook React frontend using the generated SDK. *Needs:* T1.15.
-- [ ] **T1.17** `scripts/smoke/notebook.sh`: start the binary, create two users, create notes as each, and confirm each user sees only their own and gets 404 on the other's. *Needs:* T1.7, T1.14.
-- [ ] **T1.18** Ten-minute quickstart in `docs/` and linked from the README. *Works when:* another agent follows it on a clean machine and reaches a running Notebook.
+- [x] **T1.17** `scripts/smoke/notebook.sh`: start the binary, create two users, create notes as each, and confirm each user sees only their own and gets 404 on the other's. *Needs:* T1.7, T1.14.
+- [x] **T1.18** Ten-minute quickstart in `docs/` and linked from the README. *Works when:* another agent follows it on a clean machine and reaches a running Notebook. *(Written and run step by step by Dev3 in a clean directory; a second reader has not tried it yet.)*
 
 **Gate (Dev1)**
 - [ ] `scripts/smoke/notebook.sh` passes in CI.

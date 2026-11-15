@@ -16,5 +16,13 @@ name = "falak"
 path = "src/main.rs"
 
 [dependencies]
+falak-auth = { path = "../falak-auth" }
+falak-contracts.workspace = true
 falak-core.workspace = true
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+falak-migrate = { path = "../falak-migrate" }
+falak-runtime-native = { path = "../falak-runtime-native" }
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
 serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "time", "macros"] }
+tower = "0.5"

@@ -13,7 +13,7 @@ use falak_core::{
 };
 use falak_driver_sqlite::SqliteDriver;
 use falak_migrate::apply_initial_migration;
-use falak_runtime_native::create_router;
+use falak_runtime_native::{context::DevAuthenticator, create_router};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -64,7 +64,7 @@ async fn setup_app() -> (axum::Router, Arc<SqliteDriver>) {
     let applied = apply_initial_migration(&*driver, &ctx, &ir).await.unwrap();
     assert!(applied, "Migration applied");
 
-    let app = create_router(ir, driver.clone());
+    let app = create_router(ir, driver.clone(), Arc::new(DevAuthenticator));
     (app, driver)
 }
 
@@ -126,7 +126,7 @@ async fn test_rest_crud_and_commands_lifecycle_with_isolation() {
     let user1 = "00000000-0000-0000-0000-000000000001";
     let user2 = "00000000-0000-0000-0000-000000000002";
 
-    // 1. Unauthenticated creation -> 403 Forbidden
+    // 1. Unauthenticated creation -> 401 Unauthorized
     let req = Request::builder()
         .method("POST")
         .uri("/v1/notes")
@@ -134,9 +134,9 @@ async fn test_rest_crud_and_commands_lifecycle_with_isolation() {
         .body(Body::from(r#"{"title":"Unauthorized"}"#))
         .unwrap();
     let res = app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let (_, json) = response_json(res).await;
-    assert_eq!(json["code"], "forbidden");
+    assert_eq!(json["code"], "unauthenticated");
 
     // 2. User 1 creates Note 1 with Idempotency-Key
     let req = Request::builder()
@@ -190,7 +190,7 @@ async fn test_rest_crud_and_commands_lifecycle_with_isolation() {
         .body(Body::from(r#"{"title":"Different Payload"}"#))
         .unwrap();
     let res = app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let (_, err_json) = response_json(res).await;
     assert_eq!(err_json["code"], "idempotency_payload_mismatch");
 

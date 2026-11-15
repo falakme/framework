@@ -392,8 +392,16 @@ dependencies = [
 name = "falak-cli"
 version = "0.0.0"
 dependencies = [
+ "axum",
+ "falak-auth",
+ "falak-contracts",
  "falak-core",
+ "falak-driver-sqlite",
+ "falak-migrate",
+ "falak-runtime-native",
  "serde_json",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
@@ -463,10 +471,12 @@ name = "falak-runtime-native"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "falak-auth",
  "falak-contracts",
  "falak-core",
  "falak-driver-sqlite",
  "falak-migrate",
+ "falak-runtime-native",
  "hex",
  "http-body-util",
  "serde",

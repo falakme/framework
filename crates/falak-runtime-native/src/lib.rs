@@ -1,6 +1,7 @@
 //! Native runtime (Axum, Tokio) serving a compiled app.
 
 pub mod app;
+pub mod auth_routes;
 pub mod context;
 pub mod driver;
 pub mod error;

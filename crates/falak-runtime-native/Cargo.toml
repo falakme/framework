@@ -11,7 +11,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Compiles `DevAuthenticator`, which trusts the bearer value as the user id. For tests
+# only: no binary enables it.
+dev-auth = []
+
 [dependencies]
+falak-auth = { path = "../falak-auth" }
 falak-contracts.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
@@ -27,6 +33,7 @@ sha2 = "0.10"
 unicode-normalization = "0.1.26"
 
 [dev-dependencies]
+falak-runtime-native = { path = ".", features = ["dev-auth"] }
 falak-driver-sqlite = { path = "../falak-driver-sqlite" }
 falak-migrate = { path = "../falak-migrate" }
 tokio = { version = "1", features = ["full"] }

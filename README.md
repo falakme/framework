@@ -45,7 +45,13 @@ Nine acceptance-gated milestones. Gates, scope and validation apps are in [ARCHI
 
 ## Quickstart
 
-Not available yet. A ten-minute quickstart ending in a running Notebook app is part of the `M1` gate.
+[`docs/quickstart.md`](./docs/quickstart.md) takes you from nothing to a running app in ten minutes:
+
+```sh
+cargo install --path crates/falak-cli --locked
+falak init todo && cd todo
+falak dev
+```
 
 ## Licence
 

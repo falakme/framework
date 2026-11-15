@@ -25,6 +25,8 @@ jobs:
         run: cargo test --workspace --locked
       - name: Build portable crates (wasm32)
         run: cargo build --locked --target wasm32-unknown-unknown -p falak-contracts -p falak-core
+      - name: Notebook smoke test
+        run: bash scripts/smoke/notebook.sh
       - name: Generated files are current
         run: |
           cargo run --locked -q -p falak-cli -- sync examples/notebook --out examples/notebook/web/src/falak.generated.ts

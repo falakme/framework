@@ -10,6 +10,7 @@ use axum::{
 use falak_contracts::ir::Ir;
 
 use crate::{
+    context::Authenticator,
     driver::NativeDriver,
     error::problem_response,
     handlers::{
@@ -22,13 +23,19 @@ pub struct AppState<D: NativeDriver> {
     pub ir: Arc<Ir>,
     pub driver: Arc<D>,
     pub idempotency: IdempotencyStore,
+    pub auth: Arc<dyn Authenticator>,
 }
 
-pub fn create_router<D: NativeDriver>(ir: Arc<Ir>, driver: Arc<D>) -> Router {
+pub fn create_router<D: NativeDriver>(
+    ir: Arc<Ir>,
+    driver: Arc<D>,
+    auth: Arc<dyn Authenticator>,
+) -> Router {
     let state = Arc::new(AppState {
         ir,
         driver,
         idempotency: IdempotencyStore::new(),
+        auth,
     });
 
     Router::<Arc<AppState<D>>>::new()

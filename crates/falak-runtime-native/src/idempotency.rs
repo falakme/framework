@@ -81,7 +81,8 @@ impl IdempotencyStore {
                 response,
             }) => {
                 if recorded != payload_hash {
-                    Err(Error::invalid_input(
+                    Err(Error::new(
+                        ErrorKind::Unprocessable,
                         "idempotency_payload_mismatch",
                         "The idempotency key was previously used with a different request payload.",
                     ))
