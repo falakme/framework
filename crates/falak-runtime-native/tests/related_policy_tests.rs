@@ -365,10 +365,15 @@ fn bad_relationship_rules_are_build_errors() {
 }
 
 /// The same two scenarios on PostgreSQL 16, each in a database of its own. Runs when
-/// `FALAK_TEST_PG_ADMIN_URL` names a server and a role that may create databases.
+/// `FALAK_TEST_PG_ADMIN_URL` names a server (a role that owns the databases). The two
+/// databases `related_reads` and `related_writes` must exist and be empty (the driver
+/// runs every statement in a transaction, and `CREATE DATABASE` cannot):
+///
+/// ```text
+/// psql -c 'CREATE DATABASE related_reads' -c 'CREATE DATABASE related_writes'
+/// ```
 #[tokio::test]
 async fn the_same_rules_hold_on_postgresql() {
-    use falak_contracts::driver::Statement;
     use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 
     let Ok(admin_url) = std::env::var("FALAK_TEST_PG_ADMIN_URL") else {
@@ -383,22 +388,9 @@ async fn the_same_rules_hold_on_postgresql() {
         .await
         .unwrap()
     };
-    let admin = open(admin_url.clone()).await;
-    let ctx = RequestContext {
-        principal: None,
-        request_id: "t".into(),
-    };
     let (base, _) = admin_url.rsplit_once('/').unwrap();
     for (name, scenario) in [("reads", 0), ("writes", 1)] {
-        let db = format!("related_{name}_{}", std::process::id());
-        use falak_contracts::driver::StorageDriver as _;
-        admin
-            .batch(
-                &ctx,
-                vec![Statement::new(format!("CREATE DATABASE \"{db}\""), vec![])],
-            )
-            .await
-            .unwrap();
+        let db = format!("related_{name}");
         let driver = open(format!("{base}/{db}")).await;
         let w = world_on(app_on(Arc::new(driver)).await).await;
         if scenario == 0 {
