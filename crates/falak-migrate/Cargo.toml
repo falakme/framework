@@ -12,3 +12,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+falak-contracts.workspace = true
+falak-core.workspace = true
+
+[dev-dependencies]
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
