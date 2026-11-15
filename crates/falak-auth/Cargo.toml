@@ -1,6 +1,6 @@
 [package]
 name = "falak-auth"
-description = "Identity, token and key providers."
+description = "Local identity: passwords, sessions, Ed25519 tokens."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,4 +11,22 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `native` adds everything that needs randomness or a database: key generation, password
+# hashing, sessions. Without it only token verification is built, which compiles for
+# `wasm32` (the edge runtime, T2.9).
+default = ["native"]
+native = ["dep:argon2", "dep:rand_core", "dep:sha2", "ed25519-dalek/rand_core"]
+
 [dependencies]
+falak-contracts.workspace = true
+argon2 = { version = "0.5", optional = true }
+base64 = "0.22"
+ed25519-dalek = "2"
+rand_core = { version = "0.6", features = ["getrandom"], optional = true }
+serde_json.workspace = true
+sha2 = { workspace = true, optional = true }
+
+[dev-dependencies]
+falak-driver-sqlite = { path = "../falak-driver-sqlite" }
+tokio = { version = "1", features = ["rt", "macros"] }

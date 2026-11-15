@@ -111,8 +111,8 @@ Target: the Notebook app runs as one binary with no external service.
 - [x] **T1.11** OpenAPI 3.1 document generated from the IR. *Needs:* T1.3. *Works when:* the document loads in a standard OpenAPI viewer without errors.
 
 **Dev4**
-- [ ] **T1.12** Local identity: sign-up, login, Argon2id, rate-limited attempts, revocable sessions, single-use reset tokens. *Needs:* T0.3.
-- [ ] **T1.13** Local key provider and `Ed25519` token issue and verify, with `kid` from the start. *Needs:* T0.3.
+- [x] **T1.12** Local identity: sign-up, login, Argon2id, rate-limited attempts, revocable sessions, single-use reset tokens. *Needs:* T0.3.
+- [x] **T1.13** Local key provider and `Ed25519` token issue and verify, with `kid` from the start. *Needs:* T0.3.
 - [ ] **T1.14** Auth middleware that puts the verified subject into the request context, and secret references resolved at runtime. *Needs:* T1.7, T1.13. *Works when:* a request with a user id in a header but no valid token is rejected.
 
 **Dev5**

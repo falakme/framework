@@ -22,3 +22,9 @@ falak-core = { path = "crates/falak-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+
+# Password hashing is deliberately slow; unoptimised it makes tests take minutes.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
