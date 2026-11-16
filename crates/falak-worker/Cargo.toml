@@ -11,4 +11,15 @@ publish = false
 [lints]
 workspace = true
 
+[[bin]]
+name = "falak-worker"
+path = "src/main.rs"
+
 [dependencies]
+falak-contracts.workspace = true
+falak-egress = { path = "../falak-egress", version = "1.0.0" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex = "0.4"
+ureq = { version = "2", features = ["json"] }

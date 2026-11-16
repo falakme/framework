@@ -693,6 +693,15 @@ dependencies = [
 [[package]]
 name = "falak-worker"
 version = "1.0.0"
+dependencies = [
+ "falak-contracts",
+ "falak-egress",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
 
 [[package]]
 name = "fiat-crypto"
