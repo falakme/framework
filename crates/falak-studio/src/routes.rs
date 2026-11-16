@@ -80,6 +80,7 @@ pub fn router(studio: Shared) -> Router {
         .route("/api/oidc", post(oidc))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .route("/api/observatory/{view}", get(observatory))
         .route("/api/apps/{app}/schema", get(schema))
         .route("/api/apps/{app}/{entity}", get(list).post(create))
         .route(
@@ -503,6 +504,47 @@ async fn me(State(studio): State<Shared>, headers: HeaderMap) -> Response {
     match guard(&studio, &headers, false) {
         Ok(w) => reply(200, &me_body(&studio, &w.label, &w.csrf)),
         Err(r) => r,
+    }
+}
+
+// ---------------------------------------------------------------- observatory
+
+/// Observatory: the service objectives, the audit chain and break-glass requests of
+/// Office, shown to Office administrators. Studio only passes the person's own Office
+/// token on, so Office decides who may see them.
+async fn observatory(
+    State(studio): State<Shared>,
+    headers: HeaderMap,
+    Path(view): Path<String>,
+) -> Response {
+    let who = match guard(&studio, &headers, false) {
+        Ok(w) => w,
+        Err(r) => return r,
+    };
+    let path = match view.as_str() {
+        "slo" => "/v1/_office/slo",
+        "audit" => "/v1/_office/audit",
+        "verify" => "/v1/_office/audit/verify",
+        "breakglass" => "/v1/_office/breakglass",
+        "stats" => "/v1/_office/stats",
+        _ => return problem(404, "No such view."),
+    };
+    let access = match office_access(&studio, &who.sid).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let url = format!("{}{path}", studio.cfg.office_url.trim_end_matches('/'));
+    let (code, body) = upstream("GET", url, Some(access), vec![], None).await;
+    match code {
+        200 => reply(200, &body),
+        // A chain that does not verify is an answer, not a failure of the request.
+        409 if view == "verify" => {
+            let mut b = body;
+            b["ok"] = json!(false);
+            reply(200, &b)
+        }
+        401 | 403 => problem(403, "The Observatory is for Office administrators."),
+        _ => problem(502, "Office did not answer."),
     }
 }
 

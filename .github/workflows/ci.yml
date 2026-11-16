@@ -145,6 +145,19 @@ jobs:
           OFFICE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/office
         run: bash scripts/smoke/office.sh
 
+  # Phase 6: two Office instances and a failover, then the disaster-recovery drill
+  # (it fails if the RPO of 5 minutes or the RTO of 1 hour is missed).
+  smoke-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Toolchain
+        run: rustup show
+      - name: Office high availability and failover
+        run: bash scripts/smoke/office-ha.sh
+      - name: Disaster-recovery drill
+        run: bash scripts/smoke/dr.sh
+
   # Sign-in through a real OpenID Connect provider: Dex, an independent open-source server.
   smoke-oidc:
     runs-on: ubuntu-latest
