@@ -4,6 +4,7 @@ mod args;
 mod deploy;
 mod doctor;
 mod init;
+mod ledger_cmd;
 mod migrate_cmd;
 mod office_cmd;
 mod policy_cmd;
@@ -43,6 +44,12 @@ COMMANDS:
     office status [dir]          Check the link to Office
     office rotate-key --office <url> --email <e> --password-env <VAR> [--retire]
                                  Rotate Office's signing key (--retire drops the old one)
+    ledger init [--database-url <u>] [--app-role <role>]
+                                 Create the ledger tables (PostgreSQL); the role gets INSERT and SELECT only
+    ledger import --statement <csv> --statement-id <id> --ledger-account <acct> [--database-url <u>]
+                                 Store an external statement (external_ref,currency,amount)
+    ledger reconcile --statement-id <id> [--database-url <u>]
+                                 Compare it with the ledger; exit 1 if anything differs
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
@@ -228,6 +235,16 @@ fn run(
                 _ => office_cmd::rotate_key(&options),
             }
         }
+        Command::LedgerInit | Command::LedgerImport | Command::LedgerReconcile => ledger_cmd::run(
+            command,
+            &ledger_cmd::Options {
+                database_url: extra.database_url,
+                statement: extra.statement,
+                statement_id: extra.statement_id,
+                account: extra.ledger_account,
+                app_role: extra.app_role,
+            },
+        ),
         Command::Deploy => {
             deploy_options.name = name;
             deploy::run(dir, &deploy_options)
