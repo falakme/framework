@@ -1,0 +1,8 @@
+schema_version: 1
+entity: stock_move
+fields:
+  order_ref: { type: uuid, required: true, indexed: true }
+  kind: { type: text, required: true, max_length: 20 }
+admin:
+  label: Stock moves
+  list_columns: [kind]

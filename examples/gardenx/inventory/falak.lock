@@ -4,12 +4,18 @@ framework = "1.0.0"
 ir_version = 1
 app = "inventory"
 app_version = "0.1.0"
-ir_hash = "sha256:55f9268b75874822889d47b25bd14ce3b8f5798f1002de9ec8bb30a75210c714"
+ir_hash = "sha256:1b5006318751f1349582eb08ba53c3da46e3ebcedf2469a56713ca9a60c3b849"
 drivers = ["d1", "postgres", "sqlite"]
 
 [sources]
 "app.yaml" = "sha256:5bb506f3548a2f510c8fa8f048d9e0c1f4d080d3978d86f8dd91c39b0c3ab36a"
+"commands/cancel.yaml" = "sha256:24f2d295728c0514174067dc13a419f54551daadd68d888800d048f0898d1432"
+"commands/confirm.yaml" = "sha256:cc93335bfc3a9265402e1bfcb545a269d1a5bbdb2626fbc0fe8fc024b3d20cab"
 "commands/reserve.yaml" = "sha256:17f973a8815cbe33f5e9bbf4ddefcb64f0f071beba4a678a7382f5c4f5125ebe"
 "entities/reservation.yaml" = "sha256:1ad56439c56b736883a6dda4b327ae0d5454b439debe86095efd186e37dd9743"
+"entities/stock_move.yaml" = "sha256:754442eb7e39dc0b22daf87fc83f8384d051407129635d76ac912e8f03df10cc"
+"events/cancel_stock.yaml" = "sha256:0c442768a8d7df55ad58d572584eff1561943ff6ff7a92616e13e116d341291f"
+"events/confirm_stock.yaml" = "sha256:0e32d21a88a1ae1c1db6cbb6a0059cb572fe55c31da92f5073ecfd5babe247e1"
 "events/order_placed.yaml" = "sha256:228f71bef535e03e076d2a5864632bcf156c3e57692dc1fc2ac62f139eacb4ad"
 "policies/reservation.yaml" = "sha256:f4ce706c28aebb587688980dd8f6aa990ab2b2238df3aa6616def028654c6e06"
+"policies/stock_move.yaml" = "sha256:206f89319be6d283bcabf83080b4fa5e8293d1872e74b398b866de30ae42dbbd"

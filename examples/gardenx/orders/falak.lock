@@ -4,7 +4,7 @@ framework = "1.0.0"
 ir_version = 1
 app = "orders"
 app_version = "0.1.0"
-ir_hash = "sha256:42c75906e3f3d96a54f6ed93fce31e064a6f97fcf604f685cb8699f5e0bcf5d7"
+ir_hash = "sha256:f577d6c520d83e9ac4dc3faed8821447a707b07d59cb69bba506204c9f75942f"
 drivers = ["d1", "postgres", "sqlite"]
 
 [sources]
@@ -12,4 +12,4 @@ drivers = ["d1", "postgres", "sqlite"]
 "entities/purchase.yaml" = "sha256:6843459baad435f5a613ca84d46ef29fcd0b344dac61691edd1ea377b965a6df"
 "events/order_placed.yaml" = "sha256:c37529f4b9a07a910f10b7c43f603aac1d4d656ce56944473f4b93141b2095b5"
 "policies/purchase.yaml" = "sha256:9bc506f467b104fcafde8f5d082ce6af894aa7337d39d8c5bdac750e901f9fda"
-"workflows/fulfil_order.yaml" = "sha256:2d8cffbe9a53b91381e5209335e6f86640ac66f0038957bdaade40fda89e4840"
+"workflows/fulfil_order.yaml" = "sha256:687951117d793cfdfc9e2e94d58c5a8286d19fbce410d1647be4b2f6c0893179"

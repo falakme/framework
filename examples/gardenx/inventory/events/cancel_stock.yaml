@@ -1,0 +1,6 @@
+schema_version: 1
+event: cancel_stock
+consume:
+  from: orders
+  version: 1
+  handler: cancel
