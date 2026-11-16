@@ -52,7 +52,7 @@ Agents cannot do these. Phase 0 cannot close without the first two.
 - [ ] Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to the repository's GitHub secrets, so CI can run the Workers smoke test (T2.11). The token needs Workers Scripts and D1 edit rights.
 - [x] ~~Provide a Coolify server~~ Dropped: the owner does not want Framework deployed on Coolify. An R2 bucket was needed only for the T3.11 check, which is done.
 - [ ] Choose the OIDC provider that Office Identity wraps (needed before T4.8). Dev4 brings a recommendation.
-- [ ] Give a security contact address for `SECURITY.md`, and turn on GitHub private vulnerability reporting for the repository (Dev4 cannot do either).
+- [x] Give a security contact address for `SECURITY.md`: admin@falak.me (done 2026-11-16). Turning on GitHub private vulnerability reporting for the repository is still open (Dev4 cannot do it).
 - [ ] Take legal advice on BlockBanking (needed before Phase 8).
 
 ---

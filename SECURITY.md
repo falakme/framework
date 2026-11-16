@@ -4,7 +4,8 @@
 
 Please report security problems privately. Do not open a public issue or pull request.
 
-* Use GitHub's private vulnerability reporting on this repository (Security tab, "Report a vulnerability").
+* Email admin@falak.me.
+* Or use GitHub's private vulnerability reporting on this repository (Security tab, "Report a vulnerability").
 
 Include what you found, how to reproduce it, which version or commit you tested, and what an attacker could do with it. A working proof of concept helps but is not required.
 
