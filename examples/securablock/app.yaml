@@ -1,0 +1,7 @@
+schema_version: 1
+name: securablock
+version: 0.1.0
+description: Scan code and artifact bundles for leaked secrets. Scans run as compute jobs on a worker you control.
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres]

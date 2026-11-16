@@ -1,0 +1,13 @@
+schema_version: 1
+entity: summary
+owner: owner_id
+fields:
+  document_id: { type: uuid, required: true, indexed: true, references: document.id }
+  text: { type: text, max_length: 20000, pii: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  document: { kind: belongs_to, entity: document, field: document_id }
+admin:
+  label: Summaries
+  list_columns: [document_id]
+  search_fields: []

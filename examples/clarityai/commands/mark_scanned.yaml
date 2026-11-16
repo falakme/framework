@@ -1,0 +1,10 @@
+schema_version: 1
+command: mark_scanned
+entity: document
+kind: update
+input:
+  id: { type: uuid, required: true }
+target: id
+set:
+  status: scanned
+idempotent: true

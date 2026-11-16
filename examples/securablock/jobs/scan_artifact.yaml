@@ -1,0 +1,12 @@
+schema_version: 1
+job: scan_artifact
+input:
+  scan_id: { type: uuid }
+  content: { type: text, max_length: 1048576 }
+  deep_seconds: { type: int64, required: false }
+image: ghcr.io/falakme/securablock-scanner:0.1.0
+command: [python, /app/scan.py]
+timeout_seconds: 900
+max_attempts: 3
+memory_mb: 512
+cpus: 1

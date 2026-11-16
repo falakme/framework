@@ -1,0 +1,7 @@
+schema_version: 1
+name: clarityai
+version: 0.1.0
+description: A document pipeline. Documents are extracted and scanned for personal data; AI only ever sees pseudonymized text.
+tenancy: none
+trust_tier: sensitive
+drivers: [sqlite, postgres]

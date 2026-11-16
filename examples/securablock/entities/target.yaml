@@ -1,0 +1,15 @@
+schema_version: 1
+entity: target
+owner: owner_id
+fields:
+  name: { type: text, required: true, max_length: 200 }
+  kind: { type: text, required: true, max_length: 40, default: repository }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  scans: { kind: has_many, entity: scan, field: target_id }
+admin:
+  label: Targets
+  list_columns: [name, kind]
+  search_fields: [name]
+lifecycle:
+  soft_delete: true
