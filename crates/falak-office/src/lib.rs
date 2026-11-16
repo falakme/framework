@@ -9,6 +9,7 @@
 //! (Clerk, Auth0, Keycloak, ...) can be used instead through `oidc`: passkeys and
 //! multi-factor are the provider's job (ADR-0011).
 
+pub mod compute;
 pub mod db;
 pub mod oidc;
 mod routes;

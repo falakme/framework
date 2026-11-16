@@ -193,3 +193,42 @@ pub fn read_job(ctx: &mut Ctx, node: &Node, stem: &str) -> Option<IrJob> {
         requirements_sha256,
     })
 }
+
+/// Check a payload against a job's input contract. Every problem is returned.
+pub fn validate_payload(job: &IrJob, payload: &serde_json::Value) -> Result<(), Vec<String>> {
+    use serde_json::Value as J;
+    let Some(obj) = payload.as_object() else {
+        return Err(vec!["the payload must be a JSON object".into()]);
+    };
+    let mut problems = Vec::new();
+    for key in obj.keys() {
+        if !job.input.iter().any(|i| &i.name == key) {
+            problems.push(format!("unknown input `{key}`"));
+        }
+    }
+    for i in &job.input {
+        let Some(v) = obj.get(&i.name).filter(|v| !v.is_null()) else {
+            if i.required {
+                problems.push(format!("input `{}` is required", i.name));
+            }
+            continue;
+        };
+        let ok = match (&i.ty, v) {
+            (FieldType::Int64 | FieldType::DecimalMinor, J::Number(n)) => n.is_i64(),
+            (FieldType::Bool, J::Bool(_)) | (FieldType::Json, _) => true,
+            (FieldType::Text | FieldType::Uuid | FieldType::Timestamptz, J::String(s)) => {
+                i.max_length.is_none_or(|m| s.chars().count() <= m as usize)
+                    && (i.ty != FieldType::Uuid || crate::values::parse_uuid(s).is_some())
+            }
+            _ => false,
+        };
+        if !ok {
+            problems.push(format!("input `{}` is not a valid {:?}", i.name, i.ty));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
+}

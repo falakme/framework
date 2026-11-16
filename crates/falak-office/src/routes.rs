@@ -30,6 +30,7 @@ use crate::{
     now,
 };
 
+mod compute;
 mod console;
 
 type Shared = Arc<Office>;
@@ -93,6 +94,7 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/keys/retire", post(retire))
         .route("/v1/_office/apps", get(apps))
         .route("/v1/_office/apps/{name}/revoke", post(revoke_app))
+        .merge(compute::routes())
         .with_state(office)
         .layer(axum::middleware::from_fn(console::secure_headers))
         // Sign-in routes come last: Office's own `/.well-known/jwks.json` (the keys it
