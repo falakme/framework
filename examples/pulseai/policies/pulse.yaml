@@ -1,9 +1,0 @@
-schema_version: 1
-entity: pulse
-rules:
-  - id: owner_full_access
-    actions: [read, create, update, delete]
-    allow: { owner: true }
-  - id: manager_read
-    actions: [read]
-    allow: { role: manager }

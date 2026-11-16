@@ -1,7 +1,0 @@
-schema_version: 1
-name: dataman
-version: 0.1.0
-description: Datasets, their backups and recovery drills. Custodians keep their own records; auditors read them all.
-tenancy: none
-trust_tier: standard
-drivers: [sqlite, postgres, d1]

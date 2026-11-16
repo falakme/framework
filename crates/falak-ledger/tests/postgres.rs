@@ -316,7 +316,7 @@ impl falak_ledger::saga::Participant for Storefront {
         _key: &str,
         _args: &serde_json::Value,
     ) -> Result<serde_json::Value, falak_contracts::Error> {
-        if self.fail && command == "enrollment.create" {
+        if self.fail && command == "item.create" {
             return Err(falak_contracts::Error::new(
                 falak_contracts::ErrorKind::Unavailable,
                 "down",
@@ -329,7 +329,7 @@ impl falak_ledger::saga::Participant for Storefront {
 
 #[tokio::test]
 async fn checkout_saga_moves_money_or_gives_it_back() {
-    use falak_ledger::saga::{HorizonParticipant, Outcome, Router, academy_checkout, run};
+    use falak_ledger::saga::{HorizonParticipant, Outcome, Router, checkout, run};
     let Some(l) = ledger().await else { return };
     let (_bank, buyer) = funded(&l, 1_000).await;
     let school = id("school");
@@ -339,13 +339,35 @@ async fn checkout_saga_moves_money_or_gives_it_back() {
         storefront: Storefront { fail },
     };
 
-    let failed = academy_checkout("c", "s", "e", &id("hold"), &buyer, &school, 400, usd());
+    let failed = checkout(
+        "shop",
+        "item.create",
+        serde_json::json!({ "id": "e" }),
+        "item.delete",
+        serde_json::json!({ "id": "e" }),
+        &id("hold"),
+        &buyer,
+        &school,
+        400,
+        usd(),
+    );
     let out = run(&id("saga"), &failed, &router(true), 3).await;
     assert!(matches!(out, Outcome::Compensated { failed_step: 1, .. }));
     assert_eq!(l.balance(&buyer).await.unwrap(), 1_000);
     assert_eq!(l.balance(&school).await.unwrap(), 0);
 
-    let good = academy_checkout("c", "s", "e", &id("hold"), &buyer, &school, 400, usd());
+    let good = checkout(
+        "shop",
+        "item.create",
+        serde_json::json!({ "id": "e" }),
+        "item.delete",
+        serde_json::json!({ "id": "e" }),
+        &id("hold"),
+        &buyer,
+        &school,
+        400,
+        usd(),
+    );
     let saga_id = id("saga");
     assert!(matches!(
         run(&saga_id, &good, &router(false), 3).await,

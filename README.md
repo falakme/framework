@@ -40,7 +40,7 @@ Nine acceptance-gated milestones. Gates, scope and validation apps are in [ARCHI
 | **M5** | Federation and durable events |
 | **M6** | Operational maturity and disaster recovery |
 | **M7a** | Heavy compute workers |
-| **M7b** | AI readiness: PII shield and opt-in MCP |
+| **M7b** | AI readiness: PII pseudonymization primitives and opt-in MCP |
 | **M8** | Financial ledger engine |
 
 ## Quickstart

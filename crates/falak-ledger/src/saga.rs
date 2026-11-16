@@ -1,6 +1,6 @@
 //! Compensating sagas over federated commands (T8.5).
 //!
-//! A checkout touches two apps: Horizon holds and moves the money, a storefront (Academy,
+//! A checkout touches two apps: Horizon holds and moves the money, a storefront (any app, for example
 //! GardenX) records the order. There is no distributed transaction. The saga runs the
 //! steps in order, and when one fails it runs the **compensation** of every step that
 //! already succeeded, newest first:
@@ -214,58 +214,6 @@ pub fn checkout(
     ]
 }
 
-/// Academy checkout: the storefront step creates an `enrollment`; its undo deletes it.
-#[allow(clippy::too_many_arguments)]
-pub fn academy_checkout(
-    course_id: &str,
-    student_id: &str,
-    enrollment_id: &str,
-    hold: &str,
-    buyer_account: &str,
-    merchant_account: &str,
-    amount: i64,
-    currency: Currency,
-) -> Vec<Step> {
-    checkout(
-        "academy",
-        "enrollment.create",
-        json!({ "id": enrollment_id, "course_id": course_id, "student_id": student_id }),
-        "enrollment.delete",
-        json!({ "id": enrollment_id }),
-        hold,
-        buyer_account,
-        merchant_account,
-        amount,
-        currency,
-    )
-}
-
-/// GardenX checkout: the storefront step places an order; its undo cancels it, which
-/// returns the stock. GardenX itself lands with Phase 5 (T5.6); the command names here
-/// are the contract it is expected to offer.
-pub fn gardenx_checkout(
-    order_id: &str,
-    buyer_id: &str,
-    hold: &str,
-    buyer_account: &str,
-    merchant_account: &str,
-    amount: i64,
-    currency: Currency,
-) -> Vec<Step> {
-    checkout(
-        "gardenx",
-        "orders.place",
-        json!({ "id": order_id, "buyer_id": buyer_id, "total": amount }),
-        "orders.cancel",
-        json!({ "id": order_id }),
-        hold,
-        buyer_account,
-        merchant_account,
-        amount,
-        currency,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -302,10 +250,12 @@ mod tests {
     }
 
     fn steps() -> Vec<Step> {
-        academy_checkout(
-            "c1",
-            "s1",
-            "e1",
+        checkout(
+            "shop",
+            "item.create",
+            json!({ "id": "e1" }),
+            "item.delete",
+            json!({ "id": "e1" }),
             "hold-1",
             "buyer",
             "school",

@@ -1,9 +1,0 @@
-schema_version: 1
-entity: statement_import
-rules:
-  - id: reconcilers_manage
-    actions: [read, create]
-    allow: { role: reconciler }
-  - id: auditors_read
-    actions: [read]
-    allow: { role: auditor }

@@ -1,7 +1,0 @@
-schema_version: 1
-name: blockbanking
-version: 0.1.0
-description: A bank's customer accounts, transfer orders and statement reconciliation, on the Falak ledger.
-tenancy: none
-trust_tier: high_assurance
-drivers: [postgres]
