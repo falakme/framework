@@ -1,0 +1,16 @@
+schema_version: 1
+entity: indicator
+owner: owner_id
+fields:
+  kind: { type: text, required: true, max_length: 20 }
+  value: { type: text, required: true, max_length: 500, indexed: true }
+  severity: { type: text, required: true, max_length: 20, default: medium }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  sightings: { kind: has_many, entity: sighting, field: indicator_id }
+admin:
+  label: Indicators
+  list_columns: [kind, value, severity]
+  search_fields: [value]
+lifecycle:
+  soft_delete: true

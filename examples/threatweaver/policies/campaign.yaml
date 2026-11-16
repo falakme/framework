@@ -1,0 +1,9 @@
+schema_version: 1
+entity: campaign
+rules:
+  - id: owner_full_access
+    actions: [read, create, update, delete]
+    allow: { owner: true }
+  - id: analyst_read
+    actions: [read]
+    allow: { role: analyst }

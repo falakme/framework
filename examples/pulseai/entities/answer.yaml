@@ -1,0 +1,17 @@
+schema_version: 1
+entity: answer
+owner: owner_id
+fields:
+  pulse_id: { type: uuid, required: true, indexed: true, references: pulse.id }
+  score: { type: int64, required: true, min: 1, max: 5 }
+  comment: { type: text, max_length: 4000, pii: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  pulse: { kind: belongs_to, entity: pulse, field: pulse_id }
+admin:
+  label: Answers
+  list_columns: [score]
+  search_fields: []
+lifecycle:
+  soft_delete: true
+  erasable: true

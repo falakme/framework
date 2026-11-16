@@ -282,7 +282,7 @@ Target: three apps share one login and one admin interface.
 - [x] **T7.8 (Dev2)** NER scanning of unstructured documents as a compute job; encrypted, tenant-scoped mapping table. *Needs:* T7.2.
 - [x] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default.
 - [x] **T7.10 (Dev4)** AI egress policy and the human approval gate for writes.
-- [ ] **T7.11 (Dev5)** PulseAI and ThreatWeaver apps, and the ClarityAI PII shield UI.
+- [x] **T7.11 (Dev5)** PulseAI and ThreatWeaver apps, and the ClarityAI PII shield UI.
 - [ ] **T7.12 (Dev5)** `scripts/smoke/ai.sh`: a document containing injected instructions is processed, and the agent cannot read or write anything outside the caller's policy. *Needs:* T7.9, T7.10.
 
 **Gate (Dev1)**

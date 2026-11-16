@@ -1,0 +1,16 @@
+schema_version: 1
+entity: pulse
+owner: owner_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  question: { type: text, required: true, max_length: 500 }
+  open: { type: bool, default: true }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  answers: { kind: has_many, entity: answer, field: pulse_id }
+admin:
+  label: Pulses
+  list_columns: [title, open]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true
