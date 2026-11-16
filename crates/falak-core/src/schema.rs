@@ -207,6 +207,7 @@ pub struct Project {
     pub policies: Vec<Policy>,
     pub commands: Vec<Command>,
     pub queries: Vec<Query>,
+    pub federation: Federation,
 }
 
 impl Project {
@@ -217,4 +218,43 @@ impl Project {
     pub fn policy(&self, entity: &str) -> Option<&Policy> {
         self.policies.iter().find(|p| p.entity == entity)
     }
+}
+
+/// An event the app publishes (`events/<name>.yaml` with `publish:`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Publish {
+    pub name: String,
+    pub entity: String,
+    pub on: falak_contracts::ir::IrEventOn,
+    pub version: u32,
+    pub fields: Vec<String>,
+    pub subscribers: Vec<String>,
+    pub position: Position,
+}
+
+/// An event the app consumes (`events/<name>.yaml` with `consume:`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Subscribe {
+    pub event: String,
+    pub from: String,
+    pub version: u32,
+    pub handler: String,
+    pub position: Position,
+}
+
+/// A saga (`workflows/<name>.yaml`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Saga {
+    pub name: String,
+    pub start: String,
+    pub steps: Vec<falak_contracts::ir::IrSagaStep>,
+    pub position: Position,
+}
+
+/// Events and sagas of an app.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Federation {
+    pub publishes: Vec<Publish>,
+    pub subscribes: Vec<Subscribe>,
+    pub sagas: Vec<Saga>,
 }

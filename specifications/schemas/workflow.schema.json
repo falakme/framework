@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/workflow.schema.json",
+  "title": "Falak saga (workflows/*.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "saga", "start", "steps"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "saga": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "start": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "command"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "command": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,39}\\.[a-z][a-z0-9_]{0,62}$" },
+          "compensate": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,39}\\.[a-z][a-z0-9_]{0,62}$" }
+        }
+      }
+    }
+  }
+}

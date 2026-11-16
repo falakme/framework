@@ -234,7 +234,7 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 5: Federation and durable events (M5)
 
-- [ ] **T5.1 (Dev1)** Event contracts in schema and IR, with a build-time compatibility check between versions; saga definitions.
+- [x] **T5.1 (Dev1)** Event contracts in schema and IR, with a build-time compatibility check between versions; saga definitions.
 - [ ] **T5.2 (Dev2)** Outbox and inbox tables written in the business transaction, the native relay, retention and pruning.
 - [ ] **T5.3 (Dev2)** Office Events: PostgreSQL store, persist before `ACK`, per-aggregate ordering, dead-letter replay, saga orchestrator. *Needs:* T5.2.
 - [ ] **T5.4 (Dev3)** Edge relay using Cron Triggers or Queues. *Needs:* T5.2.

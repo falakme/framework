@@ -3,9 +3,11 @@
 
 pub mod build;
 pub mod command;
+pub mod compat;
 pub mod compile;
 pub mod ddl;
 pub mod diagnostics;
+pub mod events;
 pub mod load;
 pub mod lock;
 pub mod openapi;

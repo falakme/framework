@@ -206,6 +206,7 @@ pub fn build_ir(project: &Project) -> Ir {
         })
         .collect();
     queries.sort_by(|a, b| a.name.cmp(&b.name));
+    let (events, subscriptions, sagas) = federation_ir(project);
     let mut drivers: Vec<String> = project
         .app
         .drivers
@@ -231,6 +232,9 @@ pub fn build_ir(project: &Project) -> Ir {
         entities,
         commands,
         queries,
+        events,
+        subscriptions,
+        sagas,
     };
     ir.content_hash = compute_hash(&ir);
     ir
@@ -290,4 +294,61 @@ fn related_of(project: &Project, entity: &str, path: &[String]) -> Option<IrRela
         owner_column: current.owner.clone()?,
         tenant_scoped: project.app.tenancy == Tenancy::Row,
     })
+}
+
+/// Events, subscriptions and sagas in IR form. Payload field types are taken from the
+/// entity as it is now, so the compatibility check sees a type change.
+fn federation_ir(project: &Project) -> (Vec<IrEvent>, Vec<IrSubscription>, Vec<IrSaga>) {
+    let mut events: Vec<IrEvent> = project
+        .federation
+        .publishes
+        .iter()
+        .map(|p| {
+            let entity = project.entity(&p.entity);
+            let mut subscribers = p.subscribers.clone();
+            subscribers.sort();
+            IrEvent {
+                name: p.name.clone(),
+                entity: p.entity.clone(),
+                on: p.on,
+                version: p.version,
+                fields: p
+                    .fields
+                    .iter()
+                    .filter_map(|f| {
+                        entity.and_then(|e| e.field(f)).map(|f| IrEventField {
+                            name: f.name.clone(),
+                            ty: f.ty.clone(),
+                        })
+                    })
+                    .collect(),
+                subscribers,
+            }
+        })
+        .collect();
+    events.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut subs: Vec<IrSubscription> = project
+        .federation
+        .subscribes
+        .iter()
+        .map(|s| IrSubscription {
+            event: s.event.clone(),
+            from: s.from.clone(),
+            version: s.version,
+            handler: s.handler.clone(),
+        })
+        .collect();
+    subs.sort_by(|a, b| (&a.from, &a.event).cmp(&(&b.from, &b.event)));
+    let mut sagas: Vec<IrSaga> = project
+        .federation
+        .sagas
+        .iter()
+        .map(|s| IrSaga {
+            name: s.name.clone(),
+            start: s.start.clone(),
+            steps: s.steps.clone(),
+        })
+        .collect();
+    sagas.sort_by(|a, b| a.name.cmp(&b.name));
+    (events, subs, sagas)
 }

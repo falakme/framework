@@ -17,7 +17,9 @@ my-app/
 ├── entities/<name>.yaml     # one entity per file
 ├── policies/<name>.yaml     # one policy file per entity
 ├── commands/<name>.yaml     # one command per file
-├── workflows/  events/  jobs/   # reserved; schemas arrive with M5 and M7
+├── events/<name>.yaml       # one event contract per file (section 14)
+├── workflows/<name>.yaml    # one saga per file (section 14)
+├── jobs/                    # reserved; arrives with M7
 ├── migrations/              # generated
 └── falak.lock               # generated
 ```
@@ -145,7 +147,7 @@ Commands are explicit mutations beyond plain create, read, update and delete.
 
 ## 8. Reserved directories
 
-`workflows/`, `events/` and `jobs/` are specified in the federation and compute phases. Until then they MUST be empty.
+`jobs/` is specified in the compute phase. Until then it MUST be empty. `events/` and `workflows/` are section 14.
 
 ## 9. Compilation
 
@@ -205,3 +207,45 @@ sql: |
 * At run time `GET /v1/_queries/{name}?param=value` runs it. Each entity it reads becomes a CTE of the same name that applies the tenant, soft-delete, policy and field-mask conditions of a generated read, so a query sees only what its caller could read through the API. An entity the caller cannot read is an empty set. Results are capped at 1000 rows (`meta.truncated`). Column values are the driver's raw values.
 
 `tenancy: database` is rejected when `drivers` includes `postgres`.
+
+## 14. Events and workflows (M5)
+
+`events/<name>.yaml` declares one event. The file name MUST equal `event`. Exactly one of `publish` and `consume` is present.
+
+```yaml
+schema_version: 1
+event: order_placed
+publish:
+  entity: purchase          # an entity of this app
+  on: create                # create | update | delete (delete needs soft_delete)
+  version: 1                # raised on a breaking change
+  fields: [item, qty]       # declared, non-encrypted fields; the payload also has `id`
+  subscribers: [inventory]  # the apps allowed to receive it (at least one)
+```
+
+```yaml
+schema_version: 1
+event: order_placed
+consume:
+  from: orders              # the publishing app
+  version: 1
+  handler: reserve_stock    # a `create` command of this app
+```
+
+The payload's fields feed the handler's inputs by name; `id` is the aggregate's id. Both forms are stored in the IR (`events`, `subscriptions`), omitted when empty so other apps keep their hash.
+
+**Compatibility.** When `falak build` or `falak check` finds `.falak/ir.json` from the last good build, it compares the published events: removing an event, removing or retyping a field, or changing the entity or trigger is breaking, and is an error (`breaking_event_change`) unless the event's `version` is higher. Adding a field or an event is compatible. A version cannot go down.
+
+`workflows/<name>.yaml` declares a saga, an orchestrated flow across apps:
+
+```yaml
+schema_version: 1
+saga: fulfil_order
+start: order_placed         # an event this app publishes
+steps:
+  - name: reserve
+    command: inventory.reserve_stock       # <app>.<event the app consumes>
+    compensate: inventory.release_stock    # optional; sent if a later step fails
+```
+
+Office runs the steps in order and, when a step fails for good, sends each completed step's `compensate` in reverse order (FEDERATION §13.5). The saga is stored in the IR (`sagas`).

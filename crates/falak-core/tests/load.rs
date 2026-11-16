@@ -207,7 +207,7 @@ fn project_level_problems_are_reported() {
     assert!(codes(&f).contains(&"missing_app"));
     // reserved directory and stray files
     let mut f = minimal();
-    f.push(file("events/x.yaml", "schema_version: 1\n"));
+    f.push(file("jobs/x.yaml", "schema_version: 1\n"));
     f.push(file("notes.txt", "x"));
     let c = codes(&f);
     assert!(c.contains(&"reserved_directory") && c.contains(&"unexpected_file"));

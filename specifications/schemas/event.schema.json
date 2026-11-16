@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://falak.me/schemas/event.schema.json",
+  "title": "Falak event contract (events/*.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event"],
+  "oneOf": [{ "required": ["publish"] }, { "required": ["consume"] }],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+    "publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity", "on", "version", "subscribers"],
+      "properties": {
+        "entity": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "on": { "enum": ["create", "update", "delete"] },
+        "version": { "type": "integer", "minimum": 1 },
+        "fields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" } },
+        "subscribers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,39}$" } }
+      }
+    },
+    "consume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "version", "handler"],
+      "properties": {
+        "from": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,39}$" },
+        "version": { "type": "integer", "minimum": 1 },
+        "handler": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" }
+      }
+    }
+  }
+}

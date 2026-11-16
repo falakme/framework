@@ -260,6 +260,63 @@ pub struct IrQuery {
     pub entities: Vec<String>,
 }
 
+/// When an entity change becomes an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IrEventOn {
+    Create,
+    Update,
+    Delete,
+}
+
+/// One field of an event payload, with its type at the time the contract was built.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrEventField {
+    pub name: String,
+    pub ty: FieldType,
+}
+
+/// An event this app publishes (FEDERATION specification §13). The payload holds the
+/// listed fields plus `id`, the aggregate's id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrEvent {
+    pub name: String,
+    pub entity: String,
+    pub on: IrEventOn,
+    /// Raised on a breaking change to the payload.
+    pub version: u32,
+    pub fields: Vec<IrEventField>,
+    /// The apps allowed to receive it. Office delivers it to no one else.
+    pub subscribers: Vec<String>,
+}
+
+/// An event this app consumes: the local command that handles it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrSubscription {
+    pub event: String,
+    pub from: String,
+    pub version: u32,
+    /// A local `create` command. Payload fields feed the command's inputs by name.
+    pub handler: String,
+}
+
+/// One step of a saga: `command` is `<app>.<event>`, an event the named app consumes;
+/// `compensate` undoes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrSagaStep {
+    pub name: String,
+    pub command: String,
+    pub compensate: Option<String>,
+}
+
+/// An orchestrated workflow across apps, started by one of this app's own events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrSaga {
+    pub name: String,
+    pub start: String,
+    pub steps: Vec<IrSagaStep>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IrApp {
     pub name: String,
@@ -286,9 +343,23 @@ pub struct Ir {
     /// their hash.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queries: Vec<IrQuery>,
+    /// Published events, sorted by name. Omitted when empty, like `queries`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<IrEvent>,
+    /// Consumed events, sorted by `from` then `event`. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscriptions: Vec<IrSubscription>,
+    /// Sagas, sorted by name. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sagas: Vec<IrSaga>,
 }
 
 impl Ir {
+    /// True when the app publishes or consumes events, so it needs the outbox and inbox.
+    pub fn uses_events(&self) -> bool {
+        !self.events.is_empty() || !self.subscriptions.is_empty()
+    }
+
     pub fn entity(&self, name: &str) -> Option<&IrEntity> {
         self.entities.iter().find(|e| e.name == name)
     }

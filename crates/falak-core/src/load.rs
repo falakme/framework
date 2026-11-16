@@ -122,6 +122,8 @@ enum Kind<'a> {
     Policy(&'a str),
     Command(&'a str),
     Query(&'a str),
+    Event(&'a str),
+    Workflow(&'a str),
 }
 
 fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
@@ -134,7 +136,7 @@ fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
             format!("`{path}` is not a recognised app file"),
         ));
     };
-    if matches!(dir, "workflows" | "events" | "jobs") {
+    if dir == "jobs" {
         return Err((
             "reserved_directory",
             format!("`{dir}/` is reserved and must be empty until it is specified"),
@@ -159,6 +161,8 @@ fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
         "policies" => Ok(Kind::Policy(stem)),
         "commands" => Ok(Kind::Command(stem)),
         "queries" => Ok(Kind::Query(stem)),
+        "events" => Ok(Kind::Event(stem)),
+        "workflows" => Ok(Kind::Workflow(stem)),
         _ => Err((
             "unexpected_file",
             format!("`{path}` is not in a recognised directory"),
@@ -179,6 +183,9 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     let mut policies: Vec<(String, Policy)> = Vec::new();
     let mut commands: Vec<(String, Command)> = Vec::new();
     let mut queries: Vec<(String, Query)> = Vec::new();
+    let mut publishes: Vec<(String, Publish)> = Vec::new();
+    let mut subscribes: Vec<(String, Subscribe)> = Vec::new();
+    let mut sagas: Vec<(String, Saga)> = Vec::new();
 
     for f in files {
         let kind = match classify(&f.path) {
@@ -221,6 +228,18 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
                     queries.push((f.path.clone(), q));
                 }
             }
+            Kind::Event(stem) => match crate::events::read_event(&mut ctx, &node, stem) {
+                Some(crate::events::EventFile::Publish(p)) => publishes.push((f.path.clone(), p)),
+                Some(crate::events::EventFile::Subscribe(s)) => {
+                    subscribes.push((f.path.clone(), s));
+                }
+                None => {}
+            },
+            Kind::Workflow(stem) => {
+                if let Some(s) = crate::events::read_saga(&mut ctx, &node, stem) {
+                    sagas.push((f.path.clone(), s));
+                }
+            }
         }
     }
 
@@ -241,6 +260,15 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     validate_policies(&mut diags, tenancy, &entities, &policies);
     validate_commands(&mut diags, &entities, &mut commands);
     validate_queries(&mut diags, &entities, &mut queries);
+    crate::events::validate(
+        &mut diags,
+        app.as_ref().map_or("", |a| a.name.as_str()),
+        &entities,
+        &commands,
+        &publishes,
+        &subscribes,
+        &sagas,
+    );
 
     if entities.len() > MAX_ENTITIES {
         diags.push(Diagnostic::error(
@@ -277,13 +305,18 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
         policies: policies.into_iter().map(|(_, p)| p).collect(),
         commands: commands.into_iter().map(|(_, c)| c).collect(),
         queries: queries.into_iter().map(|(_, q)| q).collect(),
+        federation: Federation {
+            publishes: publishes.into_iter().map(|(_, p)| p).collect(),
+            subscribes: subscribes.into_iter().map(|(_, s)| s).collect(),
+            sagas: sagas.into_iter().map(|(_, s)| s).collect(),
+        },
     };
     (Some(project), diags)
 }
 
 // ---------------------------------------------------------------- shared readers
 
-fn check_version(ctx: &mut Ctx, map: &mut MapReader) {
+pub(crate) fn check_version(ctx: &mut Ctx, map: &mut MapReader) {
     if let Some(n) = map.require(ctx, "schema_version") {
         match &n.value {
             Value::Int(1) => {}

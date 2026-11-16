@@ -81,7 +81,24 @@ pub fn compile_dir(dir: &Path) -> Result<Outcome, String> {
             dir.display()
         ));
     }
-    let (compiled, diagnostics) = compile(&files, FRAMEWORK_VERSION);
+    let (mut compiled, mut diagnostics) = compile(&files, FRAMEWORK_VERSION);
+    // Event contracts must stay compatible with the last good build.
+    if let Some(c) = &compiled
+        && let Ok(text) = fs::read_to_string(out_dir(dir).join("ir.json"))
+        && let Ok(old) = serde_json::from_str::<falak_contracts::ir::Ir>(&text)
+    {
+        for b in falak_core::compat::check(&old, &c.ir) {
+            diagnostics.push(Diagnostic::error(
+                "breaking_event_change",
+                &format!("events/{}.yaml", b.event),
+                falak_core::diagnostics::Position { line: 1, column: 1 },
+                b.message,
+            ));
+        }
+        if has_errors(&diagnostics) {
+            compiled = None;
+        }
+    }
     Ok(Outcome {
         compiled,
         diagnostics,
