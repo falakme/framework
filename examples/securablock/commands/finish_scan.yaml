@@ -1,0 +1,12 @@
+schema_version: 1
+command: finish_scan
+entity: scan
+kind: update
+input:
+  id: { type: uuid, required: true }
+  finding_count: { type: int64, required: true }
+target: id
+set:
+  status: done
+  finding_count: $input.finding_count
+idempotent: true

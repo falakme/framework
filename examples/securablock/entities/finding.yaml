@@ -1,0 +1,15 @@
+schema_version: 1
+entity: finding
+owner: owner_id
+fields:
+  scan_id: { type: uuid, required: true, indexed: true, references: scan.id }
+  severity: { type: text, required: true, max_length: 20 }
+  rule: { type: text, required: true, max_length: 80 }
+  line: { type: int64, default: 0 }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  scan: { kind: belongs_to, entity: scan, field: scan_id }
+admin:
+  label: Findings
+  list_columns: [severity, rule, line]
+  search_fields: [rule]

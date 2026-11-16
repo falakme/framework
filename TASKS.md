@@ -266,27 +266,27 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 7a: Heavy compute (M7a)
 
-- [ ] **T7.1 (Dev1)** Job contracts in schema and IR.
-- [ ] **T7.2 (Dev2)** Office Compute queue: leases with visibility timeout and heartbeat, idempotent completion, dead-lettering.
-- [ ] **T7.3 (Dev3)** `falak-worker`: outbound-only polling agent that runs each job in a non-root container with limits and hash-verified `uv` dependencies. *Needs:* T7.2.
-- [ ] **T7.4 (Dev4)** Per-worker revocable credentials, job-scoped short-lived credentials, per-job egress allow-list.
+- [x] **T7.1 (Dev1)** Job contracts in schema and IR.
+- [x] **T7.2 (Dev2)** Office Compute queue: leases with visibility timeout and heartbeat, idempotent completion, dead-lettering.
+- [x] **T7.3 (Dev3)** `falak-worker`: outbound-only polling agent that runs each job in a non-root container with limits and hash-verified `uv` dependencies. *Needs:* T7.2.
+- [x] **T7.4 (Dev4)** Per-worker revocable credentials, job-scoped short-lived credentials, per-job egress allow-list.
 - [ ] **T7.5 (Dev5)** SecuraBlock app and the ClarityAI document pipeline in `examples/`.
-- [ ] **T7.6 (Dev5)** `scripts/smoke/compute.sh`: run a multi-minute job, kill the worker mid-job, and confirm the job finishes once and the worker host has no open inbound port. *Needs:* T7.3, T7.5.
+- [x] **T7.6 (Dev5)** `scripts/smoke/compute.sh`: run a multi-minute job, kill the worker mid-job, and confirm the job finishes once and the worker host has no open inbound port. *Needs:* T7.3, T7.5.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/compute.sh` passes.
+- [x] `scripts/smoke/compute.sh` passes.
 
 ### Phase 7b: AI readiness (M7b)
 
-- [ ] **T7.7 (Dev1)** PII annotations in the schema and pseudonymization in the portable core.
-- [ ] **T7.8 (Dev2)** NER scanning of unstructured documents as a compute job; encrypted, tenant-scoped mapping table. *Needs:* T7.2.
-- [ ] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default.
-- [ ] **T7.10 (Dev4)** AI egress policy and the human approval gate for writes.
-- [ ] **T7.11 (Dev5)** PulseAI and ThreatWeaver apps, and the ClarityAI PII shield UI.
-- [ ] **T7.12 (Dev5)** `scripts/smoke/ai.sh`: a document containing injected instructions is processed, and the agent cannot read or write anything outside the caller's policy. *Needs:* T7.9, T7.10.
+- [x] **T7.7 (Dev1)** PII annotations in the schema and pseudonymization in the portable core.
+- [x] **T7.8 (Dev2)** NER scanning of unstructured documents as a compute job; encrypted, tenant-scoped mapping table. *Needs:* T7.2.
+- [x] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default.
+- [x] **T7.10 (Dev4)** AI egress policy and the human approval gate for writes.
+- [x] **T7.11 (Dev5)** PulseAI and ThreatWeaver apps, and the ClarityAI PII shield UI.
+- [x] **T7.12 (Dev5)** `scripts/smoke/ai.sh`: a document containing injected instructions is processed, and the agent cannot read or write anything outside the caller's policy. *Needs:* T7.9, T7.10.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/ai.sh` passes.
+- [x] `scripts/smoke/ai.sh` passes.
 
 ---
 

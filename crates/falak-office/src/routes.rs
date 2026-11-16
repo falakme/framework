@@ -30,6 +30,7 @@ use crate::{
     now,
 };
 
+mod compute;
 mod console;
 mod events;
 mod ops;
@@ -103,6 +104,7 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/apps", get(apps))
         .route("/v1/_office/apps/{name}/revoke", post(revoke_app))
         .merge(ops::routes())
+        .merge(compute::routes())
         .with_state(office)
         .layer(axum::middleware::from_fn(console::secure_headers))
         .layer(axum::middleware::from_fn(ops::record))

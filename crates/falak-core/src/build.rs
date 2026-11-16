@@ -207,6 +207,8 @@ pub fn build_ir(project: &Project) -> Ir {
         .collect();
     queries.sort_by(|a, b| a.name.cmp(&b.name));
     let (events, subscriptions, sagas) = federation_ir(project);
+    let mut jobs = project.jobs.clone();
+    jobs.sort_by(|a, b| a.name.cmp(&b.name));
     let mut drivers: Vec<String> = project
         .app
         .drivers
@@ -235,6 +237,7 @@ pub fn build_ir(project: &Project) -> Ir {
         events,
         subscriptions,
         sagas,
+        jobs,
     };
     ir.content_hash = compute_hash(&ir);
     ir

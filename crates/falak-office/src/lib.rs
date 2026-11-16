@@ -10,10 +10,12 @@
 //! multi-factor are the provider's job (ADR-0011).
 
 pub mod anchor;
+pub mod compute;
 pub mod db;
 pub mod keystore;
 pub mod observe;
 pub mod oidc;
+pub mod pii;
 mod routes;
 pub mod settings;
 pub mod users;

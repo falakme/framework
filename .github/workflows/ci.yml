@@ -39,6 +39,10 @@ jobs:
         run: bash scripts/smoke/notebook.sh
       - name: Isolation smoke test (SQLite)
         run: bash scripts/smoke/isolation.sh
+      - name: Compute smoke test (worker killed mid-job)
+        run: bash scripts/smoke/compute.sh
+      - name: AI smoke test (injected instructions)
+        run: bash scripts/smoke/ai.sh
       - name: Generated files are current
         run: |
           cargo run --locked -q -p falak-cli -- sync examples/notebook --out examples/notebook/web/src/falak.generated.ts

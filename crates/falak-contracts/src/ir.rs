@@ -317,6 +317,25 @@ pub struct IrSaga {
     pub steps: Vec<IrSagaStep>,
 }
 
+/// A heavy-compute job (ARCHITECTURE §4.9): a container image the worker runs against
+/// a validated JSON input. The app declares the contract; Office Compute queues it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IrJob {
+    pub name: String,
+    /// The JSON object a payload must match.
+    pub input: Vec<IrInput>,
+    pub image: String,
+    pub command: Vec<String>,
+    pub timeout_seconds: u32,
+    pub max_attempts: u32,
+    pub memory_mb: u32,
+    pub cpus: u32,
+    /// Hosts the job may reach. Empty means no network at all.
+    pub egress: Vec<String>,
+    /// SHA-256 of the pinned `uv` requirements file the worker verifies before install.
+    pub requirements_sha256: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IrApp {
     pub name: String,
@@ -352,6 +371,9 @@ pub struct Ir {
     /// Sagas, sorted by name. Omitted when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sagas: Vec<IrSaga>,
+    /// Sorted by name. Omitted when empty, so apps without jobs keep their hash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<IrJob>,
 }
 
 impl Ir {

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src *; base-uri 'none'; form-action 'none'">
+  <title>ClarityAI PII shield</title>
+  <link rel="stylesheet" href="shield.css">
+</head>
+<body>
+  <main>
+    <h1>PII shield</h1>
+    <p class="lede">See what a document holds, and exactly what a model is allowed to see of it.</p>
+
+    <section class="source">
+      <label>App address <input id="base" value="http://127.0.0.1:8787" autocomplete="off"></label>
+      <label>Document id <input id="doc" autocomplete="off"></label>
+      <label>Your token <input id="token" type="password" autocomplete="off"></label>
+      <div class="actions">
+        <button id="load" type="button">Load document</button>
+        <button id="demo" type="button" class="quiet">Try a sample</button>
+      </div>
+    </section>
+
+    <p id="count" role="status" aria-live="polite"></p>
+
+    <div class="views">
+      <section>
+        <h2>You see</h2>
+        <p id="you" class="doc"></p>
+      </section>
+      <section>
+        <h2>The AI sees</h2>
+        <p id="ai" class="doc"></p>
+      </section>
+      <section>
+        <h2>Safe to share</h2>
+        <p id="share" class="doc"></p>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="shield.js"></script>
+</body>
+</html>

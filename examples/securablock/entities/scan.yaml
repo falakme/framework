@@ -1,0 +1,16 @@
+schema_version: 1
+entity: scan
+owner: owner_id
+fields:
+  target_id: { type: uuid, required: true, indexed: true, references: target.id }
+  status: { type: text, required: true, max_length: 20, default: queued }
+  finding_count: { type: int64, default: 0 }
+  job_id: { type: text, max_length: 64 }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  target: { kind: belongs_to, entity: target, field: target_id }
+  findings: { kind: has_many, entity: finding, field: scan_id }
+admin:
+  label: Scans
+  list_columns: [status, finding_count]
+  search_fields: [status]

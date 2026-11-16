@@ -124,6 +124,7 @@ enum Kind<'a> {
     Query(&'a str),
     Event(&'a str),
     Workflow(&'a str),
+    Job(&'a str),
 }
 
 fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
@@ -136,12 +137,6 @@ fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
             format!("`{path}` is not a recognised app file"),
         ));
     };
-    if dir == "jobs" {
-        return Err((
-            "reserved_directory",
-            format!("`{dir}/` is reserved and must be empty until it is specified"),
-        ));
-    }
     let Some(stem) = file.strip_suffix(".yaml") else {
         let help = if file.ends_with(".yml") {
             " (rename it to `.yaml`)"
@@ -163,6 +158,7 @@ fn classify(path: &str) -> Result<Kind<'_>, (&'static str, String)> {
         "queries" => Ok(Kind::Query(stem)),
         "events" => Ok(Kind::Event(stem)),
         "workflows" => Ok(Kind::Workflow(stem)),
+        "jobs" => Ok(Kind::Job(stem)),
         _ => Err((
             "unexpected_file",
             format!("`{path}` is not in a recognised directory"),
@@ -186,6 +182,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     let mut publishes: Vec<(String, Publish)> = Vec::new();
     let mut subscribes: Vec<(String, Subscribe)> = Vec::new();
     let mut sagas: Vec<(String, Saga)> = Vec::new();
+    let mut jobs: Vec<(String, falak_contracts::ir::IrJob)> = Vec::new();
 
     for f in files {
         let kind = match classify(&f.path) {
@@ -221,6 +218,11 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
             Kind::Command(stem) => {
                 if let Some(c) = read_command(&mut ctx, &node, stem) {
                     commands.push((f.path.clone(), c));
+                }
+            }
+            Kind::Job(stem) => {
+                if let Some(j) = crate::jobs::read_job(&mut ctx, &node, stem) {
+                    jobs.push((f.path.clone(), j));
                 }
             }
             Kind::Query(stem) => {
@@ -311,6 +313,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
             subscribes: subscribes.into_iter().map(|(_, s)| s).collect(),
             sagas: sagas.into_iter().map(|(_, s)| s).collect(),
         },
+        jobs: jobs.into_iter().map(|(_, j)| j).collect(),
     };
     (Some(project), diags)
 }
@@ -336,7 +339,7 @@ pub(crate) fn check_version(ctx: &mut Ctx, map: &mut MapReader) {
     }
 }
 
-fn parse_type(ctx: &mut Ctx, node: &Node) -> Option<FieldType> {
+pub(crate) fn parse_type(ctx: &mut Ctx, node: &Node) -> Option<FieldType> {
     const NAMES: [&str; 8] = [
         "uuid",
         "int64",

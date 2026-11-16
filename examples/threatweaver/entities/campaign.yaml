@@ -1,0 +1,15 @@
+schema_version: 1
+entity: campaign
+owner: owner_id
+fields:
+  name: { type: text, required: true, max_length: 200 }
+  summary: { type: text, max_length: 8000 }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  sightings: { kind: has_many, entity: sighting, field: campaign_id }
+admin:
+  label: Campaigns
+  list_columns: [name]
+  search_fields: [name]
+lifecycle:
+  soft_delete: true

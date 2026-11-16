@@ -1,0 +1,17 @@
+schema_version: 1
+entity: document
+owner: owner_id
+fields:
+  title: { type: text, required: true, max_length: 200 }
+  body: { type: text, max_length: 1048576, pii: true }
+  status: { type: text, required: true, max_length: 20, default: uploaded }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  detections: { kind: has_many, entity: detection, field: document_id }
+admin:
+  label: Documents
+  list_columns: [title, status]
+  search_fields: [title]
+lifecycle:
+  soft_delete: true
+  erasable: true

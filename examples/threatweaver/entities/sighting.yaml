@@ -1,0 +1,16 @@
+schema_version: 1
+entity: sighting
+owner: owner_id
+fields:
+  indicator_id: { type: uuid, required: true, indexed: true, references: indicator.id }
+  campaign_id: { type: uuid, indexed: true, references: campaign.id }
+  note: { type: text, max_length: 4000 }
+  seen_at: { type: timestamptz, default: now }
+  owner_id: { type: uuid, required: true, indexed: true }
+relations:
+  indicator: { kind: belongs_to, entity: indicator, field: indicator_id }
+  campaign: { kind: belongs_to, entity: campaign, field: campaign_id }
+admin:
+  label: Sightings
+  list_columns: [seen_at]
+  search_fields: [note]

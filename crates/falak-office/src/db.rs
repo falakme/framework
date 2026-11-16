@@ -48,7 +48,12 @@ impl Db {
     }
 
     pub async fn migrate(&self) -> Result<()> {
-        let stmts = SCHEMA.iter().map(|s| Statement::new(*s, vec![])).collect();
+        let stmts = SCHEMA
+            .iter()
+            .chain(crate::compute::SCHEMA)
+            .chain(crate::pii::SCHEMA)
+            .map(|s| Statement::new(*s, vec![]))
+            .collect();
         self.driver.batch(&ctx(), stmts).await.map(|_| ())
     }
 
