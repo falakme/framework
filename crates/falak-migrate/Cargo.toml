@@ -20,6 +20,6 @@ serde_json.workspace = true
 hex = "0.4"
 
 [dev-dependencies]
-falak-driver-sqlite = { path = "../falak-driver-sqlite" }
-falak-driver-postgres = { path = "../falak-driver-postgres" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.0.0" }
+falak-driver-postgres = { path = "../falak-driver-postgres", version = "1.0.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

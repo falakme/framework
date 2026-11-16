@@ -2,7 +2,7 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] - unreleased
+## [1.0.0] - 2026-11-16
 
 First release: Falak Core (milestones M1 to M3) and a minimal Falak Office (M4).
 
@@ -57,3 +57,4 @@ SCHEMA, AUTHORIZATION (stages 1 to 3), DRIVER and API are frozen at 1.0 (ADR-000
 * The edge runtime is 800 KiB gzipped (budget 900 KiB).
 * Not tried: sign-in through Clerk or Auth0 themselves. It is checked against Dex, an independent OpenID Connect server. Clerk's default session value has no email: add it as a custom claim.
 * No hosted Office exists yet: the container image is built and started in CI, but the project has not deployed it anywhere.
+* Published to crates.io: `falak-cli` (the `falak` program), `falak-office`, `falak-studio` and the libraries they use. `falak deploy` needs a checkout of this repository (it builds the Worker from `crates/falak-runtime-edge`, which is not published), so run it from a clone.

@@ -26,13 +26,13 @@ postgres = ["dep:falak-driver-postgres"]
 dev-auth = []
 
 [dependencies]
-falak-auth = { path = "../falak-auth" }
+falak-auth = { path = "../falak-auth", version = "1.0.0" }
 falak-contracts.workspace = true
 falak-core.workspace = true
-falak-driver-sqlite = { path = "../falak-driver-sqlite", optional = true }
-falak-migrate = { path = "../falak-migrate" }
-falak-storage = { path = "../falak-storage", optional = true }
-falak-driver-postgres = { path = "../falak-driver-postgres", optional = true }
+falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.0.0", optional = true }
+falak-migrate = { path = "../falak-migrate", version = "1.0.0" }
+falak-storage = { path = "../falak-storage", version = "1.0.0", optional = true }
+falak-driver-postgres = { path = "../falak-driver-postgres", version = "1.0.0", optional = true }
 axum = { version = "0.8.9", default-features = false, features = ["json", "query"] }
 serde = { workspace = true }
 serde_json = "1"
@@ -47,8 +47,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 
 [dev-dependencies]
 falak-runtime-native = { path = ".", features = ["dev-auth"] }
-falak-driver-sqlite = { path = "../falak-driver-sqlite" }
-falak-migrate = { path = "../falak-migrate" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.0.0" }
+falak-migrate = { path = "../falak-migrate", version = "1.0.0" }
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
