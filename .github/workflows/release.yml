@@ -122,4 +122,4 @@ jobs:
         run: |
           flag=""
           case "$GITHUB_REF_NAME" in *-*) flag="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* --title "Falak $GITHUB_REF_NAME" --notes-file notes.md $flag
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Falak Framework $GITHUB_REF_NAME" --notes-file notes.md $flag
