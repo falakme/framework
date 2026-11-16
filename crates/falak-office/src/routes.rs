@@ -32,6 +32,7 @@ use crate::{
 
 mod console;
 mod events;
+mod ops;
 
 type Shared = Arc<Office>;
 
@@ -101,8 +102,10 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/sagas", get(events::sagas))
         .route("/v1/_office/apps", get(apps))
         .route("/v1/_office/apps/{name}/revoke", post(revoke_app))
+        .merge(ops::routes())
         .with_state(office)
         .layer(axum::middleware::from_fn(console::secure_headers))
+        .layer(axum::middleware::from_fn(ops::record))
         // Sign-in routes come last: Office's own `/.well-known/jwks.json` (the keys it
         // signs app tokens with) must win over the session keys' set.
         .fallback_service(auth)
@@ -205,7 +208,7 @@ impl Office {
     }
 
     /// Record an administrative action in the hash-chained audit table.
-    async fn audit(&self, actor: &str, action: &str, detail: &str) {
+    pub(crate) async fn audit(&self, actor: &str, action: &str, detail: &str) {
         let at = now();
         for _ in 0..3 {
             let last = self
@@ -914,6 +917,7 @@ async fn rotate(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let run = async {
         let admin = o.admin(&headers)?;
         let kid = o.rotate()?;
+        o.persist_keys().await?;
         o.audit(&admin.subject, "key_rotated", &kid).await;
         Ok(json!({"kid": kid, "keys": o.key_count()}))
     };
@@ -928,6 +932,7 @@ async fn retire(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let run = async {
         let admin = o.admin(&headers)?;
         o.retire()?;
+        o.persist_keys().await?;
         o.audit(&admin.subject, "keys_retired", "").await;
         Ok::<_, Error>(json!({"keys": o.key_count()}))
     };

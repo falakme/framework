@@ -61,6 +61,21 @@ async fn fake_office() -> String {
             }),
         )
         .route(
+            "/v1/_office/slo",
+            get(|| async {
+                Json(json!({"data": [{"name": "availability", "objective": "99.9%", "state": "ok", "detail": "fine"}]}))
+            }),
+        )
+        .route(
+            "/v1/_office/audit/verify",
+            get(|| async {
+                (
+                    StatusCode::CONFLICT,
+                    Json(json!({"entries": 3, "anchors_checked": 1, "problems": ["entry 2 was changed after it was written"]})),
+                )
+            }),
+        )
+        .route(
             "/v1/_office/token",
             post(|headers: HeaderMap, Json(b): Json<Value>| async move {
                 assert!(headers.get("authorization").is_some());
@@ -579,4 +594,49 @@ async fn filters_on_personal_fields_and_unknown_apps_are_refused_and_creates_wor
     assert_eq!(r.status, StatusCode::OK);
     let r = send(&e, "GET", "/api/me", Some(&cookie), None, None, None).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn the_observatory_shows_office_state_to_signed_in_people_only() {
+    let e = env().await;
+    let r = send(&e, "GET", "/api/observatory/slo", None, None, None, None).await;
+    assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    let (cookie, _) = sign_in(&e).await;
+    let r = send(
+        &e,
+        "GET",
+        "/api/observatory/slo",
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.body);
+    assert_eq!(r.body["data"][0]["name"], "availability");
+    // A chain that does not verify is an answer, not an error.
+    let r = send(
+        &e,
+        "GET",
+        "/api/observatory/verify",
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.body["ok"], false);
+    // Only the views Studio knows are passed on.
+    let r = send(
+        &e,
+        "GET",
+        "/api/observatory/other",
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
 }

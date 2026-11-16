@@ -6,9 +6,11 @@ mod doctor;
 mod init;
 mod migrate_cmd;
 mod office_cmd;
+mod ops_cmd;
 mod policy_cmd;
 mod project;
 mod serve;
+mod upgrade;
 mod watch;
 
 use std::{path::PathBuf, process::ExitCode};
@@ -43,6 +45,16 @@ COMMANDS:
     office status [dir]          Check the link to Office
     office rotate-key --office <url> --email <e> --password-env <VAR> [--retire]
                                  Rotate Office's signing key (--retire drops the old one)
+    office rotate-credential --office <url> --email <e> --password-env <VAR> --app <a>
+                                 Replace a compromised app credential: the old key stops working at once
+                                 and a one-time token is printed for the app to enroll again
+    upgrade [dir] [--to <v>] [--apply]
+                                 Report what upgrading to this CLI would break; --apply rebuilds the lock
+    breakglass request --office <url> --email <e> --password-env <VAR> --app <a> --reason <text>
+                       [--minutes <n>] [--tier <1-3>]
+                                 Ask for time-limited emergency access (raises an alert)
+    breakglass approve|claim|list --office <url> --email <e> --password-env <VAR> [--id <id>]
+                                 A second person approves (required for tier 3); the requester claims the token
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
@@ -228,6 +240,18 @@ fn run(
                 _ => office_cmd::rotate_key(&options),
             }
         }
+        Command::OfficeRotateCredential => ops_cmd::rotate_credential(&extra),
+        Command::Upgrade => upgrade::run(
+            dir,
+            &upgrade::Options {
+                to: extra.to,
+                apply: extra.apply,
+            },
+        ),
+        Command::BreakGlassRequest
+        | Command::BreakGlassApprove
+        | Command::BreakGlassClaim
+        | Command::BreakGlassList => ops_cmd::breakglass(command, &extra),
         Command::Deploy => {
             deploy_options.name = name;
             deploy::run(dir, &deploy_options)

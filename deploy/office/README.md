@@ -48,9 +48,13 @@ One image (`Dockerfile`), one PostgreSQL database, two programs. `docker-compose
 ## What to back up
 
 * The `office-db` volume (people, apps, memberships, revocations).
-* The `office-data` volume (`signing-keys.json`, `session-keys.json`). Without them every token stops verifying.
+* The signing and session keys are in the database (`office_keystore`); `office-data` holds a local copy and `vault-kek.json` (the key-encryption key, unless `FALAK_VAULT_KEK` is set). Keep the KEK apart from database backups: without it the wrapped tenant data keys cannot be opened.
 * The `studio-data` volume holds the audit log (`falak-studio audit-verify /data/audit.jsonl`).
 
 ## Not in the image
 
-TLS, which Coolify's proxy does. A second Office instance is not supported: sessions and keys are per instance.
+TLS, which Coolify's proxy does.
+
+## More than one Office
+
+Two or more instances can share one database: keys, sessions, revocations and the audit chain are all in it. See `docker-compose.ha.yml` and `docs/operations.md` (high availability, disaster recovery, break-glass, rotation and anchoring, objectives and alerts).

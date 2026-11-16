@@ -9,11 +9,15 @@
 //! (Clerk, Auth0, Keycloak, ...) can be used instead through `oidc`: passkeys and
 //! multi-factor are the provider's job (ADR-0011).
 
+pub mod anchor;
 pub mod db;
+pub mod keystore;
+pub mod observe;
 pub mod oidc;
 mod routes;
 pub mod settings;
 pub mod users;
+pub mod vault;
 
 use std::{
     path::PathBuf,
@@ -48,6 +52,10 @@ pub struct Office {
     pub issuer: String,
     pub db: Db,
     keys: RwLock<LocalKeys>,
+    /// When the signing keys last changed (seconds), for the key-age objective.
+    keys_changed: std::sync::atomic::AtomicI64,
+    /// Wraps tenant data keys (`vault`).
+    kek: RwLock<vault::KekSet>,
     keys_path: Option<PathBuf>,
     /// Verifies Office's own session tokens (audience `office`).
     session: Verifier,
@@ -81,6 +89,8 @@ impl Office {
             issuer,
             db,
             keys: RwLock::new(keys),
+            keys_changed: std::sync::atomic::AtomicI64::new(now()),
+            kek: RwLock::new(vault::KekSet::ephemeral()),
             keys_path,
             session,
             users,
@@ -94,6 +104,13 @@ impl Office {
     #[must_use]
     pub fn with_oidc(self, oidc: oidc::OidcConfig) -> Self {
         self.set_oidc(Some(oidc));
+        self
+    }
+
+    /// The vault's key-encryption keys (from `FALAK_VAULT_KEK` or the data directory).
+    #[must_use]
+    pub fn with_kek(self, kek: vault::KekSet) -> Self {
+        *self.kek.write().unwrap_or_else(|p| p.into_inner()) = kek;
         self
     }
 

@@ -71,7 +71,7 @@ function start(me) {
   state.apps = me.apps;
   who.textContent = me.email;
   logoutButton.hidden = false;
-  if (!state.apps.length) { show(el("p", {}, "No apps are set up for Studio.")); return; }
+  if (!state.apps.length) { observatoryView(); return; }
   openApp(state.apps[0]);
 }
 
@@ -86,11 +86,58 @@ async function openApp(name) {
 
 function renderShell(...content) {
   const apps = el("nav", {}, ...state.apps.map((a) =>
-    el("button", { class: a === state.app ? "on" : "", on: { click: () => openApp(a) } }, a)));
+    el("button", { class: a === state.app ? "on" : "", on: { click: () => openApp(a) } }, a)),
+    el("button", { class: state.app === null ? "on" : "", on: { click: () => observatoryView() } }, "Observatory"));
   const ents = state.schema ? el("nav", {}, ...state.schema.entities.map((e) =>
     el("button", { class: e.path === state.entity ? "on" : "", on: { click: () => openEntity(e.path) } },
       e.admin.label || e.name))) : "";
   show(apps, ents, ...content);
+}
+
+// The Observatory: objectives, the audit chain and emergency access, from Office.
+function when(t) { return t ? new Date(t * 1000).toISOString().replace("T", " ").slice(0, 19) + "Z" : ""; }
+
+function pill(s) {
+  return el("span", { class: s === "ok" ? "pill" : "pill bad" }, s === "ok" ? "OK" : s === "page" ? "PAGE" : "TICKET");
+}
+
+function section(title, ...content) { return el("div", { class: "card" }, el("h2", {}, title), ...content); }
+
+function simpleTable(head, rows) {
+  return rows.length
+    ? el("table", {}, el("thead", {}, el("tr", {}, ...head.map((h) => el("th", {}, h)))),
+        el("tbody", {}, ...rows.map((r) => el("tr", {}, ...r.map((c) => el("td", {}, c instanceof Node ? c : String(c)))))))
+    : el("div", { class: "empty" }, "Nothing yet.");
+}
+
+async function observatoryView() {
+  state.app = null; state.schema = null; state.entity = null;
+  renderShell(el("h1", {}, "Observatory"), el("p", { class: "note" }, "Loading..."));
+  const get = (v) => api("GET", `/api/observatory/${v}`);
+  const [slo, verify, audit, glass] = await Promise.allSettled([get("slo"), get("verify"), get("audit"), get("breakglass")]);
+  const parts = [el("h1", {}, "Observatory")];
+  if (slo.status === "rejected") { renderShell(...parts, errorLine(slo.reason)); return; }
+  parts.push(section("Service-level objectives",
+    simpleTable(["Objective", "Target", "State", "Now"],
+      slo.value.data.map((s) => [s.name, s.objective, pill(s.state), s.detail]))));
+  if (verify.status === "fulfilled") {
+    const v = verify.value;
+    parts.push(section("Audit chain",
+      el("p", { class: v.ok === false ? "err" : "note" },
+        v.ok === false
+          ? `Does not verify: ${v.problems.join("; ")}`
+          : `Intact: ${v.entries} entries, ${v.anchors_checked} outside anchor(s) checked.`),
+      audit.status === "fulfilled"
+        ? simpleTable(["#", "When", "Who", "What", "Detail"],
+            audit.value.data.slice(0, 15).map((a) => [a.seq, when(a.at), a.actor, a.action, a.detail]))
+        : errorLine(audit.reason)));
+  }
+  if (glass.status === "fulfilled") {
+    parts.push(section("Break-glass requests",
+      simpleTable(["App", "Tier", "State", "Requested by", "Approved by", "Minutes", "Reason"],
+        glass.value.data.slice(0, 15).map((g) => [g.app, g.tier, g.status, g.requester, g.approver || "", g.minutes, g.reason]))));
+  }
+  renderShell(...parts);
 }
 
 function entityMeta() { return state.schema.entities.find((e) => e.path === state.entity); }

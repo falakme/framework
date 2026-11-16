@@ -1,0 +1,10 @@
+schema_version: 1
+command: verify_backup
+entity: backup_run
+kind: update
+input:
+  id: { type: uuid, required: true }
+target: id
+set:
+  verified: true
+idempotent: true

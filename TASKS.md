@@ -250,17 +250,17 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 6: Operational maturity (M6)
 
-- [ ] **T6.1 (Dev1)** `falak upgrade`: report breaking changes between framework versions before applying.
-- [ ] **T6.2 (Dev2)** Office high availability: a second instance and failover.
-- [ ] **T6.3 (Dev2)** Disaster-recovery procedure and script: restore every database to a point in time.
-- [ ] **T6.4 (Dev3)** Break-glass CLI: time-limited, reason required, alert raised, second approver for Tier 3.
-- [ ] **T6.5 (Dev4)** Vault: app-credential and tenant-DEK rotation; external anchoring of the audit chain.
-- [ ] **T6.6 (Dev4)** Service-level objectives and alerts from the telemetry already emitted.
-- [ ] **T6.7 (Dev5)** DataMan app in `examples/dataman/` and the Observatory views in Studio.
-- [ ] **T6.8 (Dev5)** `scripts/smoke/dr.sh`: destroy a database, restore it, rotate a compromised app credential, and report the time taken and data lost. *Needs:* T6.3, T6.5.
+- [x] **T6.1 (Dev1)** `falak upgrade`: report breaking changes between framework versions before applying.
+- [x] **T6.2 (Dev2)** Office high availability: a second instance and failover.
+- [x] **T6.3 (Dev2)** Disaster-recovery procedure and script: restore every database to a point in time.
+- [x] **T6.4 (Dev3)** Break-glass CLI: time-limited, reason required, alert raised, second approver for Tier 3.
+- [x] **T6.5 (Dev4)** Vault: app-credential and tenant-DEK rotation; external anchoring of the audit chain.
+- [x] **T6.6 (Dev4)** Service-level objectives and alerts from the telemetry already emitted.
+- [x] **T6.7 (Dev5)** DataMan app in `examples/dataman/` and the Observatory views in Studio.
+- [x] **T6.8 (Dev5)** `scripts/smoke/dr.sh`: destroy a database, restore it, rotate a compromised app credential, and report the time taken and data lost. *Needs:* T6.3, T6.5.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/dr.sh` meets the RPO and RTO set in Phase 0.
+- [x] `scripts/smoke/dr.sh` meets the RPO and RTO set in Phase 0.
 
 ---
 

@@ -1,0 +1,8 @@
+# Breaking changes between framework versions, read by `falak upgrade`.
+#
+# One change per line: version | kind | what changed | what to do
+# `version` is the release that introduced the change. `kind` is one of
+# schema, runtime, api, cli, data. Add a line in the same pull request that
+# makes a breaking change. Lines starting with # are ignored.
+#
+# (No breaking changes have shipped since 1.0.0.)
