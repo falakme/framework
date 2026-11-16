@@ -588,6 +588,7 @@ dependencies = [
  "ed25519-dalek",
  "falak-auth",
  "falak-contracts",
+ "falak-core",
  "falak-driver-postgres",
  "falak-driver-sqlite",
  "falak-federation",

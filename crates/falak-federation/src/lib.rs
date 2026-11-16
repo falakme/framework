@@ -111,7 +111,7 @@ impl AppKey {
         B64.encode(self.0.verifying_key().to_bytes())
     }
 
-    fn sign(&self, message: &[u8]) -> String {
+    pub fn sign(&self, message: &[u8]) -> String {
         B64.encode(self.0.sign(message).to_bytes())
     }
 }

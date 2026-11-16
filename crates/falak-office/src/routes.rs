@@ -31,6 +31,7 @@ use crate::{
 };
 
 mod console;
+mod events;
 
 type Shared = Arc<Office>;
 
@@ -91,6 +92,13 @@ pub fn router(office: Shared, login: Arc<dyn AuthService>) -> Router {
         .route("/v1/_office/revocations", get(feed).post(revoke))
         .route("/v1/_office/keys/rotate", post(rotate))
         .route("/v1/_office/keys/retire", post(retire))
+        .route("/v1/_office/events", post(events::publish))
+        .route("/v1/_office/events/contract", put(events::put_contract))
+        .route("/v1/_office/events/claim", post(events::claim))
+        .route("/v1/_office/events/ack", post(events::ack))
+        .route("/v1/_office/events/dead", get(events::dead))
+        .route("/v1/_office/events/replay", post(events::replay))
+        .route("/v1/_office/sagas", get(events::sagas))
         .route("/v1/_office/apps", get(apps))
         .route("/v1/_office/apps/{name}/revoke", post(revoke_app))
         .with_state(office)

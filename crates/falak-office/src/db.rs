@@ -30,6 +30,11 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS office_identities (issuer TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, linked_at BIGINT NOT NULL, PRIMARY KEY (issuer, subject))",
     "CREATE TABLE IF NOT EXISTS office_stats (day BIGINT NOT NULL, kind TEXT NOT NULL, app TEXT NOT NULL, n BIGINT NOT NULL, PRIMARY KEY (day, kind, app))",
     "CREATE TABLE IF NOT EXISTS office_audit (seq BIGINT NOT NULL PRIMARY KEY, at BIGINT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS office_contracts (app TEXT NOT NULL PRIMARY KEY, contract TEXT NOT NULL, updated_at BIGINT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS office_events (seq BIGINT NOT NULL PRIMARY KEY, id TEXT NOT NULL UNIQUE, publisher TEXT NOT NULL, signer TEXT NOT NULL, name TEXT NOT NULL, aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL, revision BIGINT NOT NULL, version BIGINT NOT NULL, occurred_at BIGINT NOT NULL, payload TEXT NOT NULL, signature TEXT NOT NULL, saga_id TEXT NOT NULL, saga_step BIGINT NOT NULL, saga_kind TEXT NOT NULL, received_at BIGINT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS office_deliveries (seq BIGINT NOT NULL, subscriber TEXT NOT NULL, status TEXT NOT NULL, attempts BIGINT NOT NULL, next_at BIGINT NOT NULL, last_error TEXT NOT NULL, PRIMARY KEY (seq, subscriber))",
+    "CREATE INDEX IF NOT EXISTS idx_office_deliveries_pending ON office_deliveries (subscriber, status, seq)",
+    "CREATE TABLE IF NOT EXISTS office_sagas (id TEXT NOT NULL PRIMARY KEY, saga TEXT NOT NULL, owner TEXT NOT NULL, def TEXT NOT NULL, status TEXT NOT NULL, step BIGINT NOT NULL, payload TEXT NOT NULL, updated_at BIGINT NOT NULL)",
 ];
 
 impl Db {
