@@ -1,0 +1,75 @@
+# Office, highly available: two instances on one PostgreSQL database behind a load
+# balancer that stops sending traffic to an instance when its `/readyz` fails (T6.2).
+#
+#   OFFICE_DB_PASSWORD=... OFFICE_URL=https://office.example.com \
+#   FALAK_VAULT_KEK=$(openssl rand -hex 32) docker compose -f docker-compose.ha.yml up
+#
+# Everything Office must keep consistent is in the database: the signing and session keys
+# (`office_keystore`, picked up by the other instance within seconds of a rotation), the
+# revocation feed, request nonces, enrollments and the audit chain. So an instance needs no
+# volume of its own and there is no leader. The same `FALAK_VAULT_KEK` (from your secret
+# manager, not from this file) must reach both instances: it wraps the tenant data keys.
+#
+# PostgreSQL itself is the next single point of failure: use a managed or replicated
+# service for it (see docs/operations.md). Here it is one container to keep the example short.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: office
+      POSTGRES_PASSWORD: ${OFFICE_DB_PASSWORD:?set OFFICE_DB_PASSWORD}
+      POSTGRES_DB: office
+    volumes:
+      - office-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U office"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  office-a: &office
+    build:
+      context: ../..
+      dockerfile: deploy/office/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &office-env
+      DATABASE_URL: postgres://office:${OFFICE_DB_PASSWORD}@postgres:5432/office
+      FALAK_OFFICE_ISSUER: ${OFFICE_URL:?set OFFICE_URL, the https address people and apps use}
+      FALAK_VAULT_KEK: ${FALAK_VAULT_KEK:?set FALAK_VAULT_KEK (64 hex characters)}
+      FALAK_AUDIT_ANCHOR_DIR: /anchors
+      FALAK_ALERT_WEBHOOK: ${FALAK_ALERT_WEBHOOK:-}
+      FALAK_METRICS_TOKEN: ${FALAK_METRICS_TOKEN:-}
+    volumes:
+      # Write-once storage (an object-lock bucket mounted here, for example), so the people
+      # who can change the database cannot change what was anchored.
+      - audit-anchors:/anchors
+
+  office-b:
+    <<: *office
+    environment: *office-env
+
+  lb:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - office-a
+      - office-b
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - :8788
+      - --to
+      - office-a:8788
+      - --to
+      - office-b:8788
+    ports:
+      - "8788:8788"
+
+volumes:
+  office-db:
+  audit-anchors:

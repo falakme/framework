@@ -11,10 +11,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use falak_auth::{
-    keys::LocalKeys,
-    token::{TokenConfig, Verifier},
-};
+use falak_auth::token::{TokenConfig, Verifier};
 use falak_driver_postgres::{PostgresConfig, PostgresDriver};
 use falak_driver_sqlite::{SqliteConfig, SqliteDriver};
 use falak_office::{
@@ -34,6 +31,7 @@ struct Args {
     email: Option<String>,
     password_env: Option<String>,
     roles: Vec<String>,
+    anchors: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -53,6 +51,7 @@ fn parse() -> Result<Args, String> {
         email: None,
         password_env: None,
         roles: vec![],
+        anchors: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -65,6 +64,7 @@ fn parse() -> Result<Args, String> {
             "--email" => a.email = Some(value("--email")?),
             "--password-env" => a.password_env = Some(value("--password-env")?),
             "--role" => a.roles.push(value("--role")?),
+            "--anchors" => a.anchors = Some(PathBuf::from(value("--anchors")?)),
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => a.command.push(other.to_owned()),
         }
@@ -78,9 +78,6 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
         .map_err(|e| format!("cannot create the data directory: {e}"))?;
     let keys_path = a.data.join("signing-keys.json");
     let session_path = a.data.join("session-keys.json");
-    let keys = LocalKeys::load_or_create(&keys_path).map_err(|e| e.public_message().to_owned())?;
-    let session_keys =
-        LocalKeys::load_or_create(&session_path).map_err(|e| e.public_message().to_owned())?;
     let settings = falak_office::settings::Settings::load(&a.data)?;
     let issuer = a
         .issuer
@@ -93,45 +90,65 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
         audience: OFFICE_AUDIENCE.into(),
         leeway_secs: 30,
     };
-    let mut verifier = Verifier::new(session_config.clone());
-    LocalKeys::load_or_create(&session_path)
-        .map_err(|e| e.public_message().to_owned())?
-        .trust_all(&mut verifier);
-
-    let (driver, login, users): (Arc<dyn NativeDriver>, Arc<dyn AuthService>, _) =
-        match std::env::var("DATABASE_URL") {
-            Ok(url) if url.starts_with("postgres") => {
-                let d = PostgresDriver::open(PostgresConfig {
+    let pg = |e: falak_contracts::Error| e.public_message().to_owned();
+    let (driver, db): (Arc<dyn NativeDriver>, Db);
+    let (pg_driver, sqlite_driver) = match std::env::var("DATABASE_URL") {
+        Ok(url) if url.starts_with("postgres") => (
+            Some(
+                PostgresDriver::open(PostgresConfig {
                     url,
                     ..PostgresConfig::default()
                 })
                 .await
-                .map_err(|e| e.public_message().to_owned())?;
-                let (login, users) = open_postgres(d.clone(), session_keys, session_config);
-                (Arc::new(d), login, users)
-            }
-            _ => {
-                let url = format!("sqlite://{}", a.data.join("office.db").display());
-                let d = SqliteDriver::open(SqliteConfig {
-                    url,
-                    ..SqliteConfig::default()
-                })
-                .await
-                .map_err(|e| e.public_message().to_owned())?;
-                let (login, users) = open_sqlite(d.clone(), session_keys, session_config);
-                (Arc::new(d), login, users)
-            }
-        };
-    let db = Db::new(driver);
-    db.migrate()
+                .map_err(pg)?,
+            ),
+            None,
+        ),
+        _ => {
+            let url = format!("sqlite://{}", a.data.join("office.db").display());
+            (
+                None,
+                Some(
+                    SqliteDriver::open(SqliteConfig {
+                        url,
+                        ..SqliteConfig::default()
+                    })
+                    .await
+                    .map_err(pg)?,
+                ),
+            )
+        }
+    };
+    if let Some(d) = &pg_driver {
+        driver = Arc::new(d.clone());
+    } else if let Some(d) = &sqlite_driver {
+        driver = Arc::new(d.clone());
+    } else {
+        unreachable!("one driver is always opened");
+    }
+    db = Db::new(driver.clone());
+    db.migrate().await.map_err(pg)?;
+    // Keys live in the database so that any number of instances can run (HA); the files
+    // in the data directory seed it the first time and stay as a local copy.
+    let keys = falak_office::keystore::shared_keys(&db, "signing", &keys_path)
         .await
-        .map_err(|e| e.public_message().to_owned())?;
-    users
-        .migrate()
+        .map_err(pg)?;
+    let session_keys = falak_office::keystore::shared_keys(&db, "session", &session_path)
         .await
-        .map_err(|e| e.public_message().to_owned())?;
+        .map_err(pg)?;
+    let mut verifier = Verifier::new(session_config.clone());
+    session_keys.trust_all(&mut verifier);
+    let (login, users): (Arc<dyn AuthService>, _) = if let Some(d) = pg_driver {
+        open_postgres(d, session_keys, session_config)
+    } else if let Some(d) = sqlite_driver {
+        open_sqlite(d, session_keys, session_config)
+    } else {
+        unreachable!("one driver is always opened");
+    };
+    users.migrate().await.map_err(pg)?;
     let mut office = Office::new(issuer, db, keys, Some(keys_path), verifier, users)
-        .with_data_dir(a.data.clone());
+        .with_data_dir(a.data.clone())
+        .with_kek(falak_office::vault::KekSet::load(&a.data)?);
     // The environment wins over what the web setup saved.
     if let Some(cfg) = falak_office::oidc::OidcConfig::from_env()? {
         println!("sign-in through {} is on", cfg.issuer);
@@ -143,7 +160,41 @@ async fn open(a: &Args) -> Result<(Arc<Office>, Arc<dyn AuthService>), String> {
         office = office.with_oidc(cfg);
     }
     let office = Arc::new(office);
+    office.refresh_keys().await.map_err(pg)?;
     Ok((office, login))
+}
+
+/// The loops a serving instance runs: pick up keys another instance rotated, anchor the
+/// audit chain, and watch the service-level objectives.
+fn spawn_background(office: Arc<Office>) {
+    let o = office.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let _ = o.refresh_keys().await;
+        }
+    });
+    let every: u64 = std::env::var("FALAK_AUDIT_ANCHOR_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|v| *v >= 1)
+        .unwrap_or(300);
+    let o = office.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = o.anchor_now().await {
+                eprintln!("audit anchoring failed: {}", e.public_message());
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(every)).await;
+        }
+    });
+    tokio::spawn(async move {
+        let alerter = falak_office::observe::Alerter::default();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            office.watch_slos(&alerter).await;
+        }
+    });
 }
 
 #[tokio::main]
@@ -190,6 +241,7 @@ async fn run(a: Args) -> Result<(), String> {
                 println!("  (or set up from the terminal: falak-office setup --email you@example.com --password-env PASSWORD_VAR)");
                 println!();
             }
+            spawn_background(office.clone());
             axum::serve(listener, app)
                 .with_graceful_shutdown(async {
                     let _ = tokio::signal::ctrl_c().await;
@@ -247,8 +299,40 @@ async fn run(a: Args) -> Result<(), String> {
             println!("created {email} ({id})");
             Ok(())
         }
+        ["audit", "anchor"] => {
+            let (office, _) = open(&a).await?;
+            match office
+                .anchor_now()
+                .await
+                .map_err(|e| e.public_message().to_owned())?
+            {
+                Some(x) => println!("anchored entry {} ({})", x.seq, x.hash),
+                None => println!("nothing new to anchor"),
+            }
+            Ok(())
+        }
+        ["audit", "verify"] => {
+            let (office, _) = open(&a).await?;
+            let r = office
+                .verify_audit(a.anchors.as_deref())
+                .await
+                .map_err(|e| e.public_message().to_owned())?;
+            println!(
+                "{} entries, {} anchors checked",
+                r.entries, r.anchors_checked
+            );
+            for p in &r.problems {
+                println!("PROBLEM: {p}");
+            }
+            if r.ok() {
+                println!("the audit chain is intact");
+                Ok(())
+            } else {
+                Err("the audit chain does not verify".into())
+            }
+        }
         _ => Err(
-            "usage: falak-office serve | setup --email E --password-env VAR [--issuer URL] | user add --email E --password-env VAR [--role R]".into(),
+            "usage: falak-office serve | audit anchor | audit verify [--anchors DIR] | setup --email E --password-env VAR [--issuer URL] | user add --email E --password-env VAR [--role R]".into(),
         ),
     }
 }

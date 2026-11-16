@@ -115,6 +115,24 @@ impl LocalKeys {
         }
     }
 
+    /// The key file's text, for stores other than a file (Office keeps a shared copy in
+    /// its database so every instance signs with the same keys).
+    pub fn to_json_string(&self) -> String {
+        self.to_json().to_string()
+    }
+
+    /// Whether `signature` is this key's signature over `message`. False for an unknown
+    /// `kid`, so a retired key's old signatures stop verifying once it is dropped.
+    pub fn verify_with(&self, kid: &str, message: &[u8], signature: &[u8]) -> bool {
+        use ed25519_dalek::Verifier as _;
+        let Some(e) = self.entries.iter().find(|e| e.kid == kid) else {
+            return false;
+        };
+        Signature::from_slice(signature)
+            .ok()
+            .is_some_and(|s| e.key.verifying_key().verify(message, &s).is_ok())
+    }
+
     fn to_json(&self) -> Value {
         json!({
             "active": self.entries[self.active].kid,

@@ -1,0 +1,43 @@
+# Prometheus alert rules for Office, from the counters it already exposes at /metrics
+# (set FALAK_METRICS_TOKEN and scrape with `authorization: Bearer <token>`) (T6.6).
+#
+# They are the same objectives Office evaluates for itself (`GET /v1/_office/slo`, and the
+# webhook in FALAK_ALERT_WEBHOOK): availability 99.9% (not 5xx) and latency 99% under 500 ms,
+# with the multi-window burn-rate rule: page when both 5 minutes and 1 hour burn at 14.4x
+# the error budget, ticket when 1 hour burns at 6x.
+groups:
+  - name: falak-office-slo
+    rules:
+      - alert: OfficeAvailabilityFastBurn
+        expr: |
+          (rate(falak_office_http_errors_total[5m]) / rate(falak_office_http_requests_total[5m])) > (14.4 * 0.001)
+          and
+          (rate(falak_office_http_errors_total[1h]) / rate(falak_office_http_requests_total[1h])) > (14.4 * 0.001)
+        labels: { severity: page }
+        annotations:
+          summary: Office is returning 5xx fast enough to spend a 30-day budget in two days.
+      - alert: OfficeAvailabilitySlowBurn
+        expr: (rate(falak_office_http_errors_total[1h]) / rate(falak_office_http_requests_total[1h])) > (6 * 0.001)
+        for: 15m
+        labels: { severity: ticket }
+        annotations:
+          summary: Office's error rate is above the sustainable level.
+      - alert: OfficeLatencyFastBurn
+        expr: |
+          (rate(falak_office_http_slow_total[5m]) / rate(falak_office_http_requests_total[5m])) > (14.4 * 0.01)
+          and
+          (rate(falak_office_http_slow_total[1h]) / rate(falak_office_http_requests_total[1h])) > (14.4 * 0.01)
+        labels: { severity: page }
+        annotations:
+          summary: More than 14% of Office responses are slower than 500 ms.
+      - alert: OfficeDatabaseNotReady
+        expr: increase(falak_office_ready_failures_total[5m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: Office's database check failed.
+      - alert: OfficeDown
+        expr: up{job="falak-office"} == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: An Office instance cannot be scraped.

@@ -119,3 +119,30 @@ pub fn breakglass(command: Command, extra: &Extra) -> Result<u8, String> {
     }
     Ok(0)
 }
+
+/// `falak office rotate-credential`: cut off a compromised app key and print the one-time
+/// token the real app uses to enroll again (`falak office enroll --token ...`).
+pub fn rotate_credential(extra: &Extra) -> Result<u8, String> {
+    let office = extra
+        .office
+        .as_deref()
+        .ok_or("`--office <url>` is required")?;
+    let app = extra.app.as_deref().ok_or("`--app <name>` is required")?;
+    let base = office.trim_end_matches('/');
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let token = session(&agent, base, extra)?;
+    let out: Value = agent
+        .post(&format!("{base}/v1/_office/apps/{app}/rotate-credential"))
+        .set("authorization", &format!("Bearer {token}"))
+        .send_string("")
+        .map_err(explain)?
+        .into_json()
+        .map_err(|e| e.to_string())?;
+    println!("{out}");
+    eprintln!(
+        "The old credential is revoked. Enroll the app again within 15 minutes: delete its .falak/office.json and .falak/office-app-key.json, then `falak office enroll --office {base} --token <enrollment_token>`."
+    );
+    Ok(0)
+}

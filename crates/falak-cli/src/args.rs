@@ -20,6 +20,7 @@ pub enum Command {
     OfficeEnroll,
     OfficeStatus,
     OfficeRotateKey,
+    OfficeRotateCredential,
     Upgrade,
     BreakGlassRequest,
     BreakGlassApprove,
@@ -101,7 +102,13 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             Some("enroll") => Command::OfficeEnroll,
             Some("status") => Command::OfficeStatus,
             Some("rotate-key") => Command::OfficeRotateKey,
-            _ => return Err("`office` needs a subcommand: enroll, status or rotate-key".into()),
+            Some("rotate-credential") => Command::OfficeRotateCredential,
+            _ => {
+                return Err(
+                    "`office` needs a subcommand: enroll, status, rotate-key or rotate-credential"
+                        .into(),
+                );
+            }
         },
         Some("upgrade") => Command::Upgrade,
         Some("breakglass") => match it.next().map(String::as_str) {

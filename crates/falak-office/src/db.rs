@@ -29,6 +29,10 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS office_nonces (app TEXT NOT NULL, nonce TEXT NOT NULL, seen_at BIGINT NOT NULL, PRIMARY KEY (app, nonce))",
     "CREATE TABLE IF NOT EXISTS office_identities (issuer TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, linked_at BIGINT NOT NULL, PRIMARY KEY (issuer, subject))",
     "CREATE TABLE IF NOT EXISTS office_stats (day BIGINT NOT NULL, kind TEXT NOT NULL, app TEXT NOT NULL, n BIGINT NOT NULL, PRIMARY KEY (day, kind, app))",
+    "CREATE TABLE IF NOT EXISTS office_keystore (name TEXT NOT NULL PRIMARY KEY, body TEXT NOT NULL, updated_at BIGINT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS office_deks (tenant TEXT NOT NULL, version BIGINT NOT NULL, kek TEXT NOT NULL, wrapped TEXT NOT NULL, status TEXT NOT NULL, created_at BIGINT NOT NULL, PRIMARY KEY (tenant, version))",
+    "CREATE TABLE IF NOT EXISTS office_anchors (seq BIGINT NOT NULL PRIMARY KEY, hash TEXT NOT NULL, at BIGINT NOT NULL, kid TEXT NOT NULL, signature TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS office_breakglass (id TEXT NOT NULL PRIMARY KEY, app TEXT NOT NULL, tier BIGINT NOT NULL, reason TEXT NOT NULL, requester TEXT NOT NULL, approver TEXT, status TEXT NOT NULL, minutes BIGINT NOT NULL, requested_at BIGINT NOT NULL, approved_at BIGINT, claimed_at BIGINT, expires_at BIGINT, jti TEXT)",
     "CREATE TABLE IF NOT EXISTS office_audit (seq BIGINT NOT NULL PRIMARY KEY, at BIGINT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, prev_hash TEXT NOT NULL, hash TEXT NOT NULL)",
 ];
 
