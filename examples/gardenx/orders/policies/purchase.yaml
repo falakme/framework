@@ -1,0 +1,6 @@
+schema_version: 1
+entity: purchase
+rules:
+  - id: anyone_signed_in
+    actions: [read, create]
+    allow: { authenticated: true }

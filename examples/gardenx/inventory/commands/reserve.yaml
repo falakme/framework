@@ -1,0 +1,12 @@
+schema_version: 1
+command: reserve
+entity: reservation
+kind: create
+input:
+  id: { type: uuid, required: true }
+  sku: { type: text, required: true, max_length: 40 }
+  qty: { type: int64, required: true }
+set:
+  order_ref: $input.id
+  sku: $input.sku
+  qty: $input.qty

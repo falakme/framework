@@ -263,6 +263,7 @@ pub fn load_project(files: &[SourceFile]) -> (Option<Project>, Vec<Diagnostic>) 
     crate::events::validate(
         &mut diags,
         app.as_ref().map_or("", |a| a.name.as_str()),
+        tenancy,
         &entities,
         &commands,
         &publishes,

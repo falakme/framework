@@ -108,6 +108,8 @@ pub fn rls_statements(ir: &Ir) -> Vec<String> {
         format!(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {RUNTIME_ROLE}"
         ),
+        // The event outbox numbers its rows with a sequence.
+        format!("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {RUNTIME_ROLE}"),
         // The runtime never touches the migration history.
         format!("REVOKE ALL ON \"_falak_migrations\", \"_falak_schema\" FROM {RUNTIME_ROLE}"),
     ];

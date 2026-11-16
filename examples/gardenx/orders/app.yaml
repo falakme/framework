@@ -1,0 +1,7 @@
+schema_version: 1
+name: orders
+version: 0.1.0
+description: GardenX orders. Each new order is announced to Inventory as an event.
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

@@ -476,6 +476,19 @@ pub fn plan_migration(from: Option<&Ir>, to: &Ir, dialect: Dialect) -> Migration
         "Index the file records by owner".to_owned(),
     ));
 
+    // The outbox and inbox, for an app that publishes or consumes events.
+    if to.uses_events() {
+        for sql in falak_core::outbox::tables(dialect) {
+            statements.push(stmt(
+                sql,
+                MigrationPhase::Expand,
+                LockImpact::None,
+                Destructiveness::Safe,
+                "Create the event outbox and inbox".to_owned(),
+            ));
+        }
+    }
+
     // Row-level security on PostgreSQL, from the same rules the runtime applies.
     if dialect == Dialect::Postgres {
         for sql in crate::rls::rls_statements(to) {

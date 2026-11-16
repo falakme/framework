@@ -1,0 +1,7 @@
+schema_version: 1
+saga: fulfil_order
+start: order_placed
+steps:
+  - name: reserve
+    command: inventory.reserve_stock
+    compensate: inventory.release_stock

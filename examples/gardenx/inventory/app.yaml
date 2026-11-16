@@ -1,0 +1,7 @@
+schema_version: 1
+name: inventory
+version: 0.1.0
+description: GardenX inventory. Reserves stock for each order it hears about.
+tenancy: none
+trust_tier: standard
+drivers: [sqlite, postgres, d1]

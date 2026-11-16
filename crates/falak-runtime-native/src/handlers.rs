@@ -12,7 +12,7 @@ use falak_contracts::{
     Error, ErrorKind,
     driver::Value,
     identity::{Principal, RequestContext},
-    ir::{IrAction, IrEntity},
+    ir::{IrAction, IrCommandKind, IrEntity, IrEventOn, IrSetValue},
 };
 use falak_core::{
     command::{self, Plan},
@@ -555,7 +555,17 @@ pub async fn create_handler<D: NativeDriver>(
         }
     };
 
-    let outcomes = match state.driver.batch(&ctx, vec![stmt]).await {
+    let mut batch = vec![stmt];
+    batch.extend(crate::events::outbox_statements(
+        &state.ir,
+        dialect_for_driver(&*state.driver),
+        entity,
+        IrEventOn::Create,
+        write_ctx.new_id,
+        &write_ctx,
+        &fields,
+    ));
+    let outcomes = match state.driver.batch(&ctx, batch).await {
         Ok(o) => o,
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
@@ -747,7 +757,17 @@ pub async fn update_handler<D: NativeDriver>(
         }
     };
 
-    let outcomes = match state.driver.batch(&ctx, vec![stmt]).await {
+    let mut batch = vec![stmt];
+    batch.extend(crate::events::outbox_statements(
+        &state.ir,
+        dialect_for_driver(&*state.driver),
+        entity,
+        IrEventOn::Update,
+        id_bytes,
+        &write_ctx,
+        &changes,
+    ));
+    let outcomes = match state.driver.batch(&ctx, batch).await {
         Ok(o) => o,
         Err(e) => {
             if let Some(ref iscope) = idempotency_scope {
@@ -861,7 +881,17 @@ pub async fn delete_handler<D: NativeDriver>(
         Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
     };
 
-    let outcomes = match state.driver.batch(&ctx, vec![stmt]).await {
+    let mut batch = vec![stmt];
+    batch.extend(crate::events::outbox_statements(
+        &state.ir,
+        dialect_for_driver(&*state.driver),
+        entity,
+        IrEventOn::Delete,
+        id_bytes,
+        &write_ctx,
+        &[],
+    ));
+    let outcomes = match state.driver.batch(&ctx, batch).await {
         Ok(o) => o,
         Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
     };
@@ -972,7 +1002,40 @@ pub async fn command_handler<D: NativeDriver>(
         Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
     };
 
-    let outcomes = match state.driver.batch(&ctx, vec![plan]).await {
+    let on = match command.kind {
+        IrCommandKind::Delete => Some(IrEventOn::Delete),
+        IrCommandKind::Update => Some(IrEventOn::Update),
+        _ => None,
+    };
+    let mut batch = vec![plan];
+    if let Some(on) = on {
+        let mut known: Vec<(String, Value)> = inputs.clone();
+        for (field, v) in &command.set {
+            known.push((
+                field.clone(),
+                match v {
+                    IrSetValue::Bool(b) => Value::Bool(*b),
+                    IrSetValue::Int(i) => Value::Int64(*i),
+                    IrSetValue::Text(s) => Value::Text(s.clone()),
+                    IrSetValue::Now => Value::TimestampMicros(write_ctx.now_micros),
+                    IrSetValue::Input(n) => inputs
+                        .iter()
+                        .find(|(k, _)| k == n)
+                        .map_or(Value::Null, |(_, v)| v.clone()),
+                },
+            ));
+        }
+        batch.extend(crate::events::outbox_statements(
+            &state.ir,
+            dialect_for_driver(&*state.driver),
+            entity,
+            on,
+            id_bytes,
+            &write_ctx,
+            &known,
+        ));
+    }
+    let outcomes = match state.driver.batch(&ctx, batch).await {
         Ok(o) => o,
         Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
     };

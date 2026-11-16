@@ -1,0 +1,6 @@
+schema_version: 1
+event: order_placed
+consume:
+  from: orders
+  version: 1
+  handler: reserve

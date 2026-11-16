@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use falak_contracts::ir::{IrEventOn, IrSagaStep};
+use falak_contracts::ir::{IrEventOn, IrSagaStep, Tenancy};
 
 use crate::{
     diagnostics::Diagnostic,
@@ -256,10 +256,12 @@ pub fn read_saga(ctx: &mut Ctx, node: &Node, stem: &str) -> Option<Saga> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Cross-file checks. `entities` and `commands` are the app's, with their file paths.
 pub fn validate(
     diags: &mut Vec<Diagnostic>,
     app_name: &str,
+    tenancy: Tenancy,
     entities: &[(String, Entity)],
     commands: &[(String, Command)],
     publishes: &[(String, Publish)],
@@ -267,6 +269,28 @@ pub fn validate(
     sagas: &[(String, Saga)],
 ) {
     let mut seen = HashSet::new();
+    if tenancy == Tenancy::Database
+        && let Some((path, p)) = publishes
+            .first()
+            .map(|(p, x)| (p, x.position))
+            .or_else(|| subscribes.first().map(|(p, x)| (p, x.position)))
+    {
+        Ctx { file: path, diags }.error(
+            "unsupported_tenancy",
+            p,
+            "events are not available with `tenancy: database` in this version",
+        );
+    }
+    for (path, s) in subscribes {
+        if tenancy == Tenancy::Row {
+            Ctx { file: path, diags }.error_help(
+                "unsupported_tenancy",
+                s.position,
+                "an app with row tenancy cannot consume events: an event carries no tenant",
+                "consume from an app with `tenancy: none`, or publish a tenant-neutral event",
+            );
+        }
+    }
     for (path, p) in publishes {
         let mut ctx = Ctx { file: path, diags };
         seen.insert(p.name.clone());

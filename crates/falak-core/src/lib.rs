@@ -11,6 +11,7 @@ pub mod events;
 pub mod load;
 pub mod lock;
 pub mod openapi;
+pub mod outbox;
 pub mod policy;
 pub mod reader;
 pub mod requirements;

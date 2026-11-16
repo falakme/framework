@@ -1,0 +1,9 @@
+schema_version: 1
+entity: reservation
+rules:
+  - id: staff_read
+    actions: [read]
+    allow: { authenticated: true }
+  - id: events_reserve
+    actions: [create]
+    allow: { role: event_consumer }

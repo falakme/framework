@@ -1,0 +1,8 @@
+schema_version: 1
+event: order_placed
+publish:
+  entity: purchase
+  on: create
+  version: 1
+  fields: [sku, qty]
+  subscribers: [inventory]
