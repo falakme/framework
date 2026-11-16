@@ -207,6 +207,7 @@ pub struct Project {
     pub policies: Vec<Policy>,
     pub commands: Vec<Command>,
     pub queries: Vec<Query>,
+    pub jobs: Vec<falak_contracts::ir::IrJob>,
 }
 
 impl Project {

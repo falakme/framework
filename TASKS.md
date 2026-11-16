@@ -266,7 +266,7 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 7a: Heavy compute (M7a)
 
-- [ ] **T7.1 (Dev1)** Job contracts in schema and IR.
+- [x] **T7.1 (Dev1)** Job contracts in schema and IR.
 - [ ] **T7.2 (Dev2)** Office Compute queue: leases with visibility timeout and heartbeat, idempotent completion, dead-lettering.
 - [ ] **T7.3 (Dev3)** `falak-worker`: outbound-only polling agent that runs each job in a non-root container with limits and hash-verified `uv` dependencies. *Needs:* T7.2.
 - [ ] **T7.4 (Dev4)** Per-worker revocable credentials, job-scoped short-lived credentials, per-job egress allow-list.
