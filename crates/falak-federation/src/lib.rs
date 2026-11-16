@@ -8,6 +8,7 @@
 //!   cannot be reached, per trust tier (§8).
 //! * [`FederatedAuthenticator`]: verifies Office tokens against that knowledge.
 
+pub mod events;
 #[cfg(feature = "http")]
 pub mod http;
 

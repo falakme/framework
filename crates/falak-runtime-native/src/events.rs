@@ -126,23 +126,29 @@ fn system_ctx(name: &str) -> RequestContext {
 /// kept. `send` must return only after Office has stored the event (persist before
 /// acknowledge); only then is the row marked sent. Sending the same event twice is safe:
 /// Office deduplicates by id.
-pub async fn relay_once<D: NativeDriver>(
+pub async fn relay_once<D, F, Fut>(
     driver: &D,
     dialect: Dialect,
     limit: u32,
     now_micros: i64,
-    send: impl AsyncFn(&OutboxRow) -> std::result::Result<(), String>,
-) -> Result<RelayReport> {
+    send: F,
+) -> Result<RelayReport>
+where
+    D: NativeDriver,
+    F: Fn(OutboxRow) -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<(), String>>,
+{
     let ctx = system_ctx("falak-relay");
     let rows = driver.query(&ctx, outbox::pending(dialect, limit)).await?;
     let mut report = RelayReport::default();
     for r in rows.rows.iter().filter_map(|r| outbox::parse_row(r)) {
-        if let Err(why) = send(&r).await {
+        let (seq, row) = (r.seq, r);
+        if let Err(why) = send(row).await {
             report.stopped = Some(why);
             return Ok(report);
         }
         driver
-            .batch(&ctx, vec![outbox::mark_sent(dialect, r.seq, now_micros)])
+            .batch(&ctx, vec![outbox::mark_sent(dialect, seq, now_micros)])
             .await?;
         report.sent += 1;
     }

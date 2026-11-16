@@ -123,13 +123,15 @@ async fn a_change_and_its_event_are_written_together_and_relayed_in_order() {
 
     // The relay stops at the first failure and keeps order.
     let seen = Mutex::new(Vec::new());
-    let report = relay_once(&*driver, Dialect::Sqlite, 100, 1_000, async |r| {
+    let report = relay_once(&*driver, Dialect::Sqlite, 100, 1_000, |r| {
         let mut s = seen.lock().unwrap();
-        if s.len() == 1 {
-            return Err("office is down".to_owned());
-        }
-        s.push(r.payload.clone());
-        Ok(())
+        let res = if s.len() == 1 {
+            Err("office is down".to_owned())
+        } else {
+            s.push(r.payload);
+            Ok(())
+        };
+        async move { res }
     })
     .await
     .unwrap();
@@ -138,9 +140,9 @@ async fn a_change_and_its_event_are_written_together_and_relayed_in_order() {
 
     // After recovery the rest go, oldest first, and nothing is sent twice.
     let sent = Mutex::new(Vec::new());
-    let report = relay_once(&*driver, Dialect::Sqlite, 100, 2_000, async |r| {
-        sent.lock().unwrap().push(r.payload.clone());
-        Ok(())
+    let report = relay_once(&*driver, Dialect::Sqlite, 100, 2_000, |r| {
+        sent.lock().unwrap().push(r.payload);
+        async { Ok(()) }
     })
     .await
     .unwrap();
@@ -151,14 +153,14 @@ async fn a_change_and_its_event_are_written_together_and_relayed_in_order() {
         "{sent:?}"
     );
     assert!(sent[0].contains("\"sku\":\"rose\"") && sent[0].contains("\"id\""));
-    let report = relay_once(&*driver, Dialect::Sqlite, 100, 3_000, async |_| Ok(()))
+    let report = relay_once(&*driver, Dialect::Sqlite, 100, 3_000, |_| async { Ok(()) })
         .await
         .unwrap();
     assert_eq!(report.sent, 0);
 
     // Retention: sent rows are removed once they are old enough.
     let later = 8 * 86_400 * 1_000_000;
-    relay_once(&*driver, Dialect::Sqlite, 100, later, async |_| Ok(()))
+    relay_once(&*driver, Dialect::Sqlite, 100, later, |_| async { Ok(()) })
         .await
         .unwrap();
     assert_eq!(count(&driver, "_falak_outbox").await, 0);

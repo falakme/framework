@@ -365,6 +365,149 @@ async fn sync_office(o: Office) {
     }
 }
 
+/// The database dialect behind a driver.
+fn dialect_of(driver: &dyn NativeDriver) -> falak_core::sql::Dialect {
+    match driver.profile().name {
+        "postgres" => falak_core::sql::Dialect::Postgres,
+        "d1" => falak_core::sql::Dialect::D1,
+        _ => falak_core::sql::Dialect::Sqlite,
+    }
+}
+
+fn poll_every() -> Duration {
+    Duration::from_millis(
+        std::env::var("FALAK_EVENTS_POLL_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|v| *v >= 10)
+            .unwrap_or(500),
+    )
+}
+
+/// Events (FEDERATION §13): tell Office what this app publishes and consumes, send the
+/// outbox to Office in order, and apply what Office delivers. Each loop survives an
+/// Office outage: it just tries again. The outbox and inbox are in the app's database, so
+/// a restart loses nothing.
+async fn run_events(o: Office, driver: Arc<dyn NativeDriver>, ir: Arc<Ir>) {
+    let body = falak_federation::events::contract_body(&ir);
+    loop {
+        let (cfg, key, body) = (o.config.clone(), o.key.clone(), body.clone());
+        let done = tokio::task::spawn_blocking(move || {
+            falak_federation::http::put_contract(&cfg, &key, &body)
+        })
+        .await;
+        match done {
+            Ok(Ok(())) => break,
+            Ok(Err(e)) => eprintln!("events: cannot register the contract yet ({e})"),
+            Err(_) => {}
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    println!("  Events:  contract registered with Office");
+    tokio::spawn(relay_loop(o.clone(), driver.clone()));
+    if !ir.subscriptions.is_empty() {
+        tokio::spawn(consume_loop(o, driver, ir));
+    }
+}
+
+async fn relay_loop(o: Office, driver: Arc<dyn NativeDriver>) {
+    let dialect = dialect_of(&*driver);
+    let mut complained = false;
+    loop {
+        let (cfg, key) = (o.config.clone(), o.key.clone());
+        let report = falak_runtime_native::events::relay_once(
+            &driver,
+            dialect,
+            50,
+            falak_contracts::support::wall_clock_micros(),
+            |row| {
+                let body = falak_federation::events::publish_body(&key, &cfg.app, &row);
+                let (cfg, key) = (cfg.clone(), key.clone());
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        falak_federation::http::publish_event(&cfg, &key, &body)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?
+                }
+            },
+        )
+        .await;
+        match report {
+            Ok(r) if r.stopped.is_some() && !complained => {
+                complained = true;
+                eprintln!(
+                    "events: Office did not take an event yet ({})",
+                    r.stopped.unwrap_or_default()
+                );
+            }
+            Ok(r) if r.sent > 0 => complained = false,
+            Err(e) => eprintln!("events: relay error: {}", e.public_message()),
+            _ => {}
+        }
+        tokio::time::sleep(poll_every()).await;
+    }
+}
+
+async fn consume_loop(o: Office, driver: Arc<dyn NativeDriver>, ir: Arc<Ir>) {
+    use falak_runtime_native::events::{ApplyError, apply};
+    let dialect = dialect_of(&*driver);
+    loop {
+        let (cfg, key) = (o.config.clone(), o.key.clone());
+        let claimed = tokio::task::spawn_blocking(move || {
+            falak_federation::http::claim_events(&cfg, &key, 20)
+        })
+        .await;
+        let items = match claimed {
+            Ok(Ok(items)) => items,
+            _ => {
+                tokio::time::sleep(poll_every()).await;
+                continue;
+            }
+        };
+        if items.is_empty() {
+            tokio::time::sleep(poll_every()).await;
+            continue;
+        }
+        for item in items {
+            let Some(seq) = item["seq"].as_i64() else {
+                continue;
+            };
+            // A rotated Office key shows up as an unknown key id: refetch the key set once.
+            let mut verified = falak_federation::events::verify_delivery(&item, &o.fed.keys());
+            if verified.is_err() {
+                let (fed, cfg) = (o.fed.clone(), o.config.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    if let Ok(text) = falak_federation::http::fetch_jwks(&cfg) {
+                        let _ = fed.load_jwks(&text, falak_federation::now());
+                    }
+                })
+                .await;
+                verified = falak_federation::events::verify_delivery(&item, &o.fed.keys());
+            }
+            let (outcome, error) = match verified {
+                // A forged or altered event is never applied, and never retried.
+                Err(e) => ("fail", e),
+                Ok(d) => {
+                    let now = falak_contracts::support::wall_clock_micros();
+                    match apply(&driver, &ir, dialect, &d, now).await {
+                        Ok(_) => ("ok", String::new()),
+                        Err(ApplyError::Retry(m)) => ("retry", m),
+                        Err(ApplyError::Permanent(m)) => ("fail", m),
+                    }
+                }
+            };
+            let (cfg, key, error) = (o.config.clone(), o.key.clone(), error);
+            // The acknowledgement comes after the handler's transaction has committed. If
+            // it is lost, Office delivers again and the inbox recognises the event.
+            let _ = tokio::task::spawn_blocking(move || {
+                falak_federation::http::ack_event(&cfg, &key, seq, outcome, &error)
+            })
+            .await;
+        }
+    }
+}
+
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
     let ir_arc = Arc::new(ir.clone());
     let openapi = falak_core::openapi::generate(ir).to_string();
@@ -458,6 +601,13 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
         })
         .await;
         tokio::spawn(sync_office(o.clone()));
+        if first.ir.uses_events() {
+            let driver: Arc<dyn NativeDriver> = match &stack.driver_stack {
+                DriverStack::Sqlite { driver, .. } => driver.clone(),
+                DriverStack::Postgres { driver, .. } => driver.clone(),
+            };
+            tokio::spawn(run_events(o.clone(), driver, Arc::new(first.ir.clone())));
+        }
         println!(
             "  Office:  {} (tier {}); sign-in is Office's",
             o.config.office_url, o.config.tier

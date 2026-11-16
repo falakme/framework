@@ -46,6 +46,75 @@ pub fn signed_get(cfg: &OfficeConfig, key: &AppKey, path_and_query: &str) -> Res
     read(req.call())
 }
 
+/// A signed request with a JSON body (`POST`, `PUT`). Any answer but a success is an
+/// error that says the status, so a caller can tell a refusal from an outage.
+pub fn signed_send(
+    cfg: &OfficeConfig,
+    key: &AppKey,
+    method: &str,
+    path_and_query: &str,
+    body: &Value,
+) -> Result<Value, String> {
+    let text = body.to_string();
+    let headers = request_headers(
+        key,
+        &cfg.app,
+        method,
+        path_and_query,
+        text.as_bytes(),
+        now(),
+        &random_nonce(),
+    );
+    let url = format!("{}{path_and_query}", cfg.office_url.trim_end_matches('/'));
+    let mut req = agent()
+        .request(method, &url)
+        .set("content-type", "application/json");
+    for (k, v) in headers {
+        req = req.set(&k, &v);
+    }
+    read(req.send_string(&text))
+}
+
+/// Tell Office what this app publishes and consumes.
+pub fn put_contract(cfg: &OfficeConfig, key: &AppKey, body: &Value) -> Result<(), String> {
+    signed_send(cfg, key, "PUT", "/v1/_office/events/contract", body).map(|_| ())
+}
+
+/// Publish one signed event. `Ok` only after Office has stored it.
+pub fn publish_event(cfg: &OfficeConfig, key: &AppKey, body: &Value) -> Result<(), String> {
+    signed_send(cfg, key, "POST", "/v1/_office/events", body).map(|_| ())
+}
+
+/// The caller's next deliveries.
+pub fn claim_events(cfg: &OfficeConfig, key: &AppKey, limit: u32) -> Result<Vec<Value>, String> {
+    let v = signed_send(
+        cfg,
+        key,
+        "POST",
+        "/v1/_office/events/claim",
+        &serde_json::json!({"limit": limit}),
+    )?;
+    Ok(v["events"].as_array().cloned().unwrap_or_default())
+}
+
+/// Acknowledge a delivery: `ok`, `retry` or `fail`.
+pub fn ack_event(
+    cfg: &OfficeConfig,
+    key: &AppKey,
+    seq: i64,
+    outcome: &str,
+    error: &str,
+) -> Result<(), String> {
+    signed_send(
+        cfg,
+        key,
+        "POST",
+        "/v1/_office/events/ack",
+        &serde_json::json!({"seq": seq, "outcome": outcome, "error": error}),
+    )
+    .map(|_| ())
+}
+
 pub fn fetch_jwks(cfg: &OfficeConfig) -> Result<String, String> {
     agent()
         .get(&cfg.jwks_url)

@@ -555,6 +555,7 @@ dependencies = [
  "ed25519-dalek",
  "falak-auth",
  "falak-contracts",
+ "falak-core",
  "falak-runtime-native",
  "hex",
  "rand_core",
