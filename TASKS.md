@@ -278,7 +278,7 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 7b: AI readiness (M7b)
 
-- [ ] **T7.7 (Dev1)** PII annotations in the schema and pseudonymization in the portable core.
+- [x] **T7.7 (Dev1)** PII annotations in the schema and pseudonymization in the portable core.
 - [ ] **T7.8 (Dev2)** NER scanning of unstructured documents as a compute job; encrypted, tenant-scoped mapping table. *Needs:* T7.2.
 - [ ] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default.
 - [ ] **T7.10 (Dev4)** AI egress policy and the human approval gate for writes.

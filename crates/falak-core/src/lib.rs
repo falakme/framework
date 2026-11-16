@@ -11,6 +11,7 @@ pub mod load;
 pub mod lock;
 pub mod openapi;
 pub mod policy;
+pub mod pseudonymize;
 pub mod reader;
 pub mod requirements;
 pub mod restricted;

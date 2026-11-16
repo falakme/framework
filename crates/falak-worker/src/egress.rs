@@ -201,7 +201,10 @@ mod tests {
             refused("https://169.254.169.254/latest"),
             "egress_not_listed"
         );
-        assert_eq!(refused("https://user:pw@api.example.com/"), "egress_bad_url");
+        assert_eq!(
+            refused("https://user:pw@api.example.com/"),
+            "egress_bad_url"
+        );
     }
 
     #[test]
