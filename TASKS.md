@@ -250,7 +250,7 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 6: Operational maturity (M6)
 
-- [ ] **T6.1 (Dev1)** `falak upgrade`: report breaking changes between framework versions before applying.
+- [x] **T6.1 (Dev1)** `falak upgrade`: report breaking changes between framework versions before applying.
 - [ ] **T6.2 (Dev2)** Office high availability: a second instance and failover.
 - [ ] **T6.3 (Dev2)** Disaster-recovery procedure and script: restore every database to a point in time.
 - [ ] **T6.4 (Dev3)** Break-glass CLI: time-limited, reason required, alert raised, second approver for Tier 3.

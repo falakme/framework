@@ -20,6 +20,11 @@ pub enum Command {
     OfficeEnroll,
     OfficeStatus,
     OfficeRotateKey,
+    Upgrade,
+    BreakGlassRequest,
+    BreakGlassApprove,
+    BreakGlassClaim,
+    BreakGlassList,
     Doctor,
     Help,
     Version,
@@ -55,6 +60,13 @@ pub struct Extra {
     pub email: Option<String>,
     pub password_env: Option<String>,
     pub retire: bool,
+    pub to: Option<String>,
+    pub apply: bool,
+    pub reason: Option<String>,
+    pub minutes: Option<u32>,
+    pub id: Option<String>,
+    pub app: Option<String>,
+    pub tier: Option<u8>,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -90,6 +102,18 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             Some("status") => Command::OfficeStatus,
             Some("rotate-key") => Command::OfficeRotateKey,
             _ => return Err("`office` needs a subcommand: enroll, status or rotate-key".into()),
+        },
+        Some("upgrade") => Command::Upgrade,
+        Some("breakglass") => match it.next().map(String::as_str) {
+            Some("request") => Command::BreakGlassRequest,
+            Some("approve") => Command::BreakGlassApprove,
+            Some("claim") => Command::BreakGlassClaim,
+            Some("list") => Command::BreakGlassList,
+            _ => {
+                return Err(
+                    "`breakglass` needs a subcommand: request, approve, claim or list".into(),
+                );
+            }
         },
         Some("doctor") => Command::Doctor,
         Some(other) => return Err(format!("unknown command `{other}`")),
@@ -162,6 +186,29 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                     Some(it.next().ok_or("`--password-env` needs a value")?.clone());
             }
             "--retire" => args.extra.retire = true,
+            "--apply" => args.extra.apply = true,
+            "--to" => args.extra.to = Some(it.next().ok_or("`--to` needs a value")?.clone()),
+            "--reason" => {
+                args.extra.reason = Some(it.next().ok_or("`--reason` needs a value")?.clone());
+            }
+            "--id" => args.extra.id = Some(it.next().ok_or("`--id` needs a value")?.clone()),
+            "--app" => args.extra.app = Some(it.next().ok_or("`--app` needs a value")?.clone()),
+            "--minutes" => {
+                let v = it.next().ok_or("`--minutes` needs a value")?;
+                args.extra.minutes = Some(
+                    v.parse()
+                        .map_err(|_| format!("`{v}` is not a number of minutes"))?,
+                );
+            }
+            "--tier" => {
+                let v = it.next().ok_or("`--tier` needs a value")?;
+                args.extra.tier = Some(
+                    v.parse()
+                        .ok()
+                        .filter(|t| (1..=3).contains(t))
+                        .ok_or_else(|| format!("`{v}` is not a tier (1, 2 or 3)"))?,
+                );
+            }
             "--jwks-url" => {
                 args.jwks_url = Some(it.next().ok_or("`--jwks-url` needs a value")?.clone());
             }
@@ -224,6 +271,19 @@ mod tests {
         assert_eq!(r.command, Command::OfficeRotateKey);
         assert!(r.extra.retire);
         assert_eq!(r.extra.password_env.as_deref(), Some("PW"));
+    }
+
+    #[test]
+    fn upgrade_and_breakglass() {
+        let a = p("upgrade app --apply --to 1.0.0").unwrap();
+        assert_eq!(a.command, Command::Upgrade);
+        assert!(a.extra.apply);
+        assert_eq!(a.extra.to.as_deref(), Some("1.0.0"));
+        let b = p("breakglass request --app x --reason r --minutes 20 --tier 3").unwrap();
+        assert_eq!(b.command, Command::BreakGlassRequest);
+        assert_eq!((b.extra.minutes, b.extra.tier), (Some(20), Some(3)));
+        assert!(p("breakglass").is_err());
+        assert!(p("breakglass request --tier 4").is_err());
     }
 
     #[test]
