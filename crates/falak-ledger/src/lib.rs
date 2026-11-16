@@ -16,6 +16,7 @@ pub mod command;
 pub mod money;
 pub mod pg;
 pub mod reconcile;
+pub mod saga;
 pub mod schema;
 
 pub use command::{Command, Plan, Posting};

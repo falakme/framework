@@ -1,0 +1,7 @@
+schema_version: 1
+name: horizon
+version: 0.1.0
+description: Wallets and payments for other apps. Horizon holds the money; storefronts such as Academy and GardenX ask it to reserve, capture or release funds through federated commands.
+tenancy: none
+trust_tier: high_assurance
+drivers: [postgres]

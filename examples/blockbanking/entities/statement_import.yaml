@@ -1,0 +1,12 @@
+schema_version: 1
+entity: statement_import
+owner: imported_by
+fields:
+  statement_id: { type: text, required: true, unique: true, max_length: 128 }
+  ledger_account: { type: text, required: true, max_length: 128 }
+  line_count: { type: int64, required: true, min: 0 }
+  differences: { type: int64, min: 0 }
+  imported_by: { type: uuid, required: true, indexed: true }
+admin:
+  label: Statement imports
+  list_columns: [statement_id, line_count, differences]

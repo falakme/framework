@@ -1,0 +1,12 @@
+schema_version: 1
+entity: transfer_order
+rules:
+  - id: customer_orders_and_reads
+    actions: [read, create]
+    allow: { owner: true }
+  - id: approvers_update
+    actions: [read, update]
+    allow: { role: approver }
+  - id: auditors_read
+    actions: [read]
+    allow: { role: auditor }

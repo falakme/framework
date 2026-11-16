@@ -1,0 +1,8 @@
+schema_version: 1
+command: payment_capture
+entity: payment
+kind: custom
+handler: ledger_capture
+input:
+  id: { type: uuid, required: true }
+idempotent: true
