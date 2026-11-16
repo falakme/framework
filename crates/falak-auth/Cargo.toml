@@ -16,7 +16,7 @@ workspace = true
 # hashing, sessions. Without it only token verification is built, which compiles for
 # `wasm32` (the edge runtime, T2.9).
 default = ["native"]
-native = ["dep:argon2", "dep:rand_core", "dep:sha2", "ed25519-dalek/rand_core"]
+native = ["dep:argon2", "dep:rand_core", "dep:sha2", "dep:p256", "ed25519-dalek/rand_core"]
 
 [dependencies]
 falak-contracts.workspace = true
@@ -25,6 +25,7 @@ base64 = "0.22"
 ed25519-dalek = "2"
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 serde_json.workspace = true
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"], optional = true }
 sha2 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
