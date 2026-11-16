@@ -279,7 +279,7 @@ mod tests {
             calls,
             [
                 "horizon.reserve saga-1/0/do",
-                "academy.enrollment.create saga-1/1/do",
+                "shop.item.create saga-1/1/do",
                 "horizon.capture saga-1/2/do"
             ]
         );
@@ -289,7 +289,7 @@ mod tests {
     async fn a_failed_order_releases_the_hold() {
         let stub = Stub {
             calls: Mutex::default(),
-            fail: vec!["enrollment.create"],
+            fail: vec!["item.create"],
         };
         let out = run("saga-2", &steps(), &stub, 3).await;
         assert!(matches!(out, Outcome::Compensated { failed_step: 1, .. }));
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(
             undo,
             [
-                "academy.enrollment.delete saga-3/1/undo",
+                "shop.item.delete saga-3/1/undo",
                 "horizon.release saga-3/0/undo"
             ]
         );
@@ -321,7 +321,7 @@ mod tests {
     async fn a_compensation_that_keeps_failing_is_reported_stuck() {
         let stub = Stub {
             calls: Mutex::default(),
-            fail: vec!["enrollment.create", "release"],
+            fail: vec!["item.create", "release"],
         };
         match run("saga-4", &steps(), &stub, 2).await {
             Outcome::Stuck { uncompensated, .. } => assert_eq!(uncompensated, vec![0]),
