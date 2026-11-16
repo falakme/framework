@@ -205,7 +205,7 @@ Target: three apps share one login and one admin interface.
 - [x] **T4.1** Relationship rules with bounded traversal depth. *`allow: { owner: true, related: project.workspace }`, at most 3 `belongs_to` steps, nested `EXISTS`, AUTHORIZATION §11. Checked on SQLite only (3 tests).*
 - [x] **T4.2** `admin:` presentation metadata in schema and IR. *Already built in Phase 1 (`label`, `list_columns`, `search_fields`, validated); `tests/admin.rs` now pins it into the IR.*
 - [x] **T4.3** `FEDERATION_SPECIFICATION.md` to candidate. *Needs:* T4.5, T4.8 drafts.
-- [ ] **T4.14** Release v1.0: *(`v1.0.0-rc.1` is published as a pre-release with binaries, an SBOM, checksums and build provenance attestations, verified with `gh attestation verify`; the final `v1.0.0` tag waits for the owner.)* tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
+- [x] **T4.14** Release v1.0: *(Done 2026-11-16: `v1.0.0` is on GitHub with binaries, SBOM, checksums and provenance. The crates.io publish is in the release workflow and waits for the repository secret `CARGO_REGISTRY_TOKEN`.)* *(`v1.0.0-rc.1` is published as a pre-release with binaries, an SBOM, checksums and build provenance attestations, verified with `gh attestation verify`; the final `v1.0.0` tag waits for the owner.)* tag, changelog, signed artefacts, SBOM. *Needs:* Phase 4 gate.
 
 **Dev2**
 - [x] **T4.4** Office skeleton: one binary, one PostgreSQL database, built on Falak Core. *Done: the binary runs on SQLite and PostgreSQL, and the image in `deploy/office/` builds and starts in CI (`container`). Deploying it anywhere is not a task: the owner does not want Framework deployed on Coolify.*
@@ -228,7 +228,7 @@ Target: three apps share one login and one admin interface.
 **Gate (Dev1)**
 - [x] `scripts/smoke/office.sh` passes. *Locally on SQLite and PostgreSQL 16, and in CI (`smoke-office`).*
 - [x] Studio manages two apps with no app-specific dashboard code. *Three in the smoke test (Notebook, its copy, Falak.me), from one config entry each.*
-- [ ] v1.0 released (T4.14).
+- [x] v1.0 released (T4.14).
 
 ---
 
