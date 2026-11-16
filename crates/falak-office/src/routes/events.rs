@@ -697,7 +697,8 @@ pub async fn replay(State(o): State<Shared>, headers: HeaderMap, body: Bytes) ->
     }
 }
 
-/// `GET /v1/_office/sagas` (administrator): the saga instances and where they are.
+/// `GET /v1/_office/sagas` (administrator): the newest 200 saga instances and where they
+/// are, and how many there are in each state.
 pub async fn sagas(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/sagas");
     let run = async {
@@ -709,7 +710,17 @@ pub async fn sagas(State(o): State<Shared>, headers: HeaderMap) -> Response {
                 vec![],
             )
             .await?;
-        Ok::<_, Error>(json!({"data": rows.iter().map(|r| json!({
+        let counts =
+            o.db.rows(
+                "SELECT status, COUNT(*) FROM office_sagas GROUP BY status",
+                vec![],
+            )
+            .await?;
+        let counts: serde_json::Map<String, Json> = counts
+            .iter()
+            .map(|r| (text(r.first()), json!(int(r.get(1)))))
+            .collect();
+        Ok::<_, Error>(json!({"counts": counts, "data": rows.iter().map(|r| json!({
             "id": text(r.first()), "saga": text(r.get(1)), "owner": text(r.get(2)),
             "status": text(r.get(3)), "step": int(r.get(4)), "updated_at": int(r.get(5)),
         })).collect::<Vec<_>>()}))
