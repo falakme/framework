@@ -9,22 +9,35 @@
 //!   header, through the app's own router: ownership rules, role rules, field masks and
 //!   tenant isolation all apply. The MCP layer never reads data on its own and has no
 //!   credentials of its own.
-//! * **Read-only by default.** Reading tools only (see [`crate::approval`] for writes).
+//! * **Read-only by default.** Writing tools exist only when the operator switches them on,
+//!   and even then a call only queues a proposal that a person must approve
+//!   ([`crate::approval`]).
+//! * **No raw personal data.** Fields marked `pii: true` are replaced by stable tokens in
+//!   what the model sees ([`crate::egress`]).
 
 use std::sync::Arc;
 
 use axum::{
     Router,
     body::{Body, Bytes},
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, Request, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
-use falak_contracts::ir::{Ir, IrField};
+use falak_contracts::{
+    identity::Principal,
+    ir::{Ir, IrField},
+};
+use falak_core::pseudonymize::Pseudonymizer;
 use falak_runtime_native::context::Authenticator;
 use serde_json::{Value, json};
 use tower::ServiceExt;
+
+use crate::{
+    approval::{Approvals, Refusal},
+    egress::AiPolicy,
+};
 
 pub const PROTOCOL_VERSION: &str = "2025-03-26";
 /// The most response text one tool call returns to the model.
@@ -34,6 +47,12 @@ const MAX_TOOL_TEXT: usize = 256 * 1024;
 pub struct McpConfig {
     /// The entities the agent may use.
     pub entities: Vec<String>,
+    /// Offer `create_*`, `update_*` and `delete_*`, as proposals a person must approve.
+    pub writes: bool,
+    /// What may leave for a model, and where to.
+    pub policy: AiPolicy,
+    /// Key for the tokens that stand in for personal data.
+    pub pii_key: Vec<u8>,
 }
 
 impl McpConfig {
@@ -46,10 +65,28 @@ impl McpConfig {
                 ));
             }
         }
+        use rand_core::{OsRng, RngCore};
+        let mut key = vec![0u8; 32];
+        OsRng.fill_bytes(&mut key);
         Ok(Self {
             entities: entities.to_vec(),
+            writes: false,
+            policy: AiPolicy::default(),
+            pii_key: key,
         })
     }
+}
+
+/// What a tool call stands for.
+enum Call {
+    Read(String),
+    /// Queued for a person; never run here.
+    Write {
+        method: &'static str,
+        path: String,
+        body: Value,
+        summary: String,
+    },
 }
 
 pub struct Mcp {
@@ -58,6 +95,7 @@ pub struct Mcp {
     pub auth: Arc<dyn Authenticator>,
     /// The app's own router, as it was before `/mcp` was added.
     pub app: Router,
+    pub approvals: Approvals,
 }
 
 /// Add `/mcp` to `app`. With an empty allow-list nothing is added.
@@ -70,13 +108,22 @@ pub fn mcp_router(
     if config.entities.is_empty() {
         return app;
     }
+    let writes = config.writes;
     let state = Arc::new(Mcp {
         ir,
         config,
         auth,
         app: app.clone(),
+        approvals: Approvals::default(),
     });
-    app.merge(Router::new().route("/mcp", post(handle)).with_state(state))
+    let mut routes = Router::new().route("/mcp", post(handle));
+    if writes {
+        routes = routes
+            .route("/mcp/approvals", get(list_approvals))
+            .route("/mcp/approvals/{id}/approve", post(approve))
+            .route("/mcp/approvals/{id}/reject", post(reject));
+    }
+    app.merge(routes.with_state(state))
 }
 
 fn rpc_error(id: &Value, code: i64, message: &str) -> Response {
@@ -143,13 +190,50 @@ impl Mcp {
                 },
                 "annotations": {"readOnlyHint": true, "openWorldHint": false}
             }));
+            if self.config.writes {
+                let note =
+                    "Queues a proposal. Nothing changes until the person you act for approves it.";
+                tools.push(json!({
+                    "name": format!("create_{name}"),
+                    "description": format!("Propose a new {name} record. {note} Fields: {fields}."),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"fields": {"type": "object"}},
+                        "required": ["fields"],
+                        "additionalProperties": false
+                    },
+                    "annotations": {"readOnlyHint": false, "destructiveHint": false, "openWorldHint": false}
+                }));
+                tools.push(json!({
+                    "name": format!("update_{name}"),
+                    "description": format!("Propose a change to one {name} record. {note}"),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}, "fields": {"type": "object"}},
+                        "required": ["id", "fields"],
+                        "additionalProperties": false
+                    },
+                    "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false}
+                }));
+                tools.push(json!({
+                    "name": format!("delete_{name}"),
+                    "description": format!("Propose deleting one {name} record. {note}"),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}},
+                        "required": ["id"],
+                        "additionalProperties": false
+                    },
+                    "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false}
+                }));
+            }
         }
         tools
     }
 
     /// Turn a tool call into the REST path it stands for. `None`: no such tool, or the
     /// entity is not on the allow-list.
-    fn route(&self, tool: &str, args: &Value) -> Option<Result<String, String>> {
+    fn route(&self, tool: &str, args: &Value) -> Option<Result<Call, String>> {
         let (verb, entity) = tool.split_once('_')?;
         if !self.config.entities.iter().any(|e| e == entity) {
             return None;
@@ -180,13 +264,52 @@ impl Mcp {
                 } else {
                     format!("?{}", q.join("&"))
                 };
-                Some(Ok(format!("/v1/{table}{qs}")))
+                Some(Ok(Call::Read(format!("/v1/{table}{qs}"))))
             }
             "get" => {
                 let Some(id) = args["id"].as_str() else {
                     return Some(Err("`id` is required".into()));
                 };
-                Some(Ok(format!("/v1/{table}/{}", enc(id))))
+                Some(Ok(Call::Read(format!("/v1/{table}/{}", enc(id)))))
+            }
+            "create" | "update" | "delete" if self.config.writes => {
+                let fields = args["fields"].clone();
+                if verb != "delete" && !fields.is_object() {
+                    return Some(Err("`fields` must be an object".into()));
+                }
+                let (method, path, body, summary) = if verb == "create" {
+                    (
+                        "POST",
+                        format!("/v1/{table}"),
+                        fields.clone(),
+                        format!("Create a {entity}: {fields}"),
+                    )
+                } else {
+                    let Some(id) = args["id"].as_str() else {
+                        return Some(Err("`id` is required".into()));
+                    };
+                    if verb == "update" {
+                        (
+                            "PATCH",
+                            format!("/v1/{table}/{}", enc(id)),
+                            fields.clone(),
+                            format!("Change {entity} {id}: {fields}"),
+                        )
+                    } else {
+                        (
+                            "DELETE",
+                            format!("/v1/{table}/{}", enc(id)),
+                            Value::Null,
+                            format!("Delete {entity} {id}"),
+                        )
+                    }
+                };
+                Some(Ok(Call::Write {
+                    method,
+                    path,
+                    body,
+                    summary,
+                }))
             }
             _ => None,
         }
@@ -194,11 +317,31 @@ impl Mcp {
 
     /// Run a reading tool as the caller. Returns `(is_error, text)`.
     pub async fn call_read(&self, headers: &HeaderMap, path: &str) -> (bool, String) {
-        let mut req = Request::builder().method("GET").uri(path);
+        self.send(headers, "GET", path, None, true).await
+    }
+
+    /// Send a request through the app as whoever `headers` say. `redact`: the answer goes
+    /// to a model, so personal data is replaced first.
+    async fn send(
+        &self,
+        headers: &HeaderMap,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        redact: bool,
+    ) -> (bool, String) {
+        let mut req = Request::builder().method(method).uri(path);
         if let Some(a) = headers.get(header::AUTHORIZATION) {
             req = req.header(header::AUTHORIZATION, a);
         }
-        let Ok(req) = req.body(Body::empty()) else {
+        let payload = match body {
+            Some(b) if !b.is_null() => {
+                req = req.header(header::CONTENT_TYPE, "application/json");
+                Body::from(b.to_string())
+            }
+            _ => Body::empty(),
+        };
+        let Ok(req) = req.body(payload) else {
             return (true, "bad request".into());
         };
         let res = match self.app.clone().oneshot(req).await {
@@ -210,6 +353,9 @@ impl Mcp {
             .await
             .unwrap_or_default();
         let mut text = String::from_utf8_lossy(&bytes).into_owned();
+        if redact {
+            text = self.redact(headers, path, text);
+        }
         if text.len() > MAX_TOOL_TEXT {
             let mut cut = MAX_TOOL_TEXT;
             while !text.is_char_boundary(cut) {
@@ -279,9 +425,32 @@ async fn handle(State(mcp): State<Arc<Mcp>>, headers: HeaderMap, body: Bytes) ->
             match mcp.route(tool, args) {
                 None => return rpc_error(&id, -32602, "unknown tool"),
                 Some(Err(why)) => tool_result(true, &why),
-                Some(Ok(path)) => {
+                Some(Ok(Call::Read(path))) => {
                     let (is_error, text) = mcp.call_read(&headers, &path).await;
                     tool_result(is_error, &text)
+                }
+                Some(Ok(Call::Write {
+                    method,
+                    path,
+                    body,
+                    summary,
+                })) => {
+                    let Some(who) = mcp.principal(&headers) else {
+                        return StatusCode::UNAUTHORIZED.into_response();
+                    };
+                    let p =
+                        mcp.approvals
+                            .propose(&who.subject, tool, method, &path, body, &summary);
+                    tool_result(
+                        false,
+                        &json!({
+                            "status": "pending_approval",
+                            "id": p.id,
+                            "digest": p.digest,
+                            "message": "Nothing has changed. The person you act for must approve this proposal.",
+                        })
+                        .to_string(),
+                    )
                 }
             }
         }
@@ -291,4 +460,114 @@ async fn handle(State(mcp): State<Arc<Mcp>>, headers: HeaderMap, body: Bytes) ->
         StatusCode::OK,
         &json!({"jsonrpc": "2.0", "id": id, "result": result}),
     )
+}
+
+impl Mcp {
+    /// The caller, from their credential.
+    fn principal(&self, headers: &HeaderMap) -> Option<Principal> {
+        self.auth.authenticate(headers)
+    }
+
+    /// Replace personal data in a response before a model sees it.
+    fn redact(&self, headers: &HeaderMap, path: &str, text: String) -> String {
+        let Some(entity) = path
+            .strip_prefix("/v1/")
+            .and_then(|r| r.split(['/', '?']).next())
+            .and_then(|table| self.ir.entities.iter().find(|e| e.table == table))
+        else {
+            return text;
+        };
+        let Ok(mut body) = serde_json::from_str::<Value>(&text) else {
+            return text;
+        };
+        let tenant = self
+            .principal(headers)
+            .and_then(|p| p.tenant)
+            .unwrap_or_default();
+        let ps = Pseudonymizer::new(&self.config.pii_key, &tenant);
+        self.config
+            .policy
+            .redact(&self.ir, &entity.name, &mut body, &ps);
+        body.to_string()
+    }
+}
+
+fn refusal(r: &Refusal) -> Response {
+    match r {
+        Refusal::NotFound => {
+            json_response(StatusCode::NOT_FOUND, &json!({"error": "no such proposal"}))
+        }
+        Refusal::StepUpRequired => json_response(
+            StatusCode::FORBIDDEN,
+            &json!({"error": "approving needs a fresh sign-in (step up); an agent's token cannot approve"}),
+        ),
+        Refusal::DigestMismatch => json_response(
+            StatusCode::CONFLICT,
+            &json!({"error": "the digest does not match the proposal you were shown"}),
+        ),
+        Refusal::Closed => json_response(
+            StatusCode::CONFLICT,
+            &json!({"error": "the proposal is already decided or has expired"}),
+        ),
+    }
+}
+
+async fn list_approvals(State(mcp): State<Arc<Mcp>>, headers: HeaderMap) -> Response {
+    let Some(p) = mcp.principal(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let items: Vec<Value> = mcp
+        .approvals
+        .list(&p.subject)
+        .iter()
+        .map(crate::approval::Proposal::public)
+        .collect();
+    json_response(StatusCode::OK, &json!({"proposals": items}))
+}
+
+async fn approve(
+    State(mcp): State<Arc<Mcp>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(p) = mcp.principal(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let digest = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v["digest"].as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let proposal = match mcp.approvals.approve(&id, &p.subject, &p.roles, &digest) {
+        Ok(x) => x,
+        Err(r) => return refusal(&r),
+    };
+    // Run it as the approver: the policy engine decides whether this person may do it.
+    let body = (!proposal.body.is_null()).then_some(&proposal.body);
+    let (is_error, text) = mcp
+        .send(&headers, &proposal.method, &proposal.path, body, false)
+        .await;
+    let outcome = json!({
+        "ok": !is_error,
+        "response": serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text)),
+    });
+    mcp.approvals.record_outcome(&id, outcome.clone());
+    json_response(
+        StatusCode::OK,
+        &json!({"id": id, "state": "approved", "outcome": outcome}),
+    )
+}
+
+async fn reject(
+    State(mcp): State<Arc<Mcp>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(p) = mcp.principal(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    match mcp.approvals.reject(&id, &p.subject) {
+        Ok(x) => json_response(StatusCode::OK, &x.public()),
+        Err(r) => refusal(&r),
+    }
 }

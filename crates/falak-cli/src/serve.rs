@@ -375,7 +375,17 @@ fn mcp_config(ir: &Ir) -> Option<falak_ai::mcp::McpConfig> {
         .filter(|s| !s.is_empty())
         .collect();
     match falak_ai::mcp::McpConfig::new(ir, &names) {
-        Ok(c) if !c.entities.is_empty() => Some(c),
+        Ok(mut c) if !c.entities.is_empty() => {
+            // Writes are proposals a person approves (FALAK_MCP_WRITES=approval). PII fields
+            // are tokens unless FALAK_AI_EXPOSE_PII=1. FALAK_AI_ALLOW lists model hosts.
+            c.writes = std::env::var("FALAK_MCP_WRITES").as_deref() == Ok("approval");
+            c.policy = falak_ai::egress::AiPolicy::from_env();
+            c.policy.expose_pii = std::env::var("FALAK_AI_EXPOSE_PII").as_deref() == Ok("1");
+            if let Ok(k) = std::env::var("FALAK_PII_KEY") {
+                c.pii_key = k.into_bytes();
+            }
+            Some(c)
+        }
         Ok(_) => None,
         Err(e) => {
             eprintln!("mcp: not served: {e}");

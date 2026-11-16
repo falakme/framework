@@ -67,9 +67,53 @@ pub struct World {
     pub app: Router,
 }
 
+/// ClarityAI: its `document.body` is marked `pii: true`.
+pub fn clarity_ir() -> Ir {
+    let f = |p: &str, t: &str| SourceFile {
+        path: p.into(),
+        text: t.into(),
+    };
+    let (project, diags) = load_project(&[
+        f(
+            "app.yaml",
+            include_str!("../../../../examples/clarityai/app.yaml"),
+        ),
+        f(
+            "entities/document.yaml",
+            include_str!("../../../../examples/clarityai/entities/document.yaml"),
+        ),
+        f(
+            "entities/detection.yaml",
+            include_str!("../../../../examples/clarityai/entities/detection.yaml"),
+        ),
+        f(
+            "entities/summary.yaml",
+            include_str!("../../../../examples/clarityai/entities/summary.yaml"),
+        ),
+        f(
+            "policies/document.yaml",
+            include_str!("../../../../examples/clarityai/policies/document.yaml"),
+        ),
+        f(
+            "policies/detection.yaml",
+            include_str!("../../../../examples/clarityai/policies/detection.yaml"),
+        ),
+        f(
+            "policies/summary.yaml",
+            include_str!("../../../../examples/clarityai/policies/summary.yaml"),
+        ),
+    ]);
+    assert!(diags.is_empty(), "{diags:?}");
+    build_ir(&project.unwrap())
+}
+
 pub async fn world() -> World {
+    world_with(ir()).await
+}
+
+pub async fn world_with(ir: Ir) -> World {
     let driver = Arc::new(SqliteDriver::in_memory().await.unwrap());
-    let ir = Arc::new(ir());
+    let ir = Arc::new(ir);
     let ctx = RequestContext {
         principal: None,
         request_id: "setup".into(),
