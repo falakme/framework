@@ -7,7 +7,7 @@ use std::{net::IpAddr, sync::Arc};
 use axum::http::StatusCode;
 use common::*;
 use falak_ai::{
-    egress::{AiPolicy, guard_text},
+    egress::AiPolicy,
     mcp::{McpConfig, mcp_router},
 };
 use falak_runtime_native::context::DevAuthenticator;
@@ -226,7 +226,7 @@ async fn a_rejected_proposal_never_runs() {
 }
 
 #[tokio::test]
-async fn personal_data_fields_reach_the_model_as_tokens() {
+async fn personal_data_fields_are_omitted_unless_allowed() {
     for expose in [false, true] {
         let w = world_with(clarity_ir()).await;
         let (s, doc) = rest(
@@ -255,7 +255,7 @@ async fn personal_data_fields_reach_the_model_as_tokens() {
         for t in [&text, &one] {
             assert!(t.contains("contract"), "non-PII fields stay readable");
             assert_eq!(t.contains("Jane Smith"), expose, "expose_pii={expose}: {t}");
-            assert_eq!(t.contains("BODY_"), !expose, "{t}");
+            assert_eq!(t.contains("\"body\""), expose, "{t}");
         }
     }
 }
@@ -289,12 +289,4 @@ fn a_model_provider_must_be_listed_and_public() {
             .check_url("https://api.provider.test/", &Dns)
             .is_err()
     );
-}
-
-#[test]
-fn text_that_still_holds_an_original_is_refused() {
-    let mut originals = falak_core::pseudonymize::Mapping::new();
-    originals.insert("EMAIL_ab".into(), "jane@example.com".into());
-    assert!(guard_text("contact EMAIL_ab", &originals).is_ok());
-    assert!(guard_text("contact jane@example.com", &originals).is_err());
 }

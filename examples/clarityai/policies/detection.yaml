@@ -1,6 +1,0 @@
-schema_version: 1
-entity: detection
-rules:
-  - id: owner_full_access
-    actions: [read, create, update, delete]
-    allow: { owner: true }

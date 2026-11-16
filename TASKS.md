@@ -278,12 +278,12 @@ Target: three apps share one login and one admin interface.
 
 ### Phase 7b: AI readiness (M7b)
 
-- [x] **T7.7 (Dev1)** PII annotations in the schema and pseudonymization in the portable core.
-- [x] **T7.8 (Dev2)** NER scanning of unstructured documents as a compute job; encrypted, tenant-scoped mapping table. *Needs:* T7.2.
-- [x] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default.
-- [x] **T7.10 (Dev4)** AI egress policy and the human approval gate for writes.
-- [x] **T7.11 (Dev5)** *(Dropped: example apps and UI such as PulseAI, ThreatWeaver and a PII shield page belong to developers building on the framework. The primitives in T7.7, T7.9 and T7.10 are the framework's part. The ClarityAI example stays only as a test fixture for `ai.sh`.)*
-- [x] **T7.12 (Dev5)** `scripts/smoke/ai.sh`: a document containing injected instructions is processed, and the agent cannot read or write anything outside the caller's policy. *Needs:* T7.9, T7.10.
+- [x] **T7.7 (Dev1)** `pii: true` annotation on schema fields. Other parts of the framework (Studio masking, telemetry redaction, the MCP projection) read it. No pseudonymization or tokenizing: Falak is a framework, not a PII system.
+- [x] **T7.8 (Dev2)** *(Dropped: NER scanning and a token mapping table are an application's concern. The generic compute queue (T7.2) stays; it knows nothing about personal data.)*
+- [x] **T7.9 (Dev3)** MCP server projection: opt-in, per-entity allowlist, runs as the calling user through the policy engine, read-only by default. Fields marked `pii: true` and encrypted fields are omitted from responses unless the operator sets `FALAK_AI_EXPOSE_PII=1`.
+- [x] **T7.10 (Dev4)** AI egress allow-list (`FALAK_AI_ALLOW`, https only, no private addresses) and the human approval gate for writes.
+- [x] **T7.11 (Dev5)** *(Dropped: example apps and UI such as PulseAI, ThreatWeaver and a PII shield page belong to developers building on the framework. The primitives in T7.7, T7.9 and T7.10 are the framework's part. The ClarityAI example stays only as a neutral test fixture for `ai.sh` and the `falak-ai` tests.)*
+- [x] **T7.12 (Dev5)** `scripts/smoke/ai.sh`: a document containing injected instructions is read by an agent through `/mcp` as the caller; it cannot read Bob's data as Alice, its writes only queue for approval, it cannot approve its own proposal, and `pii`-marked fields are not returned. *Needs:* T7.9, T7.10.
 
 **Gate (Dev1)**
 - [x] `scripts/smoke/ai.sh` passes.

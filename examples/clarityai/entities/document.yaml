@@ -7,7 +7,7 @@ fields:
   status: { type: text, required: true, max_length: 20, default: uploaded }
   owner_id: { type: uuid, required: true, indexed: true }
 relations:
-  detections: { kind: has_many, entity: detection, field: document_id }
+  summaries: { kind: has_many, entity: summary, field: document_id }
 admin:
   label: Documents
   list_columns: [title, status]

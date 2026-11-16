@@ -83,20 +83,12 @@ pub fn clarity_ir() -> Ir {
             include_str!("../../../../examples/clarityai/entities/document.yaml"),
         ),
         f(
-            "entities/detection.yaml",
-            include_str!("../../../../examples/clarityai/entities/detection.yaml"),
-        ),
-        f(
             "entities/summary.yaml",
             include_str!("../../../../examples/clarityai/entities/summary.yaml"),
         ),
         f(
             "policies/document.yaml",
             include_str!("../../../../examples/clarityai/policies/document.yaml"),
-        ),
-        f(
-            "policies/detection.yaml",
-            include_str!("../../../../examples/clarityai/policies/detection.yaml"),
         ),
         f(
             "policies/summary.yaml",

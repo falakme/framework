@@ -4,17 +4,12 @@ framework = "1.0.0"
 ir_version = 1
 app = "clarityai"
 app_version = "0.1.0"
-ir_hash = "sha256:a49cf283ee695469d7e999b3b3dff57b7d30e6541fe40f26180f4c6bcf648c77"
+ir_hash = "sha256:91112916ddf327ee6016d1149e11cbe8d7f604bbf7de6da476e5e563a5aa57b9"
 drivers = ["postgres", "sqlite"]
 
 [sources]
-"app.yaml" = "sha256:14733b083ffa14d40d46dfcaa24cdfe664bc644be0f9f67f485568e3f82c9e38"
-"commands/mark_scanned.yaml" = "sha256:92c220ec7038cf9785f09933cec75f178f736a1d226cd073fabda99a67baada5"
-"entities/detection.yaml" = "sha256:02621caf2dbb97c2957ea074675feca80be6ae4e611b50db1eb84147101b9787"
-"entities/document.yaml" = "sha256:02a384e3c6b699765278e4af91ac90c53094be07ea8d99bad85373f95f64d67a"
+"app.yaml" = "sha256:9966ef302c068a698679d8f2ca8fd07834096d3ade647cab702047b765627424"
+"entities/document.yaml" = "sha256:dffaa39de134d16d33e62f46bc52900c6e636b54460716738c2c23a8cdf1aac7"
 "entities/summary.yaml" = "sha256:3bbd7480507e854ca3d4b3969e40b9b5e61db9bf80c22ee9307d1e181888fa8f"
-"jobs/extract_document.yaml" = "sha256:7fc6a36c56f449b38c7b9329de9e61db6c8e7d9595255cef99325fa334fe0aac"
-"jobs/scan_pii.yaml" = "sha256:f502f41e950ce5cbb14c23389df7091cd2b55084ed21a1c9ba5d39d191425a83"
-"policies/detection.yaml" = "sha256:4fe9aa5f40656a929f1da8add818264e8376032fba4e5dbc93db00c3dc7f9af0"
 "policies/document.yaml" = "sha256:44bec079bbb6ceb03747c91baa6ca199fd133d393cb268ee3736dc415cf683b4"
 "policies/summary.yaml" = "sha256:d99d02bb72e04f85bc1b7fe33e040ad46d583162629aa2b0d0e0a30ae0566eb3"

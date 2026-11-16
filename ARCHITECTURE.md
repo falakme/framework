@@ -86,7 +86,7 @@ my-app/
 YAML files use a strict subset: unknown keys, duplicate keys, anchors and implicit type coercion are rejected, and every file carries a `schema_version`. JSON Schema is published for each file type so editors validate and autocomplete.
 
 ### 4.2 Portable Core and Runtime Adapters
-* **Portable semantic core.** Schema AST, input validation, policy compiler, parameterized Query AST and PII pseudonymization live in a crate that performs no I/O, has no Tokio dependency and builds for both native targets and `wasm32`. CI builds both on every change.
+* **Portable semantic core.** Schema AST, input validation, policy compiler, parameterized Query AST live in a crate that performs no I/O, has no Tokio dependency and builds for both native targets and `wasm32`. CI builds both on every change.
 * **Compile once.** Policies, queries and the OpenAPI 3.1 document are compiled at build time into SQL templates in the IR. Requests bind parameters only.
 * **Native adapter.** Axum + Tokio + SQLx, for PostgreSQL and SQLite.
 * **Edge adapter.** `workers-rs` with D1 bindings, held to a WASM size budget and the platform's CPU-time limit.
@@ -182,7 +182,7 @@ All tiers: `Ed25519` signatures with the algorithm pinned to EdDSA; `iss`, `aud`
 * **Observatory & Vault:** OpenTelemetry tracing, liveness and readiness endpoints, `/v1/_office/health`, SHA-256 hash-chained audit logs with external anchoring, rotation of signing keys, app credentials and tenant DEKs, and `pgBackRest`/`WAL-G` and Litestream backups to R2.
 * **Runtime resilience:** timeouts on every external call, retries with jitter and a budget, graceful shutdown, one error taxonomy across runtimes.
 * **Heavy compute (`Office Compute`):** outbound-only Coolify workers lease jobs with a visibility timeout and heartbeat. Each job runs in a non-root container with CPU, memory and time limits, no network unless an egress allow-list grants it, hash-verified `uv` dependencies and a short-lived job-scoped credential. Completion is idempotent; exhausted retries are dead-lettered. Each worker has its own revocable credential. Job payloads are validated against the job contract, and job results are treated as untrusted input by the app that receives them.
-* **AI readiness:** schema-level PII pseudonymization (`<PERSON_1>`, `<IBAN_1>`) with NER scanning, treated as defence in depth and not a guarantee. The mapping table is encrypted and tenant-scoped. MCP projections are opt-in, run as the calling user through the policy engine, are read-only by default, size-limited and audited, with human approval for writes. Model output and retrieved document content are untrusted input: they never widen permissions, and they cannot trigger a write or an outbound request without approval.
+* **AI readiness:** the framework only lets developers make AI tools work with a Falak app safely; it is not a PII system. Fields marked `pii: true`, and encrypted fields, are omitted from MCP responses unless the operator allows them. Model hosts must be on the `FALAK_AI_ALLOW` allow-list. MCP projections are opt-in, run as the calling user through the policy engine, are read-only by default, size-limited and audited, with human approval for writes. Model output and retrieved document content are untrusted input: they never widen permissions, and they cannot trigger a write or an outbound request without approval.
 * **Data lifecycle:** per-entity retention, soft delete, subject export and subject erasure. Per-tenant DEKs make tenant deletion a key deletion.
 * **Financial engine (`Horizon`):** an app, not part of Office; Office routes commands and never holds ledger state. Immutable `JournalEntries` and `Postings` in integer minor units, with $\forall c \in C,\; \sum D_c = \sum C_c$ enforced under PostgreSQL `SERIALIZABLE` isolation with bounded retries. Immutability is enforced in the database (no `UPDATE`/`DELETE` grant on posted tables; deferred balance constraint) as well as in the framework. Idempotency keys are a unique `(scope, key)` row storing the payload fingerprint. Amounts use checked arithmetic that rejects overflow, and a posting whose currency differs from its account's is rejected.
 * **Offline sync:** Swift SDK and Hybrid Logical Clock delta-sync, outside the numbered roadmap until an app requires it.
@@ -245,7 +245,7 @@ flowchart TD
     V1 --> M5["M5: Federation & Durable Events<br/>(Outbox/Inbox + Durable ACK + Sagas)"]
     M5 --> M6["M6: Operational Maturity<br/>(SLOs + HA + DR Drill)"]
     M6 --> M7a["M7a: Compute<br/>(Leased Jobs + Sandboxed Workers)"]
-    M7a --> M7b["M7b: AI Readiness<br/>(PII Shield + Opt-In MCP)"]
+    M7a --> M7b["M7b: AI Readiness<br/>(Opt-In MCP + Approval Gate)"]
     M7b --> M8["M8: Financial Domain Engine<br/>(Horizon Ledger + Reconciliation)"]
 ```
 
@@ -300,8 +300,8 @@ flowchart TD
 
 ### M7b: AI Readiness
 * **Goal:** Support AI agent workflows under the same policy engine as every other caller.
-* **Scope:** PII pseudonymization, NER scanning, AI egress policies, opt-in MCP projection with allowlists and human approval.
-* **Validation Apps:** **ClarityAI** (PII shield), **PulseAI** (digests, read-only MCP), **ThreatWeaver** (anomaly detection, online revocation).
+* **Scope:** AI egress allow-list, opt-in MCP projection with allowlists and human approval.
+* **Validation Apps:** **ClarityAI** (a neutral fixture for the AI checks), **PulseAI** (digests, read-only MCP), **ThreatWeaver** (anomaly detection, online revocation).
 * **Exit Gate:** A prompt-injection test set cannot read or write outside the caller's policy.
 
 ### M8: Financial Engine (*Horizon* & *BlockBanking*)
@@ -325,7 +325,7 @@ A validation app is the thinnest vertical slice that exercises its milestone's f
 | 4 | GardenX | `M5` | Outbox and events |
 | 5 | DataMan | `M6` | Analytics and observability |
 | 6 | SecuraBlock | `M7a` | Isolated workers |
-| 7 | ClarityAI | `M7a`–`M7b` | Compute and PII shield |
+| 7 | ClarityAI | `M7a`–`M7b` | Compute and AI readiness fixture |
 | 8 | PulseAI | `M7b` | Digests and MCP |
 | 9 | ThreatWeaver | `M7b` | Telemetry and revocation |
 | 10 | Horizon / BlockBanking | `M8` | Double-entry ledger |

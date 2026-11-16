@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """AI readiness end to end, with real processes (T7.12).
 
-A ClarityAI document that carries injected instructions is processed: scanned for personal
-data by a worker, then handed to an "agent" that does what the document tells it to. The
+A ClarityAI fixture document that carries injected instructions is handed to an "agent" that
+does what the document tells it to. The
 agent is a deliberately naive script that obeys every instruction it reads, and it reaches
 the app only through the MCP projection with the caller's own token. The checks show that it
 cannot read or write anything outside the caller's policy, that its writes only queue for a
-person, and that no personal data reaches it.
+person, and that fields marked `pii` are not returned to it.
 
-usage: ai.py <falak> <falak-office> <falak-worker> <examples/clarityai>
+usage: ai.py <falak> <examples/clarityai>
 """
 
 import json
@@ -24,9 +24,8 @@ import time
 import urllib.error
 import urllib.request
 
-FALAK, OFFICE_BIN, WORKER_BIN, APP = sys.argv[1:5]
+FALAK, APP = sys.argv[1:3]
 PASSWORD = "correct horse battery staple 42"
-TENANT = "acme"
 
 work = tempfile.mkdtemp(prefix="falak-ai-smoke-")
 procs, failed = [], []
@@ -141,48 +140,16 @@ class Agent:
         return {"is_error": r["isError"], "text": text}
 
 
-def ai_view(text, entities):
-    """The document as a model may see it: each personal item replaced by its token."""
-    chars = list(text)
-    out, at = [], 0
-    for e in sorted(entities, key=lambda e: (e["start"], -e["end"])):
-        if e["start"] < at:
-            continue
-        out.append("".join(chars[at:e["start"]]))
-        out.append(e["token"])
-        at = e["end"]
-    out.append("".join(chars[at:]))
-    return "".join(out)
-
-
 def main():
     app = os.path.join(work, "clarityai")
-    shutil.copytree(APP, app, ignore=shutil.ignore_patterns(".falak", "shield", "worker"))
+    shutil.copytree(APP, app, ignore=shutil.ignore_patterns(".falak"))
     run([FALAK, "build", app])
-    ir = json.load(open(os.path.join(app, ".falak", "ir.json")))
-    scan = next(j for j in ir["jobs"] if j["name"] == "scan_pii")
-    scan["command"] = [sys.executable, os.path.join(APP, "worker", "scan_pii.py")]
-
-    # ---- Office and a worker
-    oport = free_port()
-    office = f"http://127.0.0.1:{oport}"
-    data = os.path.join(work, "office")
-    run([FALAK_OFFICE, "user", "add", "--data", data, "--email", "admin@example.com",
-         "--password-env", "OFFICE_PW", "--role", "office_admin"], {"OFFICE_PW": PASSWORD})
-    start([FALAK_OFFICE, "serve", "--port", str(oport), "--data", data, "--issuer", office], "office.log")
-    wait_up(office, "office")
-    s, v = call(office, "POST", "/v1/auth/login", {"email": "admin@example.com", "password": PASSWORD})
-    admin = v["access_token"]
-    s, v = call(office, "POST", "/v1/_office/compute/workers", {"name": "ai-box"}, admin)
-    start([WORKER_BIN, "--office", office, "--kinds", "scan_pii", "--runner", "process",
-           "--lease-ms", "8000", "--poll-ms", "300"], "worker.log",
-          {"FALAK_WORKER_CREDENTIAL": v["credential"], "FALAK_WORKER_UNSAFE_PROCESS": "1"})
 
     # ---- the app, with the MCP projection on and writes only as proposals
     aport = free_port()
     base = f"http://127.0.0.1:{aport}"
     start([FALAK, "serve", app, "--port", str(aport)], "app.log", {
-        "FALAK_MCP_ENTITIES": "document,detection,summary",
+        "FALAK_MCP_ENTITIES": "document,summary",
         "FALAK_MCP_WRITES": "approval",
     })
     wait_up(base, "app")
@@ -199,49 +166,26 @@ def main():
     s, bob_doc = call(base, "POST", "/v1/documents", {"title": "merger plan", "body": BOB_SECRET}, tokens["bob"])
     check("Bob stores a confidential document", s == 201, f"{s} {bob_doc}")
 
-    # ---- the document is processed: NER on a worker
-    s, v = call(office, "POST", "/v1/_office/compute/jobs", {
-        "job": scan, "payload": {"document_id": alice_doc["id"], "tenant": TENANT, "content": INJECTED}}, admin)
-    check("the PII scan is queued", s == 202, f"{s} {v}")
-    job = v["id"]
-    done = wait_for(lambda: (lambda st: st if st.get("status") in ("done", "dead") else None)(
-        call(office, "GET", f"/v1/_office/compute/jobs/{job}", token=admin)[1] or {}), 60)
-    check("a worker finishes the scan", bool(done) and done["status"] == "done", done)
-    done = done or {"result": {"pii_entities": []}}
-    entities = done["result"]["pii_entities"]
-    check("it found the email, the phone number and the person",
-          sorted(e["kind"] for e in entities) == ["EMAIL", "PERSON", "PHONE"], entities)
-    stored = json.dumps(done)
-    check("the stored scan result holds tokens and no personal data",
-          not any(p in stored for p in (EMAIL, PHONE, PERSON)) and all(e["token"] for e in entities), stored)
-    s, v = call(office, "POST", "/v1/_office/compute/pii/reveal", {"tenant": TENANT, "token": entities[0]["token"]}, admin)
-    check("an administrator can reveal an original, in the right tenant",
-          s == 200 and v["original"] in (EMAIL, PHONE, PERSON), f"{s} {v}")
-    s, v = call(office, "POST", "/v1/_office/compute/pii/reveal", {"tenant": "other", "token": entities[0]["token"]}, admin)
-    check("and not in another tenant", s == 404, f"{s} {v}")
-    s, v = call(office, "POST", "/v1/_office/compute/pii/reveal", {"tenant": TENANT, "token": entities[0]["token"]}, tokens["alice"])
-    check("a user's own token cannot reveal an original", s in (401, 403), f"{s} {v}")
-
-    text_for_model = ai_view(INJECTED, entities)
-    check("the text handed to the model has no personal data but keeps the injected instructions",
-          not any(p in text_for_model for p in (EMAIL, PHONE, PERSON)) and "IGNORE ALL PREVIOUS" in text_for_model)
-
     # ---- the agent obeys the document, as Alice
     agent = Agent(base, tokens["alice"])
     s, _ = call(base, "POST", "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     check("the agent cannot connect without a person's token", s == 401, s)
     s, v = agent.rpc("tools/list")
     names = sorted(t["name"] for t in v["result"]["tools"])
-    check("it is offered tools for the three allowed entities and nothing else",
-          names == sorted(f"{verb}_{e}" for e in ("document", "detection", "summary")
+    check("it is offered tools for the two allowed entities and nothing else",
+          names == sorted(f"{verb}_{e}" for e in ("document", "summary")
                           for verb in ("list", "get", "create", "update", "delete")), names)
 
     r = agent.tool("list_document")
     listing = json.dumps(r["text"])
     check("list_document returns only Alice's documents",
           not r["is_error"] and "vendor contract" in listing and "merger plan" not in listing, listing)
-    check("what it returns carries no personal data (the pii field is tokenized)",
-          not any(p in listing for p in (EMAIL, PHONE, PERSON)) and "BODY_" in listing, listing)
+    check("the `pii: true` field (body) is not returned at all",
+          not any(p in listing for p in (EMAIL, PHONE, PERSON, "IGNORE ALL")) and '"body"' not in listing, listing)
+    r = agent.tool("get_document", {"id": alice_doc["id"]})
+    one = json.dumps(r["text"])
+    check("nor by get_document", not r.get("is_error") and "vendor contract" in one and '"body"' not in one
+          and "IGNORE ALL" not in one, one)
     r = agent.tool("get_document", {"id": bob_doc["id"]})
     check("get_document on Bob's document is refused by Alice's policy", r.get("is_error") is True, r)
     for tool in ("list_user", "list_notebook", "list_office_apps", "fetch_url", "send_email"):
@@ -282,10 +226,9 @@ def main():
 
     seen = "\n".join(agent.seen)
     check("nothing Bob wrote ever reached the agent", "Falcon" not in seen and "Northwind" not in seen, seen[-300:])
-    check("no personal data ever reached the agent", not any(p in seen for p in (EMAIL, PHONE, PERSON)))
+    check("no pii-marked field ever reached the agent",
+          not any(p in seen for p in (EMAIL, PHONE, PERSON, "IGNORE ALL")))
 
-
-FALAK_OFFICE = OFFICE_BIN
 
 try:
     main()
@@ -296,7 +239,7 @@ finally:
         except (ProcessLookupError, PermissionError):
             pass
     if failed:
-        for log in ("office.log", "worker.log", "app.log"):
+        for log in ("app.log",):
             path = os.path.join(work, log)
             if os.path.exists(path):
                 print(f"--- {log} ---\n" + open(path).read()[-2000:])

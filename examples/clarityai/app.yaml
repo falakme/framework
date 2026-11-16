@@ -1,7 +1,7 @@
 schema_version: 1
 name: clarityai
 version: 0.1.0
-description: A document pipeline. Documents are extracted and scanned for personal data; AI only ever sees pseudonymized text.
+description: A small document app used as the test fixture for the AI readiness checks. Documents carry fields marked `pii`.
 tenancy: none
 trust_tier: sensitive
 drivers: [sqlite, postgres]

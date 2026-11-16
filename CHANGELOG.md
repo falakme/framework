@@ -7,6 +7,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 
 * Durable cross-app events (M5): `events/*.yaml` and `workflows/*.yaml`, event contracts in the IR with a build-time compatibility check, the outbox and inbox written in the business transaction, a relay and consumer on the native runtime and on Workers (Cron Trigger), Office Events (persist before acknowledge, per-aggregate ordering, retries, dead-letter replay, saga orchestrator), Ed25519 event signing with Office-attested publisher keys, and contract-based subscriber authorisation. The FEDERATION specification is frozen at 1.0.
+* AI readiness (M7b): an opt-in MCP projection that runs as the calling user through the policy engine (read-only by default; fields marked `pii: true` and encrypted fields omitted unless `FALAK_AI_EXPOSE_PII=1`), an egress allow-list (`FALAK_AI_ALLOW`) and a human approval gate for writes. `scripts/smoke/ai.sh` checks it end to end.
 * GardenX (`examples/gardenx/`): orders and inventory across two apps, and `scripts/smoke/events.sh`.
 
 ## [1.0.0] - 2026-11-16

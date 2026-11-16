@@ -12,8 +12,8 @@
 //! * **Read-only by default.** Writing tools exist only when the operator switches them on,
 //!   and even then a call only queues a proposal that a person must approve
 //!   ([`crate::approval`]).
-//! * **No raw personal data.** Fields marked `pii: true` are replaced by stable tokens in
-//!   what the model sees ([`crate::egress`]).
+//! * **No personal data by default.** Fields marked `pii: true`, and encrypted fields, are
+//!   left out of what the model sees unless the operator allows them ([`crate::egress`]).
 
 use std::sync::Arc;
 
@@ -29,7 +29,6 @@ use falak_contracts::{
     identity::Principal,
     ir::{Ir, IrField},
 };
-use falak_core::pseudonymize::Pseudonymizer;
 use falak_runtime_native::context::Authenticator;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -51,8 +50,6 @@ pub struct McpConfig {
     pub writes: bool,
     /// What may leave for a model, and where to.
     pub policy: AiPolicy,
-    /// Key for the tokens that stand in for personal data.
-    pub pii_key: Vec<u8>,
 }
 
 impl McpConfig {
@@ -65,14 +62,10 @@ impl McpConfig {
                 ));
             }
         }
-        use rand_core::{OsRng, RngCore};
-        let mut key = vec![0u8; 32];
-        OsRng.fill_bytes(&mut key);
         Ok(Self {
             entities: entities.to_vec(),
             writes: false,
             policy: AiPolicy::default(),
-            pii_key: key,
         })
     }
 }
@@ -321,7 +314,7 @@ impl Mcp {
     }
 
     /// Send a request through the app as whoever `headers` say. `redact`: the answer goes
-    /// to a model, so personal data is replaced first.
+    /// to a model, so personal data is left out first.
     async fn send(
         &self,
         headers: &HeaderMap,
@@ -354,7 +347,7 @@ impl Mcp {
             .unwrap_or_default();
         let mut text = String::from_utf8_lossy(&bytes).into_owned();
         if redact {
-            text = self.redact(headers, path, text);
+            text = self.redact(path, text);
         }
         if text.len() > MAX_TOOL_TEXT {
             let mut cut = MAX_TOOL_TEXT;
@@ -468,8 +461,8 @@ impl Mcp {
         self.auth.authenticate(headers)
     }
 
-    /// Replace personal data in a response before a model sees it.
-    fn redact(&self, headers: &HeaderMap, path: &str, text: String) -> String {
+    /// Leave personal data out of a response before a model sees it.
+    fn redact(&self, path: &str, text: String) -> String {
         let Some(entity) = path
             .strip_prefix("/v1/")
             .and_then(|r| r.split(['/', '?']).next())
@@ -480,14 +473,7 @@ impl Mcp {
         let Ok(mut body) = serde_json::from_str::<Value>(&text) else {
             return text;
         };
-        let tenant = self
-            .principal(headers)
-            .and_then(|p| p.tenant)
-            .unwrap_or_default();
-        let ps = Pseudonymizer::new(&self.config.pii_key, &tenant);
-        self.config
-            .policy
-            .redact(&self.ir, &entity.name, &mut body, &ps);
+        self.config.policy.redact(&self.ir, &entity.name, &mut body);
         body.to_string()
     }
 }
