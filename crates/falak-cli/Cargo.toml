@@ -16,6 +16,7 @@ name = "falak"
 path = "src/main.rs"
 
 [dependencies]
+falak-ai = { path = "../falak-ai", version = "1.0.0" }
 falak-auth = { path = "../falak-auth", version = "1.0.0" }
 falak-contracts.workspace = true
 serde.workspace = true

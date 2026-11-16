@@ -489,6 +489,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "falak-ai"
+version = "1.0.0"
+dependencies = [
+ "axum",
+ "falak-contracts",
+ "falak-core",
+ "falak-driver-sqlite",
+ "falak-migrate",
+ "falak-runtime-native",
+ "hex",
+ "http-body-util",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "falak-audit"
 version = "1.0.0"
 dependencies = [
@@ -519,6 +537,7 @@ name = "falak-cli"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "falak-ai",
  "falak-auth",
  "falak-contracts",
  "falak-core",

@@ -365,8 +365,28 @@ async fn sync_office(o: Office) {
     }
 }
 
+/// The MCP allow-list from `FALAK_MCP_ENTITIES`. An unknown entity name stops the server
+/// from offering MCP at all, and says why.
+fn mcp_config(ir: &Ir) -> Option<falak_ai::mcp::McpConfig> {
+    let list = std::env::var("FALAK_MCP_ENTITIES").ok()?;
+    let names: Vec<String> = list
+        .split(',')
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect();
+    match falak_ai::mcp::McpConfig::new(ir, &names) {
+        Ok(c) if !c.entities.is_empty() => Some(c),
+        Ok(_) => None,
+        Err(e) => {
+            eprintln!("mcp: not served: {e}");
+            None
+        }
+    }
+}
+
 fn build_router(stack: &Stack, ir: &Ir) -> Router {
     let ir_arc = Arc::new(ir.clone());
+    let ir_mcp = ir_arc.clone();
     let openapi = falak_core::openapi::generate(ir).to_string();
 
     let federated = stack.office.is_some();
@@ -405,6 +425,14 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
                 falak_federation::read_only_gate,
             ))
             .layer(axum::middleware::from_fn_with_state(o.clone(), follow_keys)),
+        None => router,
+    };
+
+    // MCP projection (T7.9): opt in with FALAK_MCP_ENTITIES=note,notebook. Off by default.
+    let router = match mcp_config(ir) {
+        Some(config) => {
+            falak_ai::mcp::mcp_router(ir_mcp, config, stack.authenticator.clone(), router)
+        }
         None => router,
     };
 
