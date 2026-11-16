@@ -53,7 +53,7 @@ Agents cannot do these. Phase 0 cannot close without the first two.
 - [x] ~~Provide a Coolify server~~ Dropped: the owner does not want Framework deployed on Coolify. An R2 bucket was needed only for the T3.11 check, which is done.
 - [ ] Choose the OIDC provider that Office Identity wraps (needed before T4.8). Dev4 brings a recommendation.
 - [x] Give a security contact address for `SECURITY.md`: admin@falak.me (done 2026-11-16). Turning on GitHub private vulnerability reporting for the repository is still open (Dev4 cannot do it).
-- [ ] Take legal advice on BlockBanking (needed before Phase 8).
+- [ ] Take legal advice on BlockBanking (needed before any real deployment of BlockBanking; the framework itself only provides primitives).
 
 ---
 
@@ -294,7 +294,7 @@ Target: three apps share one login and one admin interface.
 
 Do not start until the legal-advice item in §4 is ticked.
 
-> **Owner override (2026-11-16).** The owner told the agents to build the Phase 8 code before taking legal advice. The code exists; **the legal-advice item in §4 is still unticked**, and nothing here is production ready. Nothing in this phase may handle real money, or be offered as a bank or payment service, until that advice is taken and the open items below are closed.
+> **Owner note (2026-11-16).** The framework supplies ledger primitives only. Licensing, KYC/AML and other regulated duties belong to the developer who builds and runs a product such as Horizon or BlockBanking on it. The legal-advice item in §4 therefore applies to those apps, not to the framework. The code was built before that advice was taken; the example apps are not production ready and must not handle real money until their operator has taken it.
 
 - [x] **T8.1 (Dev1)** Ledger primitives and commands (`transfer`, `reserve`, `capture`, `release`, `reverse`, `settle`, `reconcile`) with checked arithmetic and currency checks. *Done:* `crates/falak-ledger` (its own crate, so it does not touch `falak-core`): `transfer`, `reserve`, `capture`, `release`, `reverse`, `settle` as pure planning over loaded facts, checked `i64` arithmetic, currency checks, plus the reconcile report and CSV parsing. Unit tested without a database.
 - [x] **T8.2 (Dev2)** PostgreSQL `SERIALIZABLE` execution with bounded retries, no `UPDATE` or `DELETE` grant on posted tables, deferred balance constraint, idempotency table. *Done:* `falak-ledger::{schema,pg}`. One command is one `SERIALIZABLE` transaction, retried (default 12 attempts, jittered backoff) on `40001`, `40P01` and a lost idempotency race, then `ledger_busy` (retryable, nothing posted). Append-only tables (no `UPDATE`, `DELETE` or `TRUNCATE` grant, plus a trigger that refuses them for the owner too), deferred balance and no-overdraft constraint triggers, idempotency table. Tested on PostgreSQL 16.2 (`FALAK_TEST_PG_URL`). The ledger uses `sqlx` directly rather than `falak-driver-postgres`, whose `Transaction` does not expose SQLSTATE for retries.
