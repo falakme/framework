@@ -72,6 +72,21 @@ impl OfficeLink {
         self.fed.clone()
     }
 
+    pub fn config(&self) -> &OfficeConfig {
+        &self.cfg
+    }
+
+    pub fn key(&self) -> &AppKey {
+        &self.key
+    }
+
+    /// Fetch Office's key set now, for an event that names a key not seen before.
+    pub async fn reload_keys(&self) {
+        if let Err(why) = self.load_keys(now()).await {
+            worker::console_error!("falak: Office: {why}");
+        }
+    }
+
     /// Keep up with Office. Call before routing; the authenticator cannot do I/O.
     pub async fn refresh_if_needed(&self, token: Option<&str>) {
         self.load_saved().await;

@@ -22,6 +22,7 @@
 mod auth;
 mod driver;
 mod entry;
+mod events;
 mod gate;
 mod jwks;
 mod office;

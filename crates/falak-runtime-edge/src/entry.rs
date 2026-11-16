@@ -36,6 +36,7 @@ use worker::{Context, Env, HttpRequest, event, send::SendWrapper};
 use crate::{
     auth::{EdgeAuth, Identity},
     driver::EdgeDriver,
+    events::EdgeEvents,
     gate::EdgeGate,
     jwks::JwksAuth,
     office::OfficeLink,
@@ -58,6 +59,8 @@ struct App {
     jwks: Option<Arc<JwksAuth>>,
     /// Present when the app is enrolled with Office: it follows Office's keys and feed.
     office: Option<Arc<OfficeLink>>,
+    /// Present when the app publishes or consumes events (T5.4).
+    events: Option<Arc<EdgeEvents>>,
 }
 
 thread_local! {
@@ -260,10 +263,23 @@ async fn build_app(env: &Env) -> Result<App, String> {
             }
         }),
     );
+    let events = match (&office_link, ir.uses_events()) {
+        (Some(link), true) => Some(Arc::new(EdgeEvents::new(
+            ir.clone(),
+            Arc::new(driver.clone()),
+            link.clone(),
+        ))),
+        (None, true) => {
+            worker::console_error!("falak: this app uses events, which need Office");
+            None
+        }
+        _ => None,
+    };
     Ok(App {
         router,
         jwks,
         office: office_link,
+        events,
     })
 }
 
@@ -285,7 +301,7 @@ fn unavailable() -> http::Response<axum::body::Body> {
 async fn fetch(
     mut req: HttpRequest,
     env: Env,
-    _ctx: Context,
+    ctx: Context,
 ) -> worker::Result<http::Response<axum::body::Body>> {
     console_error_panic_hook::set_once();
 
@@ -317,6 +333,33 @@ async fn fetch(
         req.extensions_mut().insert(PeerAddr(ip));
     }
 
+    let wrote = !matches!(
+        *req.method(),
+        http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
+    );
     let mut router = app.router;
-    Ok(router.call(req).await?)
+    let response = router.call(req).await?;
+    // A change may have raised an event: start a relay pass now rather than at the next
+    // cron tick. The response does not wait for it.
+    if wrote
+        && response.status().is_success()
+        && let Some(events) = app.events
+    {
+        ctx.wait_until(async move { events.run_once().await });
+    }
+    Ok(response)
+}
+
+/// The Cron Trigger: a relay pass, so events move even when nobody is calling the app.
+#[event(scheduled)]
+async fn scheduled(_event: worker::ScheduledEvent, env: Env, _ctx: worker::ScheduleContext) {
+    console_error_panic_hook::set_once();
+    match app(&env).await {
+        Ok(app) => {
+            if let Some(events) = app.events {
+                events.run_once().await;
+            }
+        }
+        Err(why) => worker::console_error!("falak: {why}"),
+    }
 }

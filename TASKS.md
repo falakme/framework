@@ -237,7 +237,7 @@ Target: three apps share one login and one admin interface.
 - [x] **T5.1 (Dev1)** Event contracts in schema and IR, with a build-time compatibility check between versions; saga definitions.
 - [x] **T5.2 (Dev2)** Outbox and inbox tables written in the business transaction, the native relay, retention and pruning.
 - [x] **T5.3 (Dev2)** Office Events: PostgreSQL store, persist before `ACK`, per-aggregate ordering, dead-letter replay, saga orchestrator. *Needs:* T5.2.
-- [ ] **T5.4 (Dev3)** Edge relay using Cron Triggers or Queues. *Needs:* T5.2.
+- [x] **T5.4 (Dev3)** Edge relay using Cron Triggers or Queues. *Needs:* T5.2.
 - [x] **T5.5 (Dev4)** Event signing by the publisher, verification on receipt, subscriber authorisation from the contract.
 - [ ] **T5.6 (Dev5)** GardenX app in `examples/gardenx/`: orders and inventory across two apps.
 - [ ] **T5.7 (Dev5)** `scripts/smoke/events.sh`: place orders while killing Office Events and a consumer; after recovery, order and inventory counts match exactly. *Needs:* T5.3, T5.4, T5.6.

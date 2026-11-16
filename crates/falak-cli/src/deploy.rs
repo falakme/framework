@@ -208,6 +208,9 @@ pub fn wrangler_config(
     out
 }
 
+/// Cron Trigger for apps that publish or consume events (T5.4).
+const EVENTS_CRON: &str = "\n[triggers]\ncrons = [\"* * * * *\"]\n";
+
 fn toml_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -418,20 +421,23 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
 
     // 4. Publish.
     let config_path = edge_out.join("wrangler.toml");
-    std::fs::write(
-        &config_path,
-        wrangler_config(
-            &worker,
-            &main,
-            account.as_deref(),
-            &database,
-            &database_id,
-            &identity,
-            options.allow_destructive,
-            &load_tenants(&dir)?,
-        ),
-    )
-    .map_err(|e| format!("cannot write `{}`: {e}", config_path.display()))?;
+    let mut config = wrangler_config(
+        &worker,
+        &main,
+        account.as_deref(),
+        &database,
+        &database_id,
+        &identity,
+        options.allow_destructive,
+        &load_tenants(&dir)?,
+    );
+    if compiled.ir.uses_events() {
+        // The edge relay: every minute the Worker sends its outbox to Office and applies
+        // what Office delivers. A write also starts a pass at once.
+        config.push_str(EVENTS_CRON);
+    }
+    std::fs::write(&config_path, config)
+        .map_err(|e| format!("cannot write `{}`: {e}", config_path.display()))?;
     let config_arg = config_path.to_string_lossy().into_owned();
     println!("publishing");
     let published = wrangler(&["deploy", "--config", &config_arg], &edge_out, &envs, None)?;
