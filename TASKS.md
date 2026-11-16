@@ -243,7 +243,7 @@ Target: three apps share one login and one admin interface.
 - [x] **T5.7 (Dev5)** `scripts/smoke/events.sh`: place orders while killing Office Events and a consumer; after recovery, order and inventory counts match exactly. *Needs:* T5.3, T5.4, T5.6.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/events.sh` passes on the native and edge runtimes. *Native: passes locally, Office on SQLite and on PostgreSQL 18 (CI job `smoke-events`). Edge: the relay compiles for `wasm32` and its logic is the shared code, but it has not been run on Cloudflare; it needs a Worker smoke test with the account secrets (like T2.11).*
+- [ ] `scripts/smoke/events.sh` passes on the native and edge runtimes. *Native: passes locally, Office on SQLite and on PostgreSQL 18 (CI job `smoke-events`). Edge: the relay compiles for `wasm32` and its logic is the shared code, but it has not been run on Cloudflare; `scripts/smoke/events-workers.sh` (Workers + D1, Office behind a Cloudflare quick tunnel, Office killed twice) is written but has not passed: it could not run because this machine cannot reach Cloudflare on port 7844, which `cloudflared` needs (only 443 is open). Run it from a network that allows it, or set `EVENTS_PUBLIC_URL`.*
 - [x] FEDERATION spec frozen at 1.0.
 
 ---

@@ -16,7 +16,9 @@ D1, and every request or cron pass is a fresh isolate.
 The account id defaults to CLOUDFLARE_ACCOUNT_ID. Log in with `wrangler login` or set
 CLOUDFLARE_API_TOKEN. Needs `worker-build` and `npx` (for wrangler and cloudflared).
 Every Worker, D1 database and the tunnel it creates are deleted at the end, even on
-failure. EVENTS_ORDERS sets the number of orders (default 30).
+failure. If this machine cannot reach Cloudflare on port 7844 (cloudflared needs it),
+start a tunnel some other way and set EVENTS_PUBLIC_URL and EVENTS_OFFICE_PORT.
+EVENTS_ORDERS sets the number of orders (default 30).
 """
 
 import json
@@ -128,9 +130,13 @@ def start_tunnel(port):
 
 
 def main():
-    port = free_port()
-    print("starting a quick tunnel")
-    public = start_tunnel(port)
+    public = os.environ.get("EVENTS_PUBLIC_URL", "").rstrip("/")
+    if public:  # a tunnel you started yourself, pointing at EVENTS_OFFICE_PORT
+        port = int(os.environ.get("EVENTS_OFFICE_PORT", "18899"))
+    else:
+        port = free_port()
+        print("starting a quick tunnel")
+        public = start_tunnel(port)
     print("     Office is public at", public)
     data = os.path.join(work, "office")
     office_argv = [OFFICE_BIN, "serve", "--port", str(port), "--data", data, "--issuer", public]
