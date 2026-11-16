@@ -271,10 +271,10 @@ Target: three apps share one login and one admin interface.
 - [x] **T7.3 (Dev3)** `falak-worker`: outbound-only polling agent that runs each job in a non-root container with limits and hash-verified `uv` dependencies. *Needs:* T7.2.
 - [x] **T7.4 (Dev4)** Per-worker revocable credentials, job-scoped short-lived credentials, per-job egress allow-list.
 - [ ] **T7.5 (Dev5)** SecuraBlock app and the ClarityAI document pipeline in `examples/`.
-- [ ] **T7.6 (Dev5)** `scripts/smoke/compute.sh`: run a multi-minute job, kill the worker mid-job, and confirm the job finishes once and the worker host has no open inbound port. *Needs:* T7.3, T7.5.
+- [x] **T7.6 (Dev5)** `scripts/smoke/compute.sh`: run a multi-minute job, kill the worker mid-job, and confirm the job finishes once and the worker host has no open inbound port. *Needs:* T7.3, T7.5.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/compute.sh` passes.
+- [x] `scripts/smoke/compute.sh` passes.
 
 ### Phase 7b: AI readiness (M7b)
 
