@@ -1,0 +1,12 @@
+schema_version: 1
+entity: customer_account
+rules:
+  - id: customer_reads
+    actions: [read]
+    allow: { owner: true }
+  - id: teller_opens
+    actions: [create, read]
+    allow: { role: teller }
+  - id: auditors_read
+    actions: [read]
+    allow: { role: auditor }

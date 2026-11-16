@@ -1,0 +1,8 @@
+schema_version: 1
+command: post_transfer
+entity: transfer_order
+kind: custom
+handler: ledger_transfer
+input:
+  id: { type: uuid, required: true }
+idempotent: true

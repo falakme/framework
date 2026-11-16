@@ -1,0 +1,17 @@
+schema_version: 1
+entity: payment
+owner: payer_id
+fields:
+  wallet_id: { type: uuid, required: true, indexed: true, references: wallet.id }
+  merchant_account: { type: text, required: true, max_length: 128 }
+  amount: { type: decimal_minor, required: true, min: 1 }
+  currency: { type: text, required: true, max_length: 3 }
+  status: { type: text, required: true, max_length: 20, default: reserved }
+  hold_id: { type: text, required: true, unique: true, max_length: 128 }
+  saga_id: { type: text, required: true, indexed: true, max_length: 128 }
+  payer_id: { type: uuid, required: true, indexed: true }
+relations:
+  wallet: { kind: belongs_to, entity: wallet, field: wallet_id }
+admin:
+  label: Payments
+  list_columns: [status, amount, currency]

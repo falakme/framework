@@ -56,6 +56,30 @@ pub fn token_id(token: &str) -> Option<String> {
 
 /// Create a signed token.
 pub fn issue(key: &SigningKey, kid: &str, config: &TokenConfig, claims: &Claims) -> String {
+    issue_with_cnf(key, kid, config, claims, None)
+}
+
+/// The `cnf.jkt` of a token: the thumbprint of the key it is bound to (RFC 7800). Reads
+/// the payload without checking anything, so call it only on a token that
+/// [`Verifier::verify`] has accepted.
+pub fn bound_key_thumbprint(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    decode_json(payload)?
+        .get("cnf")?
+        .get("jkt")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Create a signed token bound to a client key: `cnf: { jkt }`. A Tier 3 command then
+/// needs a proof from that key (see `tier3`), so a stolen token alone is useless.
+pub fn issue_with_cnf(
+    key: &SigningKey,
+    kid: &str,
+    config: &TokenConfig,
+    claims: &Claims,
+    key_thumbprint: Option<&str>,
+) -> String {
     let header = json!({ "alg": "EdDSA", "typ": "JWT", "kid": kid });
     let mut payload = json!({
         "iss": config.issuer,
@@ -69,6 +93,9 @@ pub fn issue(key: &SigningKey, kid: &str, config: &TokenConfig, claims: &Claims)
     });
     if let Some(t) = &claims.tenant {
         payload["tenant"] = json!(t);
+    }
+    if let Some(jkt) = key_thumbprint {
+        payload["cnf"] = json!({ "jkt": jkt });
     }
     let signing_input = format!("{}.{}", encode(&header), encode(&payload));
     let signature = key.sign(signing_input.as_bytes());

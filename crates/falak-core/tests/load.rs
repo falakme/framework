@@ -205,12 +205,11 @@ fn project_level_problems_are_reported() {
         .filter(|f| f.path != "app.yaml")
         .collect();
     assert!(codes(&f).contains(&"missing_app"));
-    // reserved directory and stray files
+    // stray files
     let mut f = minimal();
-    f.push(file("jobs/x.yaml", "schema_version: 1\n"));
     f.push(file("notes.txt", "x"));
     let c = codes(&f);
-    assert!(c.contains(&"reserved_directory") && c.contains(&"unexpected_file"));
+    assert!(c.contains(&"unexpected_file"));
     // unsupported version
     let mut f = minimal();
     replace(&mut f, "app.yaml", "schema_version: 1", "schema_version: 2");

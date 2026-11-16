@@ -4,6 +4,7 @@ mod args;
 mod deploy;
 mod doctor;
 mod init;
+mod ledger_cmd;
 mod migrate_cmd;
 mod office_cmd;
 mod ops_cmd;
@@ -55,6 +56,12 @@ COMMANDS:
                                  Ask for time-limited emergency access (raises an alert)
     breakglass approve|claim|list --office <url> --email <e> --password-env <VAR> [--id <id>]
                                  A second person approves (required for tier 3); the requester claims the token
+    ledger init [--database-url <u>] [--app-role <role>]
+                                 Create the ledger tables (PostgreSQL); the role gets INSERT and SELECT only
+    ledger import --statement <csv> --statement-id <id> --ledger-account <acct> [--database-url <u>]
+                                 Store an external statement (external_ref,currency,amount)
+    ledger reconcile --statement-id <id> [--database-url <u>]
+                                 Compare it with the ledger; exit 1 if anything differs
     doctor [dir] [--port <n>]    Check this machine and the app
 
 OPTIONS:
@@ -252,6 +259,16 @@ fn run(
         | Command::BreakGlassApprove
         | Command::BreakGlassClaim
         | Command::BreakGlassList => ops_cmd::breakglass(command, &extra),
+        Command::LedgerInit | Command::LedgerImport | Command::LedgerReconcile => ledger_cmd::run(
+            command,
+            &ledger_cmd::Options {
+                database_url: extra.database_url,
+                statement: extra.statement,
+                statement_id: extra.statement_id,
+                account: extra.ledger_account,
+                app_role: extra.app_role,
+            },
+        ),
         Command::Deploy => {
             deploy_options.name = name;
             deploy::run(dir, &deploy_options)

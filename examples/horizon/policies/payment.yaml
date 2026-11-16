@@ -1,0 +1,9 @@
+schema_version: 1
+entity: payment
+rules:
+  - id: payer_reads_and_starts
+    actions: [read, create, update]
+    allow: { owner: true }
+  - id: auditors_read
+    actions: [read]
+    allow: { role: auditor }

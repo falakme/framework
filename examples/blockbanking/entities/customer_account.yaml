@@ -1,0 +1,12 @@
+schema_version: 1
+entity: customer_account
+owner: customer_id
+fields:
+  name: { type: text, required: true, max_length: 100 }
+  currency: { type: text, required: true, max_length: 3 }
+  ledger_account: { type: text, required: true, unique: true, max_length: 128 }
+  status: { type: text, required: true, max_length: 20, default: open }
+  customer_id: { type: uuid, required: true, indexed: true }
+admin:
+  label: Accounts
+  list_columns: [name, currency, status]

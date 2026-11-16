@@ -1,0 +1,8 @@
+schema_version: 1
+command: payment_release
+entity: payment
+kind: custom
+handler: ledger_release
+input:
+  id: { type: uuid, required: true }
+idempotent: true

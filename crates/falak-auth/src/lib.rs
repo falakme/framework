@@ -7,6 +7,8 @@
 //!   app's database.
 //! * [`identity`]: sign-up, login, refresh, logout and reset (T1.12).
 //!
+//! * [`tier3`]: controls for sensitive commands: sender-constrained tokens, an online
+//!   check, a passkey assertion over the transaction hash and dual approval (T8.4).
 //! * [`ratelimit`]: per-key request limits with the standard headers (T2.10).
 //! * [`jwks`]: a cached key set for verifying tokens on the edge (T2.9).
 //!
@@ -28,4 +30,6 @@ pub mod ratelimit;
 pub mod store;
 #[cfg(feature = "native")]
 pub mod system;
+#[cfg(feature = "native")]
+pub mod tier3;
 pub mod token;

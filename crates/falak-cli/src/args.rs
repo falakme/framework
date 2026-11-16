@@ -26,6 +26,9 @@ pub enum Command {
     BreakGlassApprove,
     BreakGlassClaim,
     BreakGlassList,
+    LedgerInit,
+    LedgerImport,
+    LedgerReconcile,
     Doctor,
     Help,
     Version,
@@ -68,6 +71,10 @@ pub struct Extra {
     pub id: Option<String>,
     pub app: Option<String>,
     pub tier: Option<u8>,
+    pub statement: Option<PathBuf>,
+    pub statement_id: Option<String>,
+    pub ledger_account: Option<String>,
+    pub app_role: Option<String>,
 }
 
 pub const DEFAULT_PORT: u16 = 8787;
@@ -121,6 +128,12 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                     "`breakglass` needs a subcommand: request, approve, claim or list".into(),
                 );
             }
+        },
+        Some("ledger") => match it.next().map(String::as_str) {
+            Some("init") => Command::LedgerInit,
+            Some("import") => Command::LedgerImport,
+            Some("reconcile") => Command::LedgerReconcile,
+            _ => return Err("`ledger` needs a subcommand: init, import or reconcile".into()),
         },
         Some("doctor") => Command::Doctor,
         Some(other) => return Err(format!("unknown command `{other}`")),
@@ -215,6 +228,22 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                         .filter(|t| (1..=3).contains(t))
                         .ok_or_else(|| format!("`{v}` is not a tier (1, 2 or 3)"))?,
                 );
+            }
+            "--statement" => {
+                args.extra.statement = Some(PathBuf::from(
+                    it.next().ok_or("`--statement` needs a value")?,
+                ));
+            }
+            "--statement-id" => {
+                args.extra.statement_id =
+                    Some(it.next().ok_or("`--statement-id` needs a value")?.clone());
+            }
+            "--ledger-account" => {
+                args.extra.ledger_account =
+                    Some(it.next().ok_or("`--ledger-account` needs a value")?.clone());
+            }
+            "--app-role" => {
+                args.extra.app_role = Some(it.next().ok_or("`--app-role` needs a value")?.clone());
             }
             "--jwks-url" => {
                 args.jwks_url = Some(it.next().ok_or("`--jwks-url` needs a value")?.clone());
@@ -324,5 +353,27 @@ mod tests {
         ] {
             assert!(p(bad).is_err(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    use super::*;
+
+    #[test]
+    fn ledger_subcommands() {
+        let argv = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        let a = parse(&argv(
+            "ledger import --statement s.csv --statement-id st1 --ledger-account rail",
+        ))
+        .unwrap();
+        assert_eq!(a.command, Command::LedgerImport);
+        assert_eq!(a.extra.statement_id.as_deref(), Some("st1"));
+        assert_eq!(a.extra.ledger_account.as_deref(), Some("rail"));
+        assert_eq!(
+            parse(&argv("ledger reconcile")).unwrap().command,
+            Command::LedgerReconcile
+        );
+        assert!(parse(&argv("ledger nope")).is_err());
     }
 }
