@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+* Durable cross-app events (M5): `events/*.yaml` and `workflows/*.yaml`, event contracts in the IR with a build-time compatibility check, the outbox and inbox written in the business transaction, a relay and consumer on the native runtime and on Workers (Cron Trigger), Office Events (persist before acknowledge, per-aggregate ordering, retries, dead-letter replay, saga orchestrator), Ed25519 event signing with Office-attested publisher keys, and contract-based subscriber authorisation. The FEDERATION specification is frozen at 1.0.
+* GardenX (`examples/gardenx/`): orders and inventory across two apps, and `scripts/smoke/events.sh`.
+
 ## [1.0.0] - 2026-11-16
 
 First release: Falak Core (milestones M1 to M3) and a minimal Falak Office (M4).

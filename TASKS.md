@@ -239,12 +239,12 @@ Target: three apps share one login and one admin interface.
 - [x] **T5.3 (Dev2)** Office Events: PostgreSQL store, persist before `ACK`, per-aggregate ordering, dead-letter replay, saga orchestrator. *Needs:* T5.2.
 - [x] **T5.4 (Dev3)** Edge relay using Cron Triggers or Queues. *Needs:* T5.2.
 - [x] **T5.5 (Dev4)** Event signing by the publisher, verification on receipt, subscriber authorisation from the contract.
-- [ ] **T5.6 (Dev5)** GardenX app in `examples/gardenx/`: orders and inventory across two apps.
-- [ ] **T5.7 (Dev5)** `scripts/smoke/events.sh`: place orders while killing Office Events and a consumer; after recovery, order and inventory counts match exactly. *Needs:* T5.3, T5.4, T5.6.
+- [x] **T5.6 (Dev5)** GardenX app in `examples/gardenx/`: orders and inventory across two apps.
+- [x] **T5.7 (Dev5)** `scripts/smoke/events.sh`: place orders while killing Office Events and a consumer; after recovery, order and inventory counts match exactly. *Needs:* T5.3, T5.4, T5.6.
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/events.sh` passes on the native and edge runtimes.
-- [ ] FEDERATION spec frozen at 1.0.
+- [ ] `scripts/smoke/events.sh` passes on the native and edge runtimes. *Native: passes locally, Office on SQLite and on PostgreSQL 18 (CI job `smoke-events`). Edge: the relay compiles for `wasm32` and its logic is the shared code, but it has not been run on Cloudflare; it needs a Worker smoke test with the account secrets (like T2.11).*
+- [x] FEDERATION spec frozen at 1.0.
 
 ---
 
