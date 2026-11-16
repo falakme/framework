@@ -12,6 +12,7 @@
 pub mod compute;
 pub mod db;
 pub mod oidc;
+pub mod pii;
 mod routes;
 pub mod settings;
 pub mod users;

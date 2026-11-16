@@ -42,6 +42,57 @@ pub fn routes() -> Router<Shared> {
         )
         .route("/v1/_office/compute/leases/{lease}/fail", post(fail_lease))
         .route("/v1/_office/compute/job/result", post(job_result))
+        .route("/v1/_office/compute/pii/reveal", post(reveal))
+}
+
+/// A scan result with personal data in it never stays as written: originals become tokens
+/// and go to the encrypted mapping, under the tenant the job was queued for.
+async fn clean_result(o: &Office, lease: &str, result: Json) -> Result<Json> {
+    if result.get("pii_entities").is_none() {
+        return Ok(result);
+    }
+    let rows =
+        o.db.rows(
+            "SELECT payload FROM compute_jobs WHERE lease_id = ?",
+            vec![t(lease)],
+        )
+        .await?;
+    let payload: Json = rows
+        .first()
+        .and_then(|r| serde_json::from_str(&text(r.first())).ok())
+        .unwrap_or(Json::Null);
+    let tenant = payload["tenant"].as_str().unwrap_or("");
+    let key = crate::pii::PiiKey::load(o.data_dir())?;
+    crate::pii::Vault {
+        db: &o.db,
+        key: &key,
+    }
+    .sanitize(tenant, result)
+    .await
+}
+
+/// An administrator reads one original back. Each reveal is audited.
+async fn reveal(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
+    let (rid, inst) = (
+        extract_request_id(&headers),
+        "/v1/_office/compute/pii/reveal",
+    );
+    let run = async {
+        let admin = o.admin(&headers)?;
+        let v = body_json(&body)?;
+        let (tenant, token) = (v["tenant"].as_str().unwrap_or(""), field(&v, "token")?);
+        let key = crate::pii::PiiKey::load(o.data_dir())?;
+        let original = crate::pii::Vault {
+            db: &o.db,
+            key: &key,
+        }
+        .reveal(tenant, token)
+        .await?
+        .ok_or_else(Error::not_found)?;
+        o.audit(&admin.subject, "pii_revealed", token).await;
+        Ok(json!({"token": token, "original": original}))
+    };
+    respond(StatusCode::OK, run.await, &rid, inst)
 }
 
 fn operator(o: &Office, headers: &HeaderMap) -> Result<Principal> {
@@ -299,6 +350,9 @@ async fn complete(
                     "The result is too large; store it and return its key.",
                 ));
             }
+            let r = clean_result(&o, &lease, v["result"].clone())
+                .await?
+                .to_string();
             // A completion that arrives again carries the same result: keep the first.
             let _ = q.set_result(&lease, &r).await;
         }
@@ -347,7 +401,9 @@ async fn job_result(State(o): State<Shared>, headers: HeaderMap, body: Bytes) ->
             .await?
             .ok_or_else(Error::unauthenticated)?;
         let v = body_json(&body)?;
-        let r = v["result"].to_string();
+        let r = clean_result(&o, &lease_id, v["result"].clone())
+            .await?
+            .to_string();
         if r.len() > MAX_PAYLOAD_BYTES {
             return Err(Error::invalid_input(
                 "result_too_large",
