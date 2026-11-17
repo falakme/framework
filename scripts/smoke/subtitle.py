@@ -4,9 +4,10 @@
 import json
 import sys
 import urllib.request
+import _http
 import uuid
 
-base = sys.argv[1].rstrip("/")
+base = _http.base_url(sys.argv[1])
 
 
 def call(method, path, body=None, token=None):
@@ -17,7 +18,7 @@ def call(method, path, body=None, token=None):
         req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", "Bearer " + token)
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with _http.urlopen(req, timeout=15) as r:
         return r.status, json.loads(r.read())
 
 

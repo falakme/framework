@@ -14,9 +14,10 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import _http
 import uuid
 
-BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8787"
+BASE = _http.base_url(sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8787")
 PASSWORD = "correct horse battery staple 42"
 failures = 0
 
@@ -39,7 +40,7 @@ def call(method, path, body=None, token=None, headers=None):
     for name, value in (headers or {}).items():
         request.add_header(name, value)
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _http.urlopen(request, timeout=30) as response:
             raw = response.read()
             return response.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as error:

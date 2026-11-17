@@ -12,9 +12,10 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import _http
 import uuid
 
-BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8787"
+BASE = _http.base_url(sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8787")
 PASSWORD = "correct horse battery staple 42"
 PNG = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + bytes(range(40))
 failures = 0
@@ -35,7 +36,7 @@ def call(method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _http.urlopen(req, timeout=30) as r:
             raw = r.read()
             return r.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:
@@ -59,7 +60,7 @@ def upload(token, data, content_type, name="photo.png"):
     req = urllib.request.Request(up["url"], data=data, method="PUT")
     for k, val in up["headers"].items():
         req.add_header(k, val)
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with _http.urlopen(req, timeout=30) as r:
         assert r.status == 200, r.status
     return v["id"]
 
@@ -74,7 +75,7 @@ def main():
     check("a good file is checked and published", s == 200 and v["state"] == "clean", (s, v))
     s, v = call("GET", f"/v1/_files/{fid}", token=a)
     check("the owner gets a download URL", s == 200 and "download" in v, (s, v))
-    with urllib.request.urlopen(v["download"]["url"], timeout=30) as r:
+    with _http.urlopen(v["download"]["url"], timeout=30) as r:
         body = r.read()
         disp = r.headers.get("content-disposition", "")
     check("the download is the same bytes, as an attachment", body == PNG and disp.startswith("attachment"), (len(body), disp))

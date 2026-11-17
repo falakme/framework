@@ -23,6 +23,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import _http
 
 FALAK, APP = sys.argv[1:3]
 PASSWORD = "correct horse battery staple 42"
@@ -63,7 +64,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _http.urlopen(req, timeout=15) as r:
             raw = r.read()
             try:
                 return r.status, (json.loads(raw) if raw else None)

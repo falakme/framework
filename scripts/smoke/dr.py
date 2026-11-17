@@ -36,6 +36,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import _http
 
 FALAK, OFFICE_BIN, NOTEBOOK = sys.argv[1], sys.argv[2], sys.argv[3]
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -96,7 +97,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with _http.urlopen(req, timeout=10) as r:
             raw = r.read()
             try:
                 return r.status, json.loads(raw) if raw else None

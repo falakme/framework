@@ -7,8 +7,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import _http
 
-ISSUER, OFFICE = sys.argv[1], sys.argv[2]
+ISSUER, OFFICE = _http.base_url(sys.argv[1]), _http.base_url(sys.argv[2])
 failed = []
 
 
@@ -29,7 +30,7 @@ def call(method, url, body=None, headers=None, form=None):
         h["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=h)
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _http.urlopen(req, timeout=15) as r:
             raw = r.read()
             return r.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:

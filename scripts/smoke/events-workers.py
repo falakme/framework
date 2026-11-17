@@ -34,6 +34,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import _http
 
 FALAK, OFFICE_BIN, GARDENX = sys.argv[1:4]
 ACCOUNT = sys.argv[4] if len(sys.argv) > 4 else os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -74,7 +75,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _http.urlopen(req, timeout=30) as r:
             return r.status, parse(r.read())
     except urllib.error.HTTPError as e:
         return e.code, parse(e.read())
@@ -130,7 +131,8 @@ def start_tunnel(port):
 
 
 def main():
-    public = os.environ.get("EVENTS_PUBLIC_URL", "").rstrip("/")
+    public = os.environ.get("EVENTS_PUBLIC_URL", "")
+    public = _http.base_url(public) if public else ""
     if public:  # a tunnel you started yourself, pointing at EVENTS_OFFICE_PORT
         port = int(os.environ.get("EVENTS_OFFICE_PORT", "18899"))
     else:

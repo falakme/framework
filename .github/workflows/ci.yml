@@ -14,15 +14,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Package (dry run)
         run: cargo publish --workspace --dry-run --locked
+      - name: Publish script tests and plan (no network write, no token)
+        run: |
+          python3 scripts/release/test_publish.py
+          python3 scripts/release/publish.py --dry-run
 
   rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Format
@@ -69,6 +77,8 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Notebook smoke test on PostgreSQL
@@ -119,6 +129,8 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Ledger tests on PostgreSQL
@@ -148,6 +160,8 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -190,12 +204,10 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres -d office"
           --health-interval 2s --health-timeout 3s --health-retries 15
-  # Phase 6: two Office instances and a failover, then the disaster-recovery drill
-  # (it fails if the RPO of 5 minutes or the RTO of 1 hour is missed).
-  smoke-recovery:
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Events smoke test, SQLite
@@ -204,16 +216,44 @@ jobs:
         env:
           OFFICE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/office
         run: bash scripts/smoke/events.sh
+
+  # Phase 6: two Office instances and a failover, then the disaster-recovery drill
+  # (it fails if the RPO of 5 minutes or the RTO of 1 hour is missed).
+  smoke-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup show
       - name: Office high availability and failover
         run: bash scripts/smoke/office-ha.sh
       - name: Disaster-recovery drill
         run: bash scripts/smoke/dr.sh
+
+  # Backup and restore of a PostgreSQL database into an empty one (T3.7). The script runs
+  # psql inside a container with a fixed name, so the database is started by hand.
+  smoke-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Start PostgreSQL
+        run: |
+          docker run -d --name falak-test-postgres -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54321:5432 postgres:16-alpine
+          for _ in $(seq 1 30); do docker exec falak-test-postgres pg_isready -U postgres && break; sleep 1; done
+      - name: Backup and restore
+        run: bash scripts/smoke/postgres-backup-restore.sh
 
   # Sign-in through a real OpenID Connect provider: Dex, an independent open-source server.
   smoke-oidc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: rustup show
       - name: Office with Dex
@@ -224,6 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Build the image
         run: docker build -f deploy/office/Dockerfile -t falak-office:ci .
       - name: Run it
@@ -252,6 +294,8 @@ jobs:
       WORKER_NAME: falak-ci-${{ github.run_id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Check the Cloudflare secrets
         id: secrets
         run: |
@@ -306,6 +350,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
@@ -324,6 +370,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check

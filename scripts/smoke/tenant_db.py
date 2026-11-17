@@ -12,6 +12,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import _http
 
 PASSWORD = "correct horse battery staple 42"
 
@@ -25,7 +26,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with _http.urlopen(req, timeout=30) as r:
             raw = r.read()
             return r.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:
@@ -47,7 +48,7 @@ def login(base, email):
 
 
 if __name__ == "__main__":
-    base, mode = sys.argv[1].rstrip("/"), sys.argv[2]
+    base, mode = _http.base_url(sys.argv[1]), sys.argv[2]
     if mode == "tenant":
         print(login(base, sys.argv[3])[1])
     elif mode == "use":

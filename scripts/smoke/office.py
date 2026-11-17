@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import _http
 import uuid
 
 FALAK, OFFICE_BIN, NOTEBOOK = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -67,7 +68,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with _http.urlopen(req, timeout=10) as r:
             return r.status, parse(r.read())
     except urllib.error.HTTPError as e:
         return e.code, parse(e.read())
@@ -329,7 +330,7 @@ def main():
     start([STUDIO_BIN, "serve", "--config", cfg_path, "--port", str(studio_port), "--data", os.path.join(work, "studio")],
           "studio.log")
     wait_up(studio_url, "studio", procs[-1])
-    st = urllib.request.urlopen(studio_url + "/").headers
+    st = _http.urlopen(studio_url + "/").headers
     check("Studio's page has a strict content security policy",
           "script-src 'self'" in (st.get("Content-Security-Policy") or "") and "unsafe-inline" not in (st.get("Content-Security-Policy") or ""))
     s, _ = call(studio_url, "GET", "/api/me")
@@ -350,7 +351,7 @@ def main():
             if self.csrf and method != "GET":
                 r.add_header("X-Studio-CSRF", self.csrf)
             try:
-                with urllib.request.urlopen(r, timeout=15) as resp:
+                with _http.urlopen(r, timeout=15) as resp:
                     return resp.status, parse(resp.read()), resp.headers
             except urllib.error.HTTPError as e:
                 return e.code, parse(e.read()), e.headers

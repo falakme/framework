@@ -8,9 +8,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import _http
 import uuid
 
-base, out = sys.argv[1].rstrip("/"), sys.argv[2]
+base, out = _http.base_url(sys.argv[1]), sys.argv[2]
 stop = os.path.join(os.path.dirname(out), "stop")
 
 
@@ -22,7 +23,7 @@ def call(method, path, body=None, token=None):
         req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", "Bearer " + token)
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with _http.urlopen(req, timeout=15) as r:
         raw = r.read()
         return r.status, (json.loads(raw) if raw else None)
 

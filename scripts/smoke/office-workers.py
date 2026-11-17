@@ -24,8 +24,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import _http
 
 FALAK, OFFICE_BIN, NOTEBOOK, PUBLIC, ACCOUNT = sys.argv[1:6]
+PUBLIC = _http.base_url(PUBLIC)
 PORT = int(sys.argv[6]) if len(sys.argv) > 6 else 18899
 PASSWORD = "correct horse battery staple 42"
 WORKER = "falak-t46-notebook"
@@ -59,7 +61,7 @@ def call(base, method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with _http.urlopen(req, timeout=20) as r:
             return r.status, parse(r.read())
     except urllib.error.HTTPError as e:
         return e.code, parse(e.read())

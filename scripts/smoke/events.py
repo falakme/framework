@@ -23,6 +23,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import _http
 
 FALAK, OFFICE_BIN, GARDENX = sys.argv[1], sys.argv[2], sys.argv[3]
 OFFICE_DB = sys.argv[4] if len(sys.argv) > 4 else ""
@@ -58,7 +59,7 @@ def call(base, method, path, body=None, token=None, headers=None):
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with _http.urlopen(req, timeout=10) as r:
             raw = r.read()
             try:
                 return r.status, (json.loads(raw) if raw else None)
