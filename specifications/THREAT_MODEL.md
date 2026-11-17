@@ -12,7 +12,7 @@ Threat classes use STRIDE: **S**poofing, **T**ampering, **R**epudiation, **I**nf
 | :-- | :-- |
 | User and tenant data | The product's whole purpose is to keep it apart and correct. |
 | Credentials and keys (passwords, signing keys, data keys, app keys) | One leaked key can undo every other control. |
-| Ledger balances and events (Phases 5 and 8) | Money and cross-app state must be exact and applied once. |
+| Cross-app events | Cross-app state must be applied exactly once. |
 | The audit log | The only record of who did what. |
 | Availability of the app and of Office | Users depend on it. |
 
