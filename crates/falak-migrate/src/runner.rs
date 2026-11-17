@@ -71,6 +71,8 @@ pub async fn apply_initial_migration<D: StorageDriver>(
 
     // 1. Ensure `_falak_migrations` table exists
     ensure_history_table(driver, ctx, dialect).await?;
+    // The Postgres plan revokes the runtime role's access to this table, so it must exist.
+    ensure_schema_table(driver, ctx, dialect).await?;
 
     // 2. Check if this content hash has already been migrated
     let placeholder = match dialect {
@@ -109,6 +111,8 @@ pub async fn apply_initial_migration<D: StorageDriver>(
         dialect,
     );
     batch_stmts.push(record_stmt);
+    // Keep the schema snapshot too, so `migrate` can plan the next change from this one.
+    batch_stmts.push(snapshot_statement(ir, dialect)?);
 
     // 6. Execute atomically
     driver.batch(ctx, batch_stmts).await?;

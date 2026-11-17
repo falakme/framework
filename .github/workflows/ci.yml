@@ -95,6 +95,14 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE rls'
           cargo test --locked -p falak-runtime-native --test rls_tests
+      # Its own database: the test drops and recreates its tables.
+      - name: Runtime REST on PostgreSQL
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/runtime_rest
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE runtime_rest'
+          cargo test --locked -p falak-runtime-native --test postgres_runtime_tests
       - name: Relationship rules on PostgreSQL
         env:
           FALAK_TEST_PG_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres

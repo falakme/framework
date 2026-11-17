@@ -90,6 +90,7 @@ async fn test_postgres_runtime_rest_crud_and_isolation() {
                 Statement::new("DROP TABLE IF EXISTS \"notes\";", vec![]),
                 Statement::new("DROP TABLE IF EXISTS \"notebooks\";", vec![]),
                 Statement::new("DROP TABLE IF EXISTS \"_falak_migrations\";", vec![]),
+                Statement::new("DROP TABLE IF EXISTS \"_falak_schema\";", vec![]),
             ],
         )
         .await;

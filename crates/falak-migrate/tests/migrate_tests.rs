@@ -112,6 +112,10 @@ async fn test_initial_migration_creates_tables_and_is_idempotent() {
     // Second run with the same IR should detect it's already applied and return false
     let applied_again = apply_initial_migration(&driver, &ctx, &ir).await.unwrap();
     assert!(!applied_again, "Second migration run should be a no-op");
+
+    // The first migration leaves a schema snapshot, so `migrate` can plan from it.
+    let saved = falak_migrate::latest_ir(&driver, &ctx).await.unwrap();
+    assert_eq!(saved.map(|i| i.content_hash), Some(ir.content_hash.clone()));
 }
 
 #[test]
