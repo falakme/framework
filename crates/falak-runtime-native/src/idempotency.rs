@@ -42,15 +42,32 @@ pub struct CachedResponse {
     pub body: Vec<u8>,
 }
 
+/// Most keys the in-memory store holds. Each needs a caller with a valid token, so this
+/// is a ceiling on memory, not a limit a client meets.
+const MAX_MEMORY_ENTRIES: usize = 100_000;
+
 #[derive(Debug, Clone)]
 enum Entry {
     InFlight {
         _payload_hash: String,
+        at: i64,
     },
     Completed {
         payload_hash: String,
         response: CachedResponse,
+        at: i64,
     },
+}
+
+impl Entry {
+    /// An in-flight key goes stale after [`STALE_MICROS`] and a finished one is dropped
+    /// after [`KEEP_MICROS`], as in the durable store.
+    fn expired(&self, now: i64) -> bool {
+        match self {
+            Self::InFlight { at, .. } => now - at > STALE_MICROS,
+            Self::Completed { at, .. } => now - at > KEEP_MICROS,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -145,6 +162,7 @@ impl IdempotencyStore {
                     Entry::Completed {
                         payload_hash,
                         response,
+                        at: wall_clock_micros(),
                     },
                 );
             }
@@ -165,13 +183,28 @@ impl IdempotencyStore {
     }
 
     fn memory_check(&self, scope: &IdempotencyKeyScope, payload_hash: &str) -> Result<CheckResult> {
+        let now = wall_clock_micros();
         let mut map = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if map.get(scope).is_some_and(|e| e.expired(now)) {
+            map.remove(scope);
+        }
         match map.get(scope) {
             None => {
+                if map.len() >= MAX_MEMORY_ENTRIES {
+                    map.retain(|_, e| !e.expired(now));
+                    if map.len() >= MAX_MEMORY_ENTRIES {
+                        return Err(Error::new(
+                            ErrorKind::Unavailable,
+                            "idempotency_store_full",
+                            "Too many idempotency keys are in use. Please retry later.",
+                        ));
+                    }
+                }
                 map.insert(
                     scope.clone(),
                     Entry::InFlight {
                         _payload_hash: payload_hash.to_string(),
+                        at: now,
                     },
                 );
                 Ok(CheckResult::Proceed)
@@ -180,6 +213,7 @@ impl IdempotencyStore {
             Some(Entry::Completed {
                 payload_hash: recorded,
                 response,
+                ..
             }) => {
                 if recorded != payload_hash {
                     Err(payload_mismatch())

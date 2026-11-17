@@ -18,7 +18,7 @@
 use std::ops::ControlFlow;
 
 use sqlparser::{
-    ast::{Expr, Query, Select, SetExpr, Statement, TableFactor, Visit, Visitor},
+    ast::{Expr, Ident, Query, Select, SetExpr, Statement, TableFactor, Visit, Visitor},
     dialect::GenericDialect,
     parser::Parser,
 };
@@ -61,10 +61,31 @@ pub struct Checked {
     pub params: Vec<String>,
 }
 
+/// An identifier as the database compares it: unquoted names fold to lower case, quoted
+/// ones are exact. Compared case-sensitively, which is PostgreSQL's rule and so the
+/// strictest of the three databases.
+fn folded(id: &Ident) -> String {
+    match id.quote_style {
+        Some(_) => id.value.clone(),
+        None => id.value.to_lowercase(),
+    }
+}
+
+/// One `SELECT` being visited: the names of the common table expressions that are in
+/// scope for its own body (`base` plus its own), and where its own are.
+struct Frame {
+    /// Names visible from the enclosing queries.
+    base: Vec<String>,
+    /// This query's `WITH` entries, in order. The pointer identifies the entry's query so
+    /// the visitor can tell, when it reaches it, that it is the body of that entry.
+    ctes: Vec<(*const Query, String)>,
+}
+
 #[derive(Default)]
 struct Collector {
+    /// Relations that name no common table expression in scope.
     relations: Vec<String>,
-    ctes: Vec<String>,
+    stack: Vec<Frame>,
     problems: Vec<String>,
 }
 
@@ -72,20 +93,44 @@ impl Visitor for Collector {
     type Break = ();
 
     fn pre_visit_query(&mut self, q: &Query) -> ControlFlow<()> {
+        // What the query can see. A `WITH` entry sees the ones before it, not itself: so
+        // `WITH docs AS (SELECT * FROM docs)` reads a table called `docs`, not the entry.
+        // Treating every `WITH` name as visible everywhere would let such a query read
+        // any physical table without it being checked as an entity.
+        let base: Vec<String> = match self.stack.last() {
+            None => Vec::new(),
+            Some(parent) => {
+                let own = parent.ctes.iter().position(|(p, _)| std::ptr::eq(*p, q));
+                let n = own.unwrap_or(parent.ctes.len());
+                parent
+                    .base
+                    .iter()
+                    .cloned()
+                    .chain(parent.ctes[..n].iter().map(|(_, name)| name.clone()))
+                    .collect()
+            }
+        };
+        let mut ctes = Vec::new();
         if let Some(with) = &q.with {
             if with.recursive {
                 self.problems.push("`WITH RECURSIVE` is not allowed".into());
             }
             for c in &with.cte_tables {
-                self.ctes.push(c.alias.name.value.to_lowercase());
+                ctes.push((&*c.query as *const Query, folded(&c.alias.name)));
             }
         }
+        self.stack.push(Frame { base, ctes });
         if !q.locks.is_empty() {
             self.problems.push("locking clauses are not allowed".into());
         }
         if q.for_clause.is_some() || q.settings.is_some() || q.format_clause.is_some() {
             self.problems.push("this clause is not allowed".into());
         }
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_query(&mut self, _q: &Query) -> ControlFlow<()> {
+        self.stack.pop();
         ControlFlow::Continue(())
     }
 
@@ -108,8 +153,18 @@ impl Visitor for Collector {
                         "`{name}` is qualified; name the entity only, without a schema"
                     ));
                 } else {
-                    self.relations
-                        .push(name.to_string().trim_matches('"').to_lowercase());
+                    let Some(id) = name.0[0].as_ident() else {
+                        self.problems
+                            .push(format!("`{name}` is not a plain entity name"));
+                        return ControlFlow::Continue(());
+                    };
+                    let key = folded(id);
+                    let in_scope = self.stack.last().is_some_and(|f| {
+                        f.base.contains(&key) || f.ctes.iter().any(|(_, n)| *n == key)
+                    });
+                    if !in_scope {
+                        self.relations.push(id.value.to_lowercase());
+                    }
                 }
             }
             TableFactor::Derived { .. } | TableFactor::NestedJoin { .. } => {}
@@ -253,9 +308,6 @@ pub fn check(
 
     let mut entities: Vec<String> = Vec::new();
     for rel in &collector.relations {
-        if collector.ctes.contains(rel) {
-            continue;
-        }
         if entity_names.iter().any(|e| e.eq_ignore_ascii_case(rel)) {
             let name = entity_names
                 .iter()
@@ -353,6 +405,62 @@ mod tests {
         );
         assert!(err("SELECT 1 FROM doc -- hi", &[]).contains("comments"));
         assert!(err("SELECT /* x */ 1 FROM doc", &[]).contains("comments"));
+    }
+
+    #[test]
+    fn a_with_name_does_not_hide_a_physical_table() {
+        // `docs` is the physical table of the `doc` entity. A `WITH` entry named like it
+        // is not in scope inside its own body, so that read reaches the real table and
+        // must be refused like any other table.
+        assert!(
+            err(
+                "WITH docs AS (SELECT * FROM docs) SELECT d.id FROM docs d JOIN doc ON doc.id = d.id",
+                &[]
+            )
+            .contains("not an entity")
+        );
+        assert!(
+            err(
+                "WITH docs AS (SELECT * FROM docs), t AS (SELECT id FROM doc) SELECT * FROM t",
+                &[]
+            )
+            .contains("not an entity")
+        );
+        // An earlier entry is visible to a later one, but an entry never sees itself or a
+        // later one.
+        assert!(
+            err(
+                "WITH a AS (SELECT * FROM b), b AS (SELECT id FROM doc) SELECT * FROM a",
+                &[]
+            )
+            .contains("not an entity")
+        );
+        // A name is in scope only where it is declared.
+        assert!(
+            err(
+                "SELECT * FROM (WITH x AS (SELECT id FROM doc) SELECT * FROM x) a JOIN x ON 1 = 1",
+                &[]
+            )
+            .contains("not an entity")
+        );
+        // Quoting changes what the name means to PostgreSQL, so a quoted entry does not
+        // hide an unquoted reference.
+        assert!(
+            err(
+                "WITH \"Docs\" AS (SELECT id FROM doc) SELECT * FROM docs",
+                &[]
+            )
+            .contains("not an entity")
+        );
+        // The legitimate forms still pass.
+        ok(
+            "WITH a AS (SELECT id FROM doc), b AS (SELECT id FROM a) SELECT * FROM b JOIN a ON a.id = b.id",
+            &[],
+        );
+        ok(
+            "SELECT * FROM doc WHERE id IN (WITH s AS (SELECT doc_id FROM tag) SELECT doc_id FROM s)",
+            &[],
+        );
     }
 
     #[test]

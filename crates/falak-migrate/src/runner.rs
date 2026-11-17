@@ -14,6 +14,42 @@ use crate::{
     plan::{MigrationPhase, MigrationPlan, plan_migration},
 };
 
+/// Refuse an IR whose names could not have come from the loader. The migration SQL puts
+/// entity, table and field names inside double quotes, so a name holding a quote would
+/// end the quoting. The loader allows only `[a-z][a-z0-9_]*`; an IR from anywhere else
+/// is held to the same rule before any statement is built from it.
+pub fn check_names(ir: &Ir) -> Result<()> {
+    use falak_core::reader::is_name;
+    let bad = |what: &str, name: &str| {
+        falak_contracts::Error::invalid_input(
+            "invalid_identifier",
+            format!("{what} `{}` is not a valid name", name.escape_debug()),
+        )
+    };
+    for e in &ir.entities {
+        if !is_name(&e.name) {
+            return Err(bad("entity", &e.name));
+        }
+        if !is_name(&e.table) {
+            return Err(bad("table", &e.table));
+        }
+        for f in &e.fields {
+            if !is_name(&f.name) {
+                return Err(bad("field", &f.name));
+            }
+            if let Some((target, field)) = &f.references {
+                if !is_name(target) {
+                    return Err(bad("entity", target));
+                }
+                if !is_name(field) {
+                    return Err(bad("field", field));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn dialect_for_driver<D: StorageDriver>(driver: &D) -> Dialect {
     match driver.profile().name {
         "postgres" => Dialect::Postgres,
@@ -30,6 +66,7 @@ pub async fn apply_initial_migration<D: StorageDriver>(
     ctx: &RequestContext,
     ir: &Ir,
 ) -> Result<bool> {
+    check_names(ir)?;
     let dialect = dialect_for_driver(driver);
 
     // 1. Ensure `_falak_migrations` table exists
@@ -239,6 +276,7 @@ pub async fn migrate<D: StorageDriver>(
     ir: &Ir,
     options: MigrateOptions,
 ) -> Result<MigrateOutcome> {
+    check_names(ir)?;
     let dialect = dialect_for_driver(driver);
     ensure_history_table(driver, ctx, dialect).await?;
     ensure_schema_table(driver, ctx, dialect).await?;

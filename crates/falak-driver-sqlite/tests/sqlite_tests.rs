@@ -273,3 +273,39 @@ async fn test_parameter_types_and_conversion() {
     assert_eq!(row[5], Value::Bytes(vec![0xDE, 0xAD, 0xBE, 0xEF]));
     assert_eq!(row[6], Value::Int64(1700000000123456));
 }
+
+#[tokio::test]
+async fn a_transaction_dropped_without_commit_does_not_poison_the_writer() {
+    let driver = SqliteDriver::in_memory().await.unwrap();
+    let ctx = dummy_context();
+    driver
+        .batch(
+            &ctx,
+            vec![Statement::new(
+                "CREATE TABLE t (id INTEGER PRIMARY KEY)",
+                vec![],
+            )],
+        )
+        .await
+        .unwrap();
+    {
+        let mut tx = driver.begin(&ctx, TxOptions::default()).await.unwrap();
+        tx.execute(Statement::new("INSERT INTO t (id) VALUES (1)", vec![]))
+            .await
+            .unwrap();
+        // Dropped here: no commit, no rollback.
+    }
+    // Later writes still work, and the abandoned insert is gone.
+    driver
+        .batch(
+            &ctx,
+            vec![Statement::new("INSERT INTO t (id) VALUES (2)", vec![])],
+        )
+        .await
+        .unwrap();
+    let rows = driver
+        .query(&ctx, Statement::new("SELECT id FROM t ORDER BY id", vec![]))
+        .await
+        .unwrap();
+    assert_eq!(rows.rows, vec![vec![Value::Int64(2)]]);
+}

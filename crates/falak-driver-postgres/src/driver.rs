@@ -179,6 +179,16 @@ impl Transaction for PostgresTx {
     }
 }
 
+// A transaction dropped without commit or rollback would go back to the pool still open,
+// carrying this request's tenant settings. Closing the connection ends it.
+impl Drop for PostgresTx {
+    fn drop(&mut self) {
+        if self.active {
+            self.conn.close_on_drop();
+        }
+    }
+}
+
 impl StorageDriver for PostgresDriver {
     type Tx = PostgresTx;
 
@@ -234,7 +244,15 @@ impl StorageDriver for PostgresDriver {
                 match rows_res {
                     Ok(rows) => {
                         let rows_affected = rows.len() as u64;
-                        let converted = rows_from_postgres(rows)?;
+                        // A row that cannot be converted must not leave the transaction
+                        // open on a connection that goes back to the pool.
+                        let converted = match rows_from_postgres(rows) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                let _ = conn.execute("ROLLBACK;").await;
+                                return Err(e);
+                            }
+                        };
                         Outcome {
                             rows_affected,
                             rows: converted,

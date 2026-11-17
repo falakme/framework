@@ -8,11 +8,20 @@ use falak_contracts::{
 };
 use falak_core::sql::Scope;
 
-/// Extract or generate a request ID from headers.
+/// Longest caller-supplied request id kept. The id is echoed in responses, written to
+/// logs and stored with events, so it is bounded and limited to plain characters.
+const MAX_REQUEST_ID: usize = 128;
+
+/// Extract or generate a request ID from headers. A caller's own id is used only if it is
+/// short and made of letters, digits and `-_.:`; anything else gets a fresh id.
 pub fn extract_request_id(headers: &HeaderMap) -> String {
     if let Some(val) = headers.get("x-request-id")
         && let Ok(s) = val.to_str()
         && !s.trim().is_empty()
+        && s.trim().len() <= MAX_REQUEST_ID
+        && s.trim()
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
     {
         s.trim().to_string()
     } else {

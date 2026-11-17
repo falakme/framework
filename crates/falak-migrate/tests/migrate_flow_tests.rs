@@ -259,3 +259,31 @@ fn postgres_changes_a_type_in_place_and_d1_rebuilds() {
             .any(|s| s.sql.starts_with("PRAGMA defer_foreign_keys"))
     );
 }
+
+#[tokio::test]
+async fn an_ir_with_a_quote_in_a_name_is_refused_before_any_sql_runs() {
+    let db = db().await;
+    for tamper in [
+        |ir: &mut Ir| ir.entities[0].table = "docs\"; DROP TABLE tags; --".into(),
+        |ir: &mut Ir| ir.entities[0].fields[1].name = "t\"itle".into(),
+        |ir: &mut Ir| ir.entities[0].name = "Doc".into(),
+    ] {
+        let mut bad = ir(V1);
+        tamper(&mut bad);
+        let e = migrate(&db, &ctx(), &bad, safe()).await.unwrap_err();
+        assert_eq!(e.code(), "invalid_identifier");
+        let e = falak_migrate::apply_initial_migration(&db, &ctx(), &bad)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code(), "invalid_identifier");
+    }
+    // Nothing was created, not even the history table.
+    assert_eq!(
+        count(
+            &db,
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = '_falak_migrations'"
+        )
+        .await,
+        0
+    );
+}

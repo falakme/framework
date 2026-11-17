@@ -199,7 +199,16 @@ impl Transaction for SqliteTx {
     }
 }
 
-// When dropped without commit, SQLx automatically rolls back active transactions on connection return.
+// SQLx rolls back only transactions it started itself; this one was opened with a plain
+// `BEGIN`. A transaction dropped without commit or rollback would go back to the pool
+// still open and every later write would fail inside it, so its connection is closed.
+impl Drop for SqliteTx {
+    fn drop(&mut self) {
+        if self.active {
+            self.conn.close_on_drop();
+        }
+    }
+}
 
 impl StorageDriver for SqliteDriver {
     type Tx = SqliteTx;
@@ -242,7 +251,15 @@ impl StorageDriver for SqliteDriver {
                 match rows_res {
                     Ok(rows) => {
                         let rows_affected = rows.len() as u64;
-                        let converted = rows_from_sqlite(rows)?;
+                        // A row that cannot be converted must not leave the writer's
+                        // transaction open: the next batch would run inside it.
+                        let converted = match rows_from_sqlite(rows) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                let _ = conn.execute("ROLLBACK;").await;
+                                return Err(e);
+                            }
+                        };
                         Outcome {
                             rows_affected,
                             rows: converted,

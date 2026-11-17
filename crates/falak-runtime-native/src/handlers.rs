@@ -16,10 +16,10 @@ use falak_contracts::{
 };
 use falak_core::{
     command::{self, Plan},
-    policy::authorize,
+    policy::{Access, authorize},
     sql::{
         self, Condition, Dialect, Filter, ListQuery, Op, Request, Scope, SortKey, WriteContext,
-        cursor_from_row,
+        cursor_from_row, denial_for,
     },
     values::{format_uuid, parse_uuid},
 };
@@ -51,13 +51,24 @@ pub async fn schema_handler<D: NativeDriver>(
         .ir
         .entities
         .iter()
-        .filter(|e| !authorize(e, IrAction::Read, Some(&principal)).is_denied())
-        .map(|e| {
+        .filter_map(|e| {
+            let read = authorize(e, IrAction::Read, Some(&principal));
+            if read.is_denied() {
+                return None;
+            }
+            // A field no rule that reaches the caller grants is not listed: its name,
+            // type and flags are as private as its values.
+            let visible = |name: &str| {
+                e.field(name).is_some_and(|f| match &read {
+                    Access::Grants(grants) => grants.iter().any(|g| g.allows_field(f)),
+                    _ => true,
+                })
+            };
             let can = |a| !authorize(e, a, Some(&principal)).is_denied();
-            serde_json::json!({
+            Some(serde_json::json!({
                 "name": e.name,
                 "path": e.table,
-                "owner": e.owner,
+                "owner": e.owner.as_ref().filter(|o| visible(o)),
                 "can": {
                     "read": true,
                     "create": can(IrAction::Create),
@@ -66,10 +77,10 @@ pub async fn schema_handler<D: NativeDriver>(
                 },
                 "admin": {
                     "label": e.admin.label,
-                    "list_columns": e.admin.list_columns,
-                    "search_fields": e.admin.search_fields,
+                    "list_columns": e.admin.list_columns.iter().filter(|c| visible(c)).collect::<Vec<_>>(),
+                    "search_fields": e.admin.search_fields.iter().filter(|c| visible(c)).collect::<Vec<_>>(),
                 },
-                "fields": e.fields.iter().map(|f| serde_json::json!({
+                "fields": e.fields.iter().filter(|f| visible(&f.name)).map(|f| serde_json::json!({
                     "name": f.name,
                     "type": f.ty,
                     "nullable": f.nullable,
@@ -78,7 +89,7 @@ pub async fn schema_handler<D: NativeDriver>(
                     "builtin": f.builtin,
                     "references": f.references.as_ref().map(|(entity, _)| entity),
                 })).collect::<Vec<_>>(),
-            })
+            }))
         })
         .collect();
     build_response(
@@ -174,6 +185,42 @@ fn parse_cursor(raw: &str) -> Option<Vec<Value>> {
 fn encode_cursor(values: &[Value]) -> String {
     let bytes = serde_json::to_vec(values).unwrap_or_default();
     hex::encode(bytes)
+}
+
+/// The longest `Idempotency-Key` accepted. Keys are stored for a day, so an unbounded one
+/// would be a way to fill the store.
+const MAX_IDEMPOTENCY_KEY: usize = 255;
+
+/// The scope an `Idempotency-Key` header makes: the caller, in their tenant, the method,
+/// the path and the key (API specification §5.2). The tenant is part of the caller: one
+/// subject can hold tokens for more than one tenant, and a key used in one must never
+/// replay a response stored in another.
+fn idempotency_scope(
+    headers: &HeaderMap,
+    scope: &Scope,
+    method: &str,
+    path: &str,
+) -> Result<Option<IdempotencyKeyScope>, Error> {
+    let Some(key) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else {
+        return Ok(None);
+    };
+    if key.is_empty() || key.len() > MAX_IDEMPOTENCY_KEY {
+        return Err(Error::invalid_input(
+            "invalid_idempotency_key",
+            "The Idempotency-Key must be between 1 and 255 characters.",
+        ));
+    }
+    let subject = scope.subject.clone().unwrap_or_default();
+    let subject = match scope.tenant.as_deref() {
+        Some(tenant) => format!("{tenant}/{subject}"),
+        None => subject,
+    };
+    Ok(Some(IdempotencyKeyScope {
+        subject,
+        method: method.to_string(),
+        path: path.to_string(),
+        key: key.to_string(),
+    }))
 }
 
 fn find_entity<'a>(ir: &'a falak_contracts::ir::Ir, name: &str) -> Option<&'a IrEntity> {
@@ -274,19 +321,46 @@ pub async fn list_handler<D: NativeDriver>(
         if let Some(fld) = k.strip_prefix("filter[")
             && let Some(fld) = fld.strip_suffix(']')
         {
-            if let Some(field) = entity.field(fld) {
-                let v_nfc: String = v.nfc().collect();
-                if let Ok(val) = falak_core::values::coerce_text(field, &v_nfc) {
-                    filters.push(Filter {
-                        field: fld.to_string(),
-                        condition: Condition::Compare(Op::Eq, val),
-                    });
-                }
+            // A filter that cannot be applied is refused, never dropped: dropping it
+            // would answer with rows the caller asked to exclude. An unknown field gets
+            // the same answer as a field the caller may not read (`sql::list`), so the
+            // two cannot be told apart.
+            let bad = |m: String| {
+                problem_response(
+                    &Error::invalid_input("invalid_filter", m),
+                    &instance,
+                    &req_id,
+                    vec![],
+                )
+            };
+            let Some(field) = entity.field(fld) else {
+                return bad(format!("cannot filter on unknown field `{fld}`"));
+            };
+            let v_nfc: String = v.nfc().collect();
+            match falak_core::values::coerce_text(field, &v_nfc) {
+                Ok(val) => filters.push(Filter {
+                    field: fld.to_string(),
+                    condition: Condition::Compare(Op::Eq, val),
+                }),
+                Err(_) => return bad(format!("the value for `{fld}` has the wrong type")),
             }
         }
     }
 
-    let after = params.get("page[after]").and_then(|c| parse_cursor(c));
+    let after = match params.get("page[after]") {
+        None => None,
+        Some(c) => match parse_cursor(c) {
+            Some(v) => Some(v),
+            None => {
+                return problem_response(
+                    &Error::invalid_input("invalid_cursor", "The cursor is not valid."),
+                    &instance,
+                    &req_id,
+                    vec![],
+                );
+            }
+        },
+    };
 
     let query = ListQuery {
         filters,
@@ -441,15 +515,10 @@ pub async fn create_handler<D: NativeDriver>(
     let scope = make_scope(principal.as_ref());
 
     let payload_hash = hex::encode(Sha256::digest(&body_bytes));
-    let idempotency_scope = headers
-        .get("idempotency-key")
-        .and_then(|v| v.to_str().ok())
-        .map(|k| IdempotencyKeyScope {
-            subject: scope.subject.clone().unwrap_or_default(),
-            method: "POST".to_string(),
-            path: instance.clone(),
-            key: k.to_string(),
-        });
+    let idempotency_scope = match idempotency_scope(&headers, &scope, "POST", &instance) {
+        Ok(s) => s,
+        Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+    };
 
     if let Some(ref iscope) = idempotency_scope {
         match state
@@ -643,15 +712,10 @@ pub async fn update_handler<D: NativeDriver>(
     let if_match = parse_if_match(&headers);
 
     let payload_hash = hex::encode(Sha256::digest(&body_bytes));
-    let idempotency_scope = headers
-        .get("idempotency-key")
-        .and_then(|v| v.to_str().ok())
-        .map(|k| IdempotencyKeyScope {
-            subject: scope.subject.clone().unwrap_or_default(),
-            method: "PATCH".to_string(),
-            path: instance.clone(),
-            key: k.to_string(),
-        });
+    let idempotency_scope = match idempotency_scope(&headers, &scope, "PATCH", &instance) {
+        Ok(s) => s,
+        Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
+    };
 
     if let Some(ref iscope) = idempotency_scope {
         match state
@@ -932,7 +996,13 @@ pub async fn command_handler<D: NativeDriver>(
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
-    let Some(command) = state.ir.commands.iter().find(|c| c.name == cmd_name) else {
+    // A command runs only on the entity it is declared for.
+    let Some(command) = state
+        .ir
+        .commands
+        .iter()
+        .find(|c| c.name == cmd_name && c.entity == entity.name)
+    else {
         return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
     };
 
@@ -948,9 +1018,16 @@ pub async fn command_handler<D: NativeDriver>(
     let scope = make_scope(principal.as_ref());
     let if_match = parse_if_match(&headers);
 
-    let access = authorize(entity, IrAction::Update, principal.as_ref());
+    // A command is authorised as the action it performs (AUTHORIZATION §3): an update
+    // command needs `update`, a delete command `delete`, a create command `create`.
+    let action = match command.kind {
+        IrCommandKind::Create => IrAction::Create,
+        IrCommandKind::Delete => IrAction::Delete,
+        IrCommandKind::Update | IrCommandKind::Custom => IrAction::Update,
+    };
+    let access = authorize(entity, action, principal.as_ref());
     if access.is_denied() {
-        return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
+        return problem_response(&denial_for(action), &instance, &req_id, vec![]);
     }
 
     let write_ctx = WriteContext {
@@ -997,7 +1074,7 @@ pub async fn command_handler<D: NativeDriver>(
     let plan = match command::plan(req, command, &inputs, if_match, &write_ctx) {
         Ok(Plan::Run(s)) => s,
         Ok(Plan::Denied) => {
-            return problem_response(&Error::not_found(), &instance, &req_id, vec![]);
+            return problem_response(&denial_for(action), &instance, &req_id, vec![]);
         }
         Err(e) => return problem_response(&e, &instance, &req_id, vec![]),
     };

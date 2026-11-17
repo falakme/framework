@@ -79,8 +79,10 @@ pub struct Request<'a> {
     pub scope: &'a Scope,
 }
 
+/// A quoted identifier. Names come from the validated IR, but a quote inside one is
+/// doubled anyway, so a name can never end the quoting.
 fn q(ident: &str) -> String {
-    format!("\"{ident}\"")
+    format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 fn columns(entity: &IrEntity) -> String {
@@ -1073,3 +1075,15 @@ pub fn denial_for(action: IrAction) -> Error {
 
 #[allow(dead_code)]
 const _: u32 = DEFAULT_TEXT_MAX;
+
+#[cfg(test)]
+mod quoting_tests {
+    use super::q;
+
+    #[test]
+    fn a_quote_in_an_identifier_is_doubled() {
+        assert_eq!(q("notes"), "\"notes\"");
+        assert_eq!(q("a\"b"), "\"a\"\"b\"");
+        assert_eq!(q("x\"; DROP TABLE t; --"), "\"x\"\"; DROP TABLE t; --\"");
+    }
+}

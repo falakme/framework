@@ -61,7 +61,13 @@ pub fn parse_timestamp(s: &str) -> Option<i64> {
         d.next()?.parse().ok()?,
         d.next()?.parse().ok()?,
     );
-    if d.next().is_some() || !(1..=12).contains(&mo) || !(1..=31).contains(&da) {
+    // Four-digit years only: the wire form has four, and a larger year would overflow the
+    // arithmetic below.
+    if d.next().is_some()
+        || !(0..=9999).contains(&y)
+        || !(1..=12).contains(&mo)
+        || !(1..=31).contains(&da)
+    {
         return None;
     }
     let (hms, frac) = match time.split_once('.') {
@@ -75,9 +81,9 @@ pub fn parse_timestamp(s: &str) -> Option<i64> {
         t.next()?.parse().ok()?,
     );
     if t.next().is_some()
-        || h > 23
-        || mi > 59
-        || se > 59
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&mi)
+        || !(0..=59).contains(&se)
         || frac.len() > 6
         || !frac.bytes().all(|b| b.is_ascii_digit())
     {
@@ -89,7 +95,10 @@ pub fn parse_timestamp(s: &str) -> Option<i64> {
         format!("{frac:0<6}").parse().ok()?
     };
     let days = days_from_civil(y, mo, da);
-    Some(((days * 86_400 + h * 3600 + mi * 60 + se) * 1_000_000) + micros)
+    days.checked_mul(86_400)?
+        .checked_add(h * 3600 + mi * 60 + se)?
+        .checked_mul(1_000_000)?
+        .checked_add(micros)
 }
 
 /// Turn a query-string value into a [`Value`] of the field's type.
@@ -194,5 +203,17 @@ mod tests {
         );
         assert_eq!(parse_timestamp("2026-11-15T00:00:00+01:00"), None);
         assert_eq!(parse_timestamp("2026-13-15T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn huge_or_negative_parts_are_refused_not_wrapped() {
+        // A year this large overflows the day count; it must be refused, not wrapped to
+        // some other date (or panic in a debug build).
+        assert_eq!(parse_timestamp("99999999999999-01-01T00:00:00Z"), None);
+        assert_eq!(parse_timestamp("9223372036854775807-01-01T00:00:00Z"), None);
+        assert_eq!(parse_timestamp("2026-01-01T-5:00:00Z"), None);
+        assert_eq!(parse_timestamp("2026-01-01T00:-5:00Z"), None);
+        assert_eq!(parse_timestamp("2026-01-01T00:00:-5Z"), None);
+        assert!(parse_timestamp("9999-12-31T23:59:59Z").is_some());
     }
 }

@@ -28,7 +28,7 @@ use falak_contracts::ir::{
 pub const RUNTIME_ROLE: &str = "falak_app";
 
 fn q(s: &str) -> String {
-    format!("\"{s}\"")
+    format!("\"{}\"", s.replace('"', "\"\""))
 }
 
 fn lit(s: &str) -> String {

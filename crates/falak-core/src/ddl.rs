@@ -6,7 +6,7 @@ use falak_contracts::ir::{FieldType, Ir, IrEntity, IrField, Tenancy};
 use crate::{sql::Dialect, values::DEFAULT_TEXT_MAX};
 
 fn q(s: &str) -> String {
-    format!("\"{s}\"")
+    format!("\"{}\"", s.replace('"', "\"\""))
 }
 
 fn column_type(ty: &FieldType, dialect: Dialect) -> &'static str {
