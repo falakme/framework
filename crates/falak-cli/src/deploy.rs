@@ -77,6 +77,27 @@ impl Options {
 const DATA_LIMIT: u32 = 600;
 const AUTH_LIMIT: u32 = 30;
 
+/// The Cloudflare account to use: `--account`, else CLOUDFLARE_ACCOUNT_ID. The value is
+/// written into `wrangler.toml` and passed to wrangler, so it must be a plain id.
+pub fn resolve_account(flag: Option<&str>) -> Result<Option<String>, String> {
+    let account = flag
+        .map(str::to_owned)
+        .or_else(|| std::env::var("CLOUDFLARE_ACCOUNT_ID").ok())
+        .filter(|a| !a.is_empty());
+    match account {
+        Some(a) if !valid_account(&a) => Err(format!(
+            "`{a}` is not a Cloudflare account id (letters, digits, `-` and `_` only)"
+        )),
+        other => Ok(other),
+    }
+}
+
+fn valid_account(a: &str) -> bool {
+    (1..=64).contains(&a.len())
+        && a.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
 /// Workers names allow lowercase letters, digits and hyphens.
 pub fn worker_name(app: &str) -> String {
     let cleaned: String = app
@@ -323,10 +344,7 @@ pub fn add_tenant(dir: &Path, options: &Options, tenant: &str) -> Result<u8, Str
         println!("tenant {tenant} already has a database");
         return Ok(0);
     }
-    let account = options
-        .account
-        .clone()
-        .or_else(|| std::env::var("CLOUDFLARE_ACCOUNT_ID").ok());
+    let account = resolve_account(options.account.as_deref())?;
     let envs: Vec<(&str, &str)> = account
         .as_deref()
         .map(|a| vec![("CLOUDFLARE_ACCOUNT_ID", a)])
@@ -372,10 +390,7 @@ pub fn run(dir: &Path, options: &Options) -> Result<u8, String> {
         return Err("the app name cannot be used as a Worker name; pass one with --name".into());
     }
     let database = format!("{worker}-db");
-    let account = options
-        .account
-        .clone()
-        .or_else(|| std::env::var("CLOUDFLARE_ACCOUNT_ID").ok());
+    let account = resolve_account(options.account.as_deref())?;
     let envs: Vec<(&str, &str)> = account
         .as_deref()
         .map(|a| vec![("CLOUDFLARE_ACCOUNT_ID", a)])
@@ -497,6 +512,19 @@ fn deployed_url(wrangler_output: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_account_is_a_plain_id() {
+        assert!(valid_account("cc0e1d4c6b2d2777745f5b92c2c654c3"));
+        for bad in ["", "a\"\nname = \"x", "a b", "../x", "a;b", &"a".repeat(65)] {
+            assert!(!valid_account(bad), "{bad}");
+        }
+        assert!(resolve_account(Some("x\"y")).is_err());
+        assert_eq!(
+            resolve_account(Some("abc")).unwrap().as_deref(),
+            Some("abc")
+        );
+    }
 
     #[test]
     fn worker_names_are_dns_safe() {

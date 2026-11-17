@@ -35,8 +35,11 @@ services:
     volumes:
       # The signing keys. Back this up: losing it signs everyone out of every app.
       - office-data:/data
-    ports:
+    # Reached by the proxy (Coolify) on the compose network; not published on the host.
+    expose:
       - "8788"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   studio:
     build:
@@ -51,8 +54,10 @@ services:
     volumes:
       - studio-data:/data
       - ./studio.json:/config/studio.json:ro
-    ports:
+    expose:
       - "8790"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   office-db:

@@ -53,13 +53,20 @@ pub fn breakglass(command: Command, extra: &Extra) -> Result<u8, String> {
         .office
         .as_deref()
         .ok_or("`--office <url>` is required")?;
-    let base = office.trim_end_matches('/');
+    let base = crate::office_cmd::secure_base(office)?;
+    let base = base.as_str();
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
         .build();
     let token = session(&agent, base, extra)?;
     let auth = format!("Bearer {token}");
-    let need_id = || extra.id.as_deref().ok_or("`--id <request id>` is required");
+    let need_id = || {
+        let id = extra
+            .id
+            .as_deref()
+            .ok_or_else(|| "`--id <request id>` is required".to_owned())?;
+        crate::office_cmd::path_segment(id, "request id")
+    };
     let out: Value = match command {
         Command::BreakGlassRequest => {
             let app = extra.app.as_deref().ok_or("`--app <name>` is required")?;
@@ -128,7 +135,9 @@ pub fn rotate_credential(extra: &Extra) -> Result<u8, String> {
         .as_deref()
         .ok_or("`--office <url>` is required")?;
     let app = extra.app.as_deref().ok_or("`--app <name>` is required")?;
-    let base = office.trim_end_matches('/');
+    let app = crate::office_cmd::path_segment(app, "app name")?;
+    let base = crate::office_cmd::secure_base(office)?;
+    let base = base.as_str();
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
         .build();
@@ -142,7 +151,7 @@ pub fn rotate_credential(extra: &Extra) -> Result<u8, String> {
         .map_err(|e| e.to_string())?;
     println!("{out}");
     eprintln!(
-        "The old credential is revoked. Enroll the app again within 15 minutes: delete its .falak/office.json and .falak/office-app-key.json, then `falak office enroll --office {base} --token <enrollment_token>`."
+        "The old credential is revoked. Enroll the app again within 15 minutes: delete its .falak/office.json and .falak/office-app-key.json, then `falak office enroll --office {base} --token-env <VAR>` with the enrollment_token in that variable."
     );
     Ok(0)
 }

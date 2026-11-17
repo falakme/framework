@@ -33,7 +33,7 @@ One image (`Dockerfile`), one PostgreSQL database, two programs. `docker-compose
    OFFICE_PW='a long password' falak-office user add --email you@example.com --password-env OFFICE_PW --role office_admin
    ```
 
-5. Enroll each app: an administrator makes an enrollment token (`POST /v1/_office/enrollments`), then `falak office enroll <app dir> --office https://office.falak.me --token <token>`.
+5. Enroll each app: an administrator makes an enrollment token (`POST /v1/_office/enrollments`), then, with the token in an environment variable so it stays out of the process list and shell history, `FALAK_ENROLL_TOKEN=<token> falak office enroll <app dir> --office https://office.falak.me` (or `--token-env VAR` to name another variable). The `--token <t>` flag still works but shows in `ps`. The CLI refuses to send the token to a plain `http` Office URL unless it is this machine.
 
 ## `studio.json`
 

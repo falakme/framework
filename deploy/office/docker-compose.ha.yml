@@ -47,6 +47,8 @@ services:
       # Write-once storage (an object-lock bucket mounted here, for example), so the people
       # who can change the database cannot change what was anchored.
       - audit-anchors:/anchors
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   office-b:
     <<: *office
@@ -68,7 +70,8 @@ services:
       - --to
       - office-b:8788
     ports:
-      - "8788:8788"
+      # Plain HTTP: this machine only, unless OFFICE_BIND says otherwise. Put TLS in front.
+      - "${OFFICE_BIND:-127.0.0.1}:8788:8788"
 
 volumes:
   office-db:

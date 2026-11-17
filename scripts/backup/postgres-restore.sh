@@ -34,7 +34,9 @@ fi
 MANIFEST_FILE="${ARCHIVE_FILE%.dump}.sha256"
 
 # Checksum verification
-if [ "${SKIP_CHECKSUM:-0}" != "1" ] && [ -f "$MANIFEST_FILE" ]; then
+if [ "${SKIP_CHECKSUM:-0}" != "1" ] && [ ! -f "$MANIFEST_FILE" ]; then
+  echo "Warning: no checksum manifest ($MANIFEST_FILE); the archive's integrity is not verified." >&2
+elif [ "${SKIP_CHECKSUM:-0}" != "1" ]; then
   echo "==> Verifying SHA-256 checksum..."
   ARCHIVE_DIR="$(cd "$(dirname "$ARCHIVE_FILE")" && pwd)"
   ARCHIVE_BASE="$(basename "$ARCHIVE_FILE")"
@@ -45,7 +47,8 @@ if [ "${SKIP_CHECKSUM:-0}" != "1" ] && [ -f "$MANIFEST_FILE" ]; then
   elif command -v sha256sum >/dev/null 2>&1; then
     (cd "$ARCHIVE_DIR" && sha256sum -c "$MANIFEST_BASE")
   else
-    echo "Warning: No checksum utility found, skipping verification." >&2
+    echo "Error: no shasum or sha256sum to verify the archive; set SKIP_CHECKSUM=1 to restore anyway." >&2
+    exit 1
   fi
   echo "==> Checksum verified OK."
 fi
@@ -66,6 +69,10 @@ fi
 # --clean: drop database objects before recreating them
 # --if-exists: avoid errors on missing objects during clean
 # --no-owner --no-privileges: ignore original database role owners and permissions
-cat "$ARCHIVE_FILE" | $PG_RESTORE_CMD --clean --if-exists --no-owner --no-privileges -d "$DATABASE_URL" || true
+# A failure is a failure: do not report a finished restore that was not.
+if ! $PG_RESTORE_CMD --clean --if-exists --no-owner --no-privileges -d "$DATABASE_URL" < "$ARCHIVE_FILE"; then
+  echo "Error: pg_restore reported errors; the target database may be incomplete." >&2
+  exit 1
+fi
 
 echo "==> Restore operation finished."

@@ -61,6 +61,7 @@ pub struct Extra {
     pub anonymous: bool,
     pub office: Option<String>,
     pub token: Option<String>,
+    pub token_env: Option<String>,
     pub email: Option<String>,
     pub password_env: Option<String>,
     pub retire: bool,
@@ -197,6 +198,10 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--token" => {
                 args.extra.token = Some(it.next().ok_or("`--token` needs a value")?.clone());
+            }
+            "--token-env" => {
+                args.extra.token_env =
+                    Some(it.next().ok_or("`--token-env` needs a value")?.clone());
             }
             "--email" => {
                 args.extra.email = Some(it.next().ok_or("`--email` needs a value")?.clone());

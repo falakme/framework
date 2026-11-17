@@ -14,11 +14,15 @@
 
 set -euo pipefail
 
+# A dump holds every row: readable by this user only (files 0600, a new directory 0700).
+umask 077
+
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 TIMESTAMP="$(date -u +"%Y%m%d_%H%M%SZ")"
 BACKUP_NAME="${BACKUP_NAME:-falak_backup_${TIMESTAMP}}"
 
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR" 2>/dev/null || true
 
 ARCHIVE_FILE="${BACKUP_DIR}/${BACKUP_NAME}.dump"
 MANIFEST_FILE="${BACKUP_DIR}/${BACKUP_NAME}.sha256"

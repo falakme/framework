@@ -35,6 +35,10 @@ done
   echo "usage: pitr-restore.sh --base DIR --archive DIR --data DIR [--target-time TS] [--start] [--port N]" >&2
   exit 2
 }
+# Both go into postgresql.auto.conf inside single quotes: no quote, backslash or newline.
+case "$target$archive" in
+  *\'* | *\\* | *$'\n'*) echo "error: --target-time and --archive cannot contain quotes, backslashes or newlines" >&2; exit 2 ;;
+esac
 [ -f "$base/PG_VERSION" ] && [ -f "$base/backup_manifest" ] || {
   echo "error: $base is not a base backup made by pitr-base.sh" >&2
   exit 1

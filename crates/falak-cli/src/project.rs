@@ -125,6 +125,20 @@ pub fn out_dir(dir: &Path) -> PathBuf {
     dir.join(".falak")
 }
 
+/// Create `.falak/` readable by the owner only: it holds the database, the signing keys and
+/// the Office link. An existing directory is tightened too.
+pub fn ensure_private_out_dir(dir: &Path) -> Result<PathBuf, String> {
+    let out = out_dir(dir);
+    fs::create_dir_all(&out).map_err(|e| format!("cannot create `{}`: {e}", out.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&out, fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("cannot restrict `{}`: {e}", out.display()))?;
+    }
+    Ok(out)
+}
+
 /// Compile and write `falak.lock` and `.falak/ir.json`. Returns the compiled app.
 pub fn build(dir: &Path) -> Result<Option<Compiled>, String> {
     let outcome = compile_dir(dir)?;
@@ -136,8 +150,7 @@ pub fn build(dir: &Path) -> Result<Option<Compiled>, String> {
     debug_assert!(!has_errors(&outcome.diagnostics));
     fs::write(dir.join("falak.lock"), &compiled.lock)
         .map_err(|e| format!("cannot write falak.lock: {e}"))?;
-    let out = out_dir(dir);
-    fs::create_dir_all(&out).map_err(|e| format!("cannot create `{}`: {e}", out.display()))?;
+    let out = ensure_private_out_dir(dir)?;
     let json = serde_json::to_string_pretty(&compiled.ir)
         .map_err(|e| format!("cannot serialize the IR: {e}"))?;
     fs::write(out.join("ir.json"), json).map_err(|e| format!("cannot write ir.json: {e}"))?;

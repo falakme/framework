@@ -202,10 +202,12 @@ fn d1(dir: &Path, ir: &Ir, o: &Options) -> Result<u8, String> {
         );
         return Ok(0);
     }
-    let name = o
-        .name
-        .clone()
-        .unwrap_or_else(|| crate::deploy::worker_name(&ir.app.name));
+    // The same cleaning `falak deploy` applies, so the name cannot be read as a wrangler option.
+    let name = crate::deploy::worker_name(o.name.as_deref().unwrap_or(&ir.app.name));
+    if name.is_empty() {
+        return Err("the app name cannot be used as a Worker name; pass one with --name".into());
+    }
+    let account = crate::deploy::resolve_account(o.account.as_deref())?;
     let database = format!("{name}-db");
     let mut cmd = Command::new("npx");
     cmd.args([
@@ -220,7 +222,7 @@ fn d1(dir: &Path, ir: &Ir, o: &Options) -> Result<u8, String> {
         "SELECT ir FROM _falak_schema ORDER BY applied_at DESC LIMIT 1",
     ])
     .current_dir(project::out_dir(dir).parent().unwrap_or(dir));
-    if let Some(a) = o.account.as_deref() {
+    if let Some(a) = account.as_deref() {
         cmd.env("CLOUDFLARE_ACCOUNT_ID", a);
     }
     let out = cmd

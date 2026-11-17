@@ -24,6 +24,9 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is needed and was not found
 need curl
 need tar
 
+# https only, including after a redirect.
+fetch() { curl -fsSL --proto '=https' --tlsv1.2 "$@"; }
+
 case "$(uname -s)" in
   Darwin) os=darwin ;;
   Linux) os=linux ;;
@@ -41,9 +44,19 @@ case "$os-$arch" in
 esac
 
 version="${FALAK_VERSION:-}"
+if [ -n "$version" ]; then
+  # It goes into a download address: a release tag, nothing else.
+  case "$version" in
+    v[0-9]*.[0-9]*.[0-9]* ) ;;
+    *) fail "FALAK_VERSION must be a release tag such as v1.1.0" ;;
+  esac
+  case "$version" in
+    *[!0-9A-Za-z.-]* ) fail "FALAK_VERSION must be a release tag such as v1.1.0" ;;
+  esac
+fi
 if [ -z "$version" ]; then
   # The newest release, including a pre-release while there is no other.
-  version=$(curl -fsSL "https://api.github.com/repos/$repo/releases?per_page=1" \
+  version=$(fetch "https://api.github.com/repos/$repo/releases?per_page=1" \
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
   [ -n "$version" ] || fail "cannot find a release of $repo"
 fi
@@ -54,10 +67,10 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 say "Installing Falak $version for $os-$arch"
-curl -fsSL "$base/$asset" -o "$tmp/$asset" || fail "cannot download $base/$asset"
-curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" || fail "cannot download the checksums"
+fetch "$base/$asset" -o "$tmp/$asset" || fail "cannot download $base/$asset"
+fetch "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" || fail "cannot download the checksums"
 
-want=$(grep " $asset\$" "$tmp/SHA256SUMS" | awk '{print $1}')
+want=$(awk -v a="$asset" '$2 == a { print $1 }' "$tmp/SHA256SUMS")
 [ -n "$want" ] || fail "$asset is not in SHA256SUMS"
 if command -v sha256sum >/dev/null 2>&1; then
   got=$(sha256sum "$tmp/$asset" | awk '{print $1}')
@@ -67,7 +80,8 @@ fi
 [ "$want" = "$got" ] || fail "the download does not match its checksum; nothing was installed"
 
 mkdir -p "$dir"
-tar -xzf "$tmp/$asset" -C "$tmp"
+# Only the three programs are taken out of the archive, whatever else it holds.
+tar -xzf "$tmp/$asset" -C "$tmp" falak falak-office falak-studio
 for p in falak falak-office falak-studio; do
   [ -f "$tmp/$p" ] || fail "$p is not in the download"
   install -m 0755 "$tmp/$p" "$dir/$p"

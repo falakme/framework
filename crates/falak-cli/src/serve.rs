@@ -101,9 +101,7 @@ fn request_context() -> RequestContext {
 }
 
 async fn open_stack(dir: &Path, ir: &Ir, dev: bool) -> Result<Stack, String> {
-    let data = project::out_dir(dir);
-    std::fs::create_dir_all(&data)
-        .map_err(|e| format!("cannot create `{}`: {e}", data.display()))?;
+    let data = project::ensure_private_out_dir(dir)?;
 
     let keys = LocalKeys::load_or_create(&data.join("keys.json"))
         .map_err(|e| format!("cannot load the signing keys: {e}"))?;
@@ -602,6 +600,32 @@ fn build_router(stack: &Stack, ir: &Ir) -> Router {
     )
 }
 
+/// The address to listen on: this machine only, unless `FALAK_HOST` (or, failing that,
+/// `HOST`) names another. `falak dev` never listens beyond this machine: it prints
+/// password-reset tokens and lets a change drop data. An unreadable `FALAK_HOST` is an
+/// error rather than a quiet fall back; an unreadable `HOST` (many shells set it to a
+/// machine name) is ignored.
+fn bind_address(
+    falak_host: Option<&str>,
+    host: Option<&str>,
+    dev: bool,
+) -> Result<std::net::IpAddr, String> {
+    let loopback: std::net::IpAddr = [127, 0, 0, 1].into();
+    let ip = match (falak_host, host) {
+        (Some(h), _) => h
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| format!("FALAK_HOST `{h}` is not an IP address"))?,
+        (None, Some(h)) => h.parse().unwrap_or(loopback),
+        (None, None) => loopback,
+    };
+    if dev && !ip.is_loopback() {
+        return Err(format!(
+            "`falak dev` listens on this machine only, not on {ip}. Use `falak serve` to listen elsewhere"
+        ));
+    }
+    Ok(ip)
+}
+
 async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
     // Build once. In `dev`, a broken app waits for a fix; in `serve` it is an error.
     let mut compiled = project::build(&dir)?;
@@ -666,12 +690,18 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
         })
     };
 
-    let host_ip: std::net::IpAddr = std::env::var("FALAK_HOST")
-        .or_else(|_| std::env::var("HOST"))
-        .ok()
-        .and_then(|h| h.parse().ok())
-        .unwrap_or_else(|| [127, 0, 0, 1].into());
+    let host_ip = bind_address(
+        std::env::var("FALAK_HOST").ok().as_deref(),
+        std::env::var("HOST").ok().as_deref(),
+        dev,
+    )?;
     let addr = SocketAddr::new(host_ip, port);
+    if !host_ip.is_loopback() {
+        eprintln!(
+            "warning: listening on {host_ip}, not only this machine. This server speaks plain HTTP: \
+             put it behind a TLS-terminating proxy and do not expose it directly"
+        );
+    }
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| format!("cannot listen on {addr}: {e} (use --port to pick another)"))?;
@@ -739,4 +769,33 @@ async fn serve(dir: PathBuf, port: u16, dev: bool) -> Result<u8, String> {
     .await
     .map_err(|e| format!("server error: {e}"))?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bind_address;
+
+    #[test]
+    fn listens_on_this_machine_unless_told_otherwise() {
+        assert!(bind_address(None, None, false).unwrap().is_loopback());
+        assert!(
+            bind_address(None, Some("my-laptop"), false)
+                .unwrap()
+                .is_loopback()
+        );
+        assert_eq!(
+            bind_address(Some("0.0.0.0"), None, false)
+                .unwrap()
+                .to_string(),
+            "0.0.0.0"
+        );
+        assert!(bind_address(Some("nonsense"), None, false).is_err());
+    }
+
+    #[test]
+    fn dev_never_listens_beyond_this_machine() {
+        assert!(bind_address(Some("0.0.0.0"), None, true).is_err());
+        assert!(bind_address(None, Some("0.0.0.0"), true).is_err());
+        assert!(bind_address(Some("::1"), None, true).is_ok());
+    }
 }

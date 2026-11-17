@@ -37,11 +37,12 @@ COMMANDS:
                                  Give a tenant a D1 database of its own (`tenancy: database`)
     policy explain [dir] --entity <e> [--action <a>] [--subject <id>] [--role <r>]...
                                  Show the decision, the matching rules and the SQL
-    migrate plan [dir] [--driver <d>] [--database-url <u>]
+    migrate plan [dir] [--driver <d>] [--database-url <u>]   (prefer DATABASE_URL: an argument shows in `ps`)
                                  Show what bringing a database to this version would run
     migrate apply [dir] [--driver <d>] [--database-url <u>] [--allow-destructive]
                                  Run it, atomically, under the migration lock
-    office enroll [dir] --office <url> --token <t> [--name <app>]
+    office enroll [dir] --office <url> --token-env <VAR> [--name <app>]
+                                 (the token is read from that variable, or FALAK_ENROLL_TOKEN; `--token <t>` still works but shows in `ps`)
                                  Join the app to Falak Office (sign in once, many apps)
     office status [dir]          Check the link to Office
     office rotate-key --office <url> --email <e> --password-env <VAR> [--retire]
@@ -230,6 +231,7 @@ fn run(
             let options = office_cmd::Options {
                 office: extra.office,
                 token: extra.token,
+                token_env: extra.token_env,
                 name: name.clone(),
                 email: extra.email,
                 password_env: extra.password_env,
