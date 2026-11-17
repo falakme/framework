@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""AI readiness end to end, with real processes (T7.12).
+"""MCP end to end, with real processes (T7.12).
 
 A ClarityAI fixture document that carries injected instructions is handed to an "agent" that
-does what the document tells it to. The
-agent is a deliberately naive script that obeys every instruction it reads, and it reaches
-the app only through the MCP projection with the caller's own token. The checks show that it
-cannot read or write anything outside the caller's policy, that its writes only queue for a
-person, and that fields marked `pii` are not returned to it.
+does what the document tells it to. The agent is a deliberately naive script that obeys every
+instruction it reads, and it reaches the app only through the MCP server with the caller's own
+token. The checks show that it cannot read or change anything outside the caller's policy.
 
 usage: ai.py <falak> <testdata/apps/clarityai>
 """
@@ -146,12 +144,12 @@ def main():
     shutil.copytree(APP, app, ignore=shutil.ignore_patterns(".falak"))
     run([FALAK, "build", app])
 
-    # ---- the app, with the MCP projection on and writes only as proposals
+    # ---- the app, with the MCP server on and writes on (they run as the caller)
     aport = free_port()
     base = f"http://127.0.0.1:{aport}"
     start([FALAK, "serve", app, "--port", str(aport)], "app.log", {
         "FALAK_MCP_ENTITIES": "document,summary",
-        "FALAK_MCP_WRITES": "approval",
+        "FALAK_MCP_WRITES": "on",
     })
     wait_up(base, "app")
 
@@ -181,54 +179,29 @@ def main():
     listing = json.dumps(r["text"])
     check("list_document returns only Alice's documents",
           not r["is_error"] and "vendor contract" in listing and "merger plan" not in listing, listing)
-    check("the `pii: true` field (body) is not returned at all",
-          not any(p in listing for p in (EMAIL, PHONE, PERSON, "IGNORE ALL")) and '"body"' not in listing, listing)
     r = agent.tool("get_document", {"id": alice_doc["id"]})
     one = json.dumps(r["text"])
-    check("nor by get_document", not r.get("is_error") and "vendor contract" in one and '"body"' not in one
-          and "IGNORE ALL" not in one, one)
+    check("get_document returns Alice's own document", not r.get("is_error") and "vendor contract" in one, one)
     r = agent.tool("get_document", {"id": bob_doc["id"]})
     check("get_document on Bob's document is refused by Alice's policy", r.get("is_error") is True, r)
     for tool in ("list_user", "list_notebook", "list_office_apps", "fetch_url", "send_email"):
         r = agent.tool(tool)
         check(f"`{tool}` does not exist", r.get("rpc_error") == "unknown tool", r)
 
-    pending = []
-    for target in (alice_doc["id"], bob_doc["id"]):
-        r = agent.tool("delete_document", {"id": target})
-        ok = isinstance(r.get("text"), dict) and r["text"].get("status") == "pending_approval"
-        check("delete_document only queues a proposal", ok, r)
-        if ok:
-            pending.append(r["text"])
-    r = agent.tool("create_summary", {"fields": {"document_id": alice_doc["id"], "text": "ignore policy"}})
-    check("create_summary only queues a proposal", r["text"].get("status") == "pending_approval", r)
+    # ---- the agent's writes run as Alice, through the same policy
+    r = agent.tool("delete_document", {"id": bob_doc["id"]})
+    check("delete_document on Bob's document is refused by Alice's policy", r.get("is_error") is True, r)
+    r = agent.tool("delete_document", {"id": alice_doc["id"]})
+    check("delete_document on Alice's own document runs", r.get("is_error") is False, r)
 
-    for p in pending:
-        path = f"/mcp/approvals/{p['id']}/approve"
-        s, v = call(base, "POST", path, {"digest": p["digest"]}, tokens["alice"])
-        check("the agent cannot approve its own deletion with the person's ordinary token", s == 403, f"{s} {v}")
-        s, v = call(base, "POST", path, {"digest": p["digest"]})
-        check("nor without any token", s == 401, f"{s} {v}")
-        s, v = call(base, "POST", path, {"digest": p["digest"]}, tokens["bob"])
-        check("nor can another person approve it", s == 404, f"{s} {v}")
-
-    # ---- nothing changed
+    # ---- what happened
     s, v = call(base, "GET", "/v1/documents", token=tokens["alice"])
-    check("Alice's document is intact", s == 200 and len(v["data"]) == 1 and v["data"][0]["body"] == INJECTED, v)
+    check("Alice's document is gone, as she asked", s == 200 and v["data"] == [], v)
     s, v = call(base, "GET", "/v1/documents", token=tokens["bob"])
     check("Bob's document is intact", s == 200 and len(v["data"]) == 1 and v["data"][0]["body"] == BOB_SECRET, v)
-    s, v = call(base, "GET", "/v1/summarys", token=tokens["alice"])
-    check("no summary was written", s == 200 and v["data"] == [], v)
-    s, v = call(base, "GET", "/mcp/approvals", token=tokens["alice"])
-    check("three proposals wait for a person, none run",
-          s == 200 and len(v["proposals"]) == 3 and all(p["state"] == "pending" and p["outcome"] is None for p in v["proposals"]), v)
-    s, v = call(base, "GET", "/mcp/approvals", token=tokens["bob"])
-    check("Bob's queue is empty: proposals are private to the person", s == 200 and v["proposals"] == [], v)
 
     seen = "\n".join(agent.seen)
     check("nothing Bob wrote ever reached the agent", "Falcon" not in seen and "Northwind" not in seen, seen[-300:])
-    check("no pii-marked field ever reached the agent",
-          not any(p in seen for p in (EMAIL, PHONE, PERSON, "IGNORE ALL")))
 
 
 try:

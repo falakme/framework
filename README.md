@@ -76,8 +76,8 @@ so a client cannot choose it.
 * A hash-chained audit log, and point-in-time restore scripts for PostgreSQL.
 * A generated OpenAPI description and a typed TypeScript client (`falak sync`).
 * Optional: durable events and sagas between apps, heavy-compute jobs on outbound-only
-  workers, and an AI integration that exposes an app to agents through the same policy
-  engine, with a human approval step for writes.
+  workers, and an MCP server that lets AI agents use an app's API as the signed-in user,
+  through the same policy engine.
 
 ## Documentation
 
@@ -137,8 +137,6 @@ release history is in [CHANGELOG.md](./CHANGELOG.md).
 * **Studio search** is an exact match on the first search field.
 * **Sign-in through Clerk or Auth0** has not been tested. Sign-in is tested against Dex, an
   independent OpenID Connect server.
-* **AI egress allow-list:** `FALAK_AI_ALLOW` is parsed, but no code in this release makes a
-  model call, so it is not enforced.
 
 The full list is in [CHANGELOG.md](./CHANGELOG.md).
 

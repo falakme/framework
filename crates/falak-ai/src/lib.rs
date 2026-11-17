@@ -1,10 +1,6 @@
-//! AI readiness (Phase 7b): what lets an AI agent work with an app's data without being
-//! able to do more than the person it acts for.
+//! AI access (Phase 7b): an MCP server that lets an AI agent use an app's REST API.
 //!
-//! * [`mcp`]: the MCP server projection (T7.9).
-//! * [`egress`]: the AI egress policy: which providers, and no personal data unless allowed (T7.10).
-//! * [`approval`]: the human approval gate for writes (T7.10).
+//! * [`mcp`]: the MCP server. Each tool call is a REST request sent as the signed-in user,
+//!   so the app's policies decide what the agent can read or change.
 
-pub mod approval;
-pub mod egress;
 pub mod mcp;

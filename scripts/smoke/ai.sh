@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# AI readiness smoke test (T7.12): a stored document carries injected instructions and an agent
-# that obeys it works only through the MCP projection, as the caller. It cannot read or write
-# outside their policy, its writes only queue for approval, it cannot approve its own proposal,
-# and fields marked `pii` are not returned to it.
+# MCP smoke test (T7.12): a stored document carries injected instructions and an agent that
+# obeys it works only through the MCP server, as the caller. It cannot read or change outside
+# the caller's policy.
 #
 #   scripts/smoke/ai.sh
 #
