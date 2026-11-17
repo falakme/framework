@@ -10,7 +10,7 @@
 //!    session is still active. If it cannot be asked, the command is refused (fail
 //!    closed). Tier 3 never runs on a cached "yes".
 //! 3. **Passkey assertion over the transaction hash.** A WebAuthn assertion (ES256) whose
-//!    challenge is the SHA-256 of the exact command (`falak_ledger::Command::hash`), so
+//!    challenge is the SHA-256 of the exact command, so
 //!    the person approved *this* transfer and not just "a" transfer. User presence and
 //!    user verification flags are required, and the signature counter must advance.
 //! 4. **Optional dual approval.** `n` other people, distinct from the initiator, each

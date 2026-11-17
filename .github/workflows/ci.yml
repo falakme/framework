@@ -123,35 +123,6 @@ jobs:
       - name: A schema change on a running app, no downtime
         run: DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/live bash scripts/smoke/migrate-live.sh
 
-  # The ledger: PostgreSQL integration tests, then the double-spend smoke test (T8.2, T8.6).
-  smoke-ledger:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: ledger
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres -d ledger"
-          --health-interval 2s --health-timeout 3s --health-retries 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Toolchain
-        run: rustup show
-      - name: Ledger tests on PostgreSQL
-        env:
-          FALAK_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/ledger
-        run: cargo test --locked -p falak-ledger --test postgres
-      - name: Double-spend smoke test
-        env:
-          PGPASSWORD: postgres
-          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ledger
-        run: bash scripts/smoke/ledger.sh
-
   # Office, Studio and three apps as real processes (T4.13): sign in once, revocation, key
   # rotation under load, what each tier does with Office stopped. Run on SQLite, then with
   # Office on PostgreSQL.

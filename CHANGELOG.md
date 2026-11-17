@@ -10,6 +10,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 * The T0.8 spike crate (`falak-spike-t08`). Its result stays in the DRIVER specification.
 * Example apps other than `examples/notebook`. `academy`, `clarityai`, `falakme`, `gardenx` and `securablock` moved to `testdata/apps/` as test fixtures, and `horizon` was deleted.
+* The double-entry ledger (`falak-ledger`) and the `falak ledger` commands. It was not production ready, and banking logic belongs in applications, not in the framework. Apps that need it can write a custom command handler.
 
 ### Changed
 

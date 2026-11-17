@@ -227,7 +227,6 @@ each write automatically; pass `ifMatch` on updates to get optimistic locking.
   relationship rules are not frozen yet.
 * Tier 3 apps (`trust_tier: high_assurance` with online checks) are refused by Falak Office.
 * On Cloudflare Workers, `/v1/_files` answers `501`.
-* The ledger (`falak-ledger`) is not production ready. Do not use it for real money.
 
 ## 12. Things you must not do
 

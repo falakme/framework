@@ -97,7 +97,7 @@ so a client cannot choose it.
 ```text
 crates/          Rust crates: falak-core, falak-cli, falak-runtime-native,
                  falak-runtime-edge, falak-auth, falak-office, falak-studio,
-                 falak-ledger and the rest
+                 and the rest
 packages/        TypeScript packages, including @falak/sdk
 examples/        The notebook reference app
 testdata/apps/   Sample apps used by the tests and smoke scripts, not shipped products
@@ -125,8 +125,6 @@ release history is in [CHANGELOG.md](./CHANGELOG.md).
 
 ### Limitations
 
-* **Financial ledger:** the double-entry primitives and the example apps are not production
-  ready. Do not use them with real money. The CI job for the ledger smoke test has not run.
 * **Edge events relay:** the Workers relay has not yet passed its smoke test
   (`scripts/smoke/events-workers.sh`) and has not run on Cloudflare.
 * **Tier 3 sensitive commands** (an online check on each command) are not built. Falak Office

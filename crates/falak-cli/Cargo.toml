@@ -23,7 +23,6 @@ serde.workspace = true
 falak-core.workspace = true
 falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.1.1" }
 falak-driver-postgres = { path = "../falak-driver-postgres", version = "1.1.1" }
-falak-ledger = { path = "../falak-ledger", version = "1.1.1" }
 falak-federation = { path = "../falak-federation", version = "1.1.1" }
 falak-migrate = { path = "../falak-migrate", version = "1.1.1" }
 falak-runtime-native = { path = "../falak-runtime-native", version = "1.1.1" }

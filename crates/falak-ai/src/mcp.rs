@@ -87,9 +87,7 @@ pub fn mcp_router(
         auth,
         app: app.clone(),
     });
-    let routes = Router::new()
-        .route("/mcp", post(handle))
-        .with_state(state);
+    let routes = Router::new().route("/mcp", post(handle)).with_state(state);
     app.merge(routes)
 }
 
