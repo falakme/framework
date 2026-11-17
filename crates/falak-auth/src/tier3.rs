@@ -396,7 +396,7 @@ impl Tier3 {
 
 #[cfg(test)]
 mod tests {
-    use p256::ecdsa::SigningKey as P256Signing;
+    use p256::ecdsa::{SigningKey as P256Signing, signature::Signer as _};
 
     use super::*;
     use crate::token::{TokenConfig, issue_with_cnf};
@@ -451,7 +451,7 @@ mod tests {
         let credential = PasskeyCredential {
             public_key_sec1: passkey
                 .verifying_key()
-                .to_encoded_point(false)
+                .to_sec1_point(false)
                 .as_bytes()
                 .to_vec(),
             sign_count: 5,
