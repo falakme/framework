@@ -82,7 +82,7 @@ falak breakglass claim   --id <id> ...     # the requester; prints the token onc
 | What | How |
 | :-- | :-- |
 | Office signing key | `falak office rotate-key` (old key keeps verifying until `--retire`) |
-| A compromised app credential | `falak office rotate-credential --app <name> ...`: the app's key stops working at once, its passport is revoked in the feed, and a one-time enrollment token lets the real app enroll again with a new key |
+| A compromised app credential | `falak office rotate-credential --app <name> ...`: the app's key stops working at once, its passport is revoked in the feed, and a one-time enrollment token lets the real app enroll again with a new key (give it to the CLI through the environment: `falak office enroll --office <url> --token-env VAR`, or `FALAK_ENROLL_TOKEN`) |
 | Tenant data key (DEK) | `POST /v1/_office/vault/deks/<app>:<tenant>/rotate` adds a version and retires the old one (still readable, to re-encrypt with); `.../retire-old` deletes retired versions after re-encryption; `DELETE .../deks/<app>:<tenant>` erases a tenant's keys |
 | Key-encryption key (KEK) | `POST /v1/_office/vault/kek/rotate` re-wraps every DEK under a new KEK (no data is re-encrypted). With `FALAK_VAULT_KEK` set, rotate it in your secret manager instead |
 
@@ -109,6 +109,6 @@ anchor age and signing-key age, that gives five objectives (`GET /v1/_office/slo
 | signing key age | rotated within 90 days | ticket |
 
 A change of state sends one alert (log line, audit entry, `FALAK_ALERT_WEBHOOK`), and one
-recovery notice. For Prometheus, set `FALAK_METRICS_TOKEN`, scrape `/metrics` with that bearer
+recovery notice. For Prometheus, set `FALAK_METRICS_TOKEN` (when it is unset or empty, `/metrics` answers 404), scrape `/metrics` with that bearer
 token, and load `deploy/office/alerts.yml`. The Observatory page in Studio shows the same
 objectives, the audit chain and break-glass requests.

@@ -10,7 +10,22 @@ It is built as three independently versioned products:
 
 ## Status
 
-**Milestones M0 to M4 are built; v1.0 is being released** (see [CHANGELOG.md](./CHANGELOG.md), including its known limits). Core runs on SQLite, PostgreSQL and Cloudflare Workers with D1. Falak Office (sign in once, app registry, revocation, key rotation) and Falak Studio (a generated admin interface) are in `crates/falak-office` and `crates/falak-studio`. The SCHEMA, AUTHORIZATION, DRIVER and API specifications are frozen at 1.0; the foundational decisions are ADRs ([ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions)).
+**v1.0.0 is released and covers milestones M0 to M4.** Core runs on SQLite, PostgreSQL and Cloudflare Workers with D1. Falak Office (sign in once, app registry, revocation, key rotation) and Falak Studio (a generated admin interface) are in `crates/falak-office` and `crates/falak-studio`. The SCHEMA, AUTHORIZATION, DRIVER and API specifications are frozen at 1.0; the foundational decisions are ADRs ([ARCHITECTURE.md §3](./ARCHITECTURE.md#3-open-decisions)).
+
+Milestones M5 to M8 are built on `main` and are not part of v1.0.0. Unreleased changes are listed under "Unreleased" in [CHANGELOG.md](./CHANGELOG.md).
+
+Known gaps in M5 to M8:
+
+* **Edge events relay:** `scripts/smoke/events-workers.sh` is written but has not passed. The edge relay has not been run on Cloudflare.
+* **Financial ledger (M8):** the primitives and example apps are not production ready. Do not use them with real money. The CI job for `scripts/smoke/ledger.sh` has not run.
+
+Known limits of v1.0.0 that still apply (full list in [CHANGELOG.md](./CHANGELOG.md)):
+
+* **Tier 3** (online check per sensitive command) is not built. Office refuses tier 3 apps.
+* **`/v1/_files`** answers `501` on Workers.
+* **Office** is one instance. Sessions and signing keys are per instance. No hosted Office exists yet.
+* Studio search is an exact match on the first search field.
+* Sign-in through Clerk or Auth0 itself has not been tried. It is checked against Dex, an independent OpenID Connect server.
 
 ## Design
 
@@ -29,19 +44,18 @@ It is built as three independently versioned products:
 
 Nine acceptance-gated milestones. Gates, scope and validation apps are in [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-milestone-roadmap-m0m8).
 
-| Milestone | Focus |
-| :--- | :--- |
-| **M0** | Decisions, draft contracts and a portable-core spike |
-| **M1** | Standalone core kernel on SQLite |
-| **M2** | PostgreSQL and Cloudflare Workers/D1 portability |
-| **M3** | Isolation, migrations and backups |
-| **M4** | Minimal Falak Office: identity, registry, Studio |
-| | *v1.0 release* |
-| **M5** | Federation and durable events |
-| **M6** | Operational maturity and disaster recovery |
-| **M7a** | Heavy compute workers |
-| **M7b** | AI readiness: opt-in MCP projection, egress allow-list and approval gate |
-| **M8** | Financial ledger engine |
+| Milestone | Focus | Status |
+| :--- | :--- | :--- |
+| **M0** | Decisions, draft contracts and a portable-core spike | Released in v1.0.0 |
+| **M1** | Standalone core kernel on SQLite | Released in v1.0.0 |
+| **M2** | PostgreSQL and Cloudflare Workers/D1 portability | Released in v1.0.0 |
+| **M3** | Isolation, migrations and backups | Released in v1.0.0 |
+| **M4** | Minimal Falak Office: identity, registry, Studio | Released in v1.0.0 |
+| **M5** | Federation and durable events | Built on `main`, unreleased |
+| **M6** | Operational maturity and disaster recovery | Built on `main`, unreleased |
+| **M7a** | Heavy compute workers | Built on `main`, unreleased |
+| **M7b** | AI readiness: opt-in MCP projection, egress allow-list and approval gate | Built on `main`, unreleased |
+| **M8** | Financial ledger engine | Built on `main`, unreleased; not production ready |
 
 ## Quickstart
 
@@ -57,4 +71,4 @@ falak dev
 
 Copyright © 2026 Falak.me. Licensed under the [Apache License 2.0](./LICENSE); see also [NOTICE](./NOTICE).
 
-The licence of Falak Office (the optional control plane) will be decided before `M4`; until then everything in this repository is Apache-2.0. Outside contributions are not accepted until a contributor sign-off process (DCO or CLA) is in place.
+Everything in this repository, including Falak Office, is licensed under Apache-2.0. Outside contributions are not accepted until a contributor sign-off process (DCO or CLA) is in place.

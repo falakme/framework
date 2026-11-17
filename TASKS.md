@@ -124,7 +124,7 @@ Target: the Notebook app runs as one binary with no external service.
 - [x] **T1.18** Ten-minute quickstart in `docs/` and linked from the README. *Works when:* another agent follows it on a clean machine and reaches a running Notebook. *(Written and run step by step by Dev3 in a clean directory; a second reader has not tried it yet.)*
 
 **Gate (Dev1)**
-- [ ] `scripts/smoke/notebook.sh` passes in CI.
+- [x] `scripts/smoke/notebook.sh` passes in CI.
 - [ ] Notebook runs as a single binary with no external service, and idle memory is recorded.
 
 ---
@@ -304,7 +304,7 @@ Do not start until the legal-advice item in §4 is ticked.
 - [x] **T8.6 (Dev5)** `scripts/smoke/ledger.sh`: many concurrent transfers from one account that together exceed its balance; afterwards no account is negative, debits equal credits, and reconciliation against an external statement shows zero difference. *Needs:* T8.2, T8.5. *Done:* `scripts/smoke/ledger.sh` with `crates/falak-ledger/examples/ledger_load.rs`, and a `smoke-ledger` CI job. Run locally on PostgreSQL 16.2: 100 refused, 50 posted (10 per source), nothing negative, debits equal credits, zero reconciliation difference, and a damaged statement shows 3 differences. **The CI job has not run.**
 
 **Gate (Dev1)**
-- [x] `scripts/smoke/ledger.sh` passes. *Locally on PostgreSQL 16.2 (2026-11-16); not yet in CI. The legal-advice item in §4 is still open, so this gate does not mean the phase is releasable.*
+- [x] `scripts/smoke/ledger.sh` passes. *Locally on PostgreSQL 16.2 (2026-11-16). A `smoke-ledger` job exists in `ci.yml`; it has not run yet. The legal-advice item in §4 is still open, so this gate does not mean the phase is releasable.*
 
 ---
 
