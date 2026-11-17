@@ -9,8 +9,8 @@ What is still open, as of the 1.1.1 release work. The architecture is in [ARCHIT
 
 ## Verification
 
-- [ ] Build `examples/notebook/Dockerfile` on a machine with about 6 GB of Docker memory, or on Coolify. The local build ran out of memory.
-- [ ] The Coolify test app ("Falak workspace tests") needs a new PostgreSQL database and its `DATABASE_URL`, `FALAK_TEST_PG_URL` and `FALAK_TEST_PG_ADMIN_URL` set again. Its test database was deleted, so its next build fails.
+- [x] The notebook image (`examples/notebook/Dockerfile`) builds on Coolify, on `main` at `808c31f`.
+- [ ] The Coolify test app ("Falak workspace tests") is disposable. Its test database was deleted, so its next build fails until a database is linked again. It is not needed for the release.
 
 ## Known limits
 
