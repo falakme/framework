@@ -4,8 +4,12 @@
 //!    (`FALAK_AI_ALLOW`, comma separated). The check is `falak-egress`'s: `https` only, no
 //!    credentials in the URL, and no private, loopback or metadata address after DNS.
 //! 2. **What.** Fields marked `pii: true`, and encrypted fields, are omitted from what an
-//!    agent reads ([`AiPolicy::redact`]). The operator can allow them for a deployment
-//!    (`expose_pii`), and that is the only way they reach a model.
+//!    agent reads ([`AiPolicy::redact`]). There is no switch to let them through: they never
+//!    reach a model.
+//!
+//! **Not enforced yet.** No caller in this release connects to a model, so the host
+//! allow-list (`FALAK_AI_ALLOW`) is parsed but not enforced anywhere. It must be wired into
+//! any future model client (call [`AiPolicy::check_url`] before every outbound connection).
 
 use falak_contracts::{Result, ir::Ir};
 use falak_egress::{Entry, Permit, Policy, Resolver};
@@ -14,8 +18,6 @@ use serde_json::Value;
 #[derive(Debug, Clone, Default)]
 pub struct AiPolicy {
     providers: Policy,
-    /// Let `pii` and encrypted fields through. Off unless the operator turns it on.
-    pub expose_pii: bool,
 }
 
 impl AiPolicy {
@@ -23,7 +25,6 @@ impl AiPolicy {
     pub fn new(hosts: &[String]) -> Self {
         Self {
             providers: Policy::new(hosts.iter().filter_map(|h| Entry::parse(h).ok()).collect()),
-            expose_pii: false,
         }
     }
 
@@ -50,9 +51,6 @@ impl AiPolicy {
         let Some(e) = ir.entity(entity) else {
             return;
         };
-        if self.expose_pii {
-            return;
-        }
         let hidden: Vec<&str> = e
             .fields
             .iter()

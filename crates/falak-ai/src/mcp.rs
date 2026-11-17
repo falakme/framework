@@ -144,11 +144,11 @@ fn plain_name(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-fn describe(fields: &[IrField], hide: bool) -> String {
+fn describe(fields: &[IrField]) -> String {
     fields
         .iter()
         .filter(|f| !f.builtin || f.name == "id")
-        .filter(|f| !(hide && (f.pii || f.encrypted)))
+        .filter(|f| !(f.pii || f.encrypted))
         .map(|f| f.name.as_str())
         .collect::<Vec<_>>()
         .join(", ")
@@ -162,7 +162,7 @@ impl Mcp {
             let Some(e) = self.ir.entity(name) else {
                 continue;
             };
-            let fields = describe(&e.fields, !self.config.policy.expose_pii);
+            let fields = describe(&e.fields);
             tools.push(json!({
                 "name": format!("list_{name}"),
                 "description": format!("List {name} records you are allowed to read. Fields: {fields}."),
@@ -235,9 +235,6 @@ impl Mcp {
     /// oracle, a sort order ranks them, and the next-page cursor carries the last sort
     /// value), so those are refused as well as omitted.
     fn is_hidden(&self, entity: &str, field: &str) -> bool {
-        if self.config.policy.expose_pii {
-            return false;
-        }
         let Some(e) = self.ir.entity(entity) else {
             return true;
         };

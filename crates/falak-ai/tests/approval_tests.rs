@@ -226,8 +226,8 @@ async fn a_rejected_proposal_never_runs() {
 }
 
 #[tokio::test]
-async fn personal_data_fields_are_omitted_unless_allowed() {
-    for expose in [false, true] {
+async fn personal_data_fields_are_always_omitted() {
+    {
         let w = world_with(clarity_ir()).await;
         let (s, doc) = rest(
             &w.app,
@@ -238,8 +238,7 @@ async fn personal_data_fields_are_omitted_unless_allowed() {
         )
         .await;
         assert_eq!(s, StatusCode::CREATED, "{doc}");
-        let mut config = McpConfig::new(&w.ir, &["document".to_owned()]).unwrap();
-        config.policy.expose_pii = expose;
+        let config = McpConfig::new(&w.ir, &["document".to_owned()]).unwrap();
         let app = mcp_router(w.ir.clone(), config, Arc::new(DevAuthenticator), w.app);
 
         let (_, v) = call_tool(&app, ALICE, "list_document", json!({})).await;
@@ -254,8 +253,8 @@ async fn personal_data_fields_are_omitted_unless_allowed() {
             .to_owned();
         for t in [&text, &one] {
             assert!(t.contains("contract"), "non-PII fields stay readable");
-            assert_eq!(t.contains("Jane Smith"), expose, "expose_pii={expose}: {t}");
-            assert_eq!(t.contains("\"body\""), expose, "{t}");
+            assert!(!t.contains("Jane Smith"), "{t}");
+            assert!(!t.contains("\"body\""), "{t}");
         }
     }
 }
@@ -291,17 +290,16 @@ fn a_model_provider_must_be_listed_and_public() {
     );
 }
 
-async fn clarity_app(expose: bool, writes: bool) -> axum::Router {
+async fn clarity_app(writes: bool) -> axum::Router {
     let w = world_with(clarity_ir()).await;
     let mut config = McpConfig::new(&w.ir, &["document".to_owned()]).unwrap();
-    config.policy.expose_pii = expose;
     config.writes = writes;
     mcp_router(w.ir.clone(), config, Arc::new(DevAuthenticator), w.app)
 }
 
 #[tokio::test]
 async fn personal_data_cannot_be_probed_by_filtering_or_sorting_or_read_from_the_schema() {
-    let app = clarity_app(false, false).await;
+    let app = clarity_app(false).await;
     for (title, body) in [("a", "zzz secret one"), ("b", "aaa secret two")] {
         let (s, _) = rest(
             &app,

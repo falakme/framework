@@ -518,10 +518,10 @@ fn mcp_config(ir: &Ir) -> Option<falak_ai::mcp::McpConfig> {
     match falak_ai::mcp::McpConfig::new(ir, &names) {
         Ok(mut c) if !c.entities.is_empty() => {
             // Writes are proposals a person approves (FALAK_MCP_WRITES=approval). `pii` and encrypted
-            // fields are omitted unless FALAK_AI_EXPOSE_PII=1. FALAK_AI_ALLOW lists model hosts.
+            // fields are never exposed to the model. FALAK_AI_ALLOW is parsed but not enforced: no
+            // outbound model call exists yet.
             c.writes = std::env::var("FALAK_MCP_WRITES").as_deref() == Ok("approval");
             c.policy = falak_ai::egress::AiPolicy::from_env();
-            c.policy.expose_pii = std::env::var("FALAK_AI_EXPOSE_PII").as_deref() == Ok("1");
             Some(c)
         }
         Ok(_) => None,
