@@ -55,7 +55,7 @@ fi
 
 echo "==> Restoring from ${ARCHIVE_FILE} into target database..."
 
-if command -v pg_restore >/dev/null 2>&1; then
+if [ "${FALAK_PG_DOCKER:-}" != "1" ] && command -v pg_restore >/dev/null 2>&1; then
   PG_RESTORE_CMD="pg_restore"
 elif command -v docker >/dev/null 2>&1; then
   PG_RESTORE_CMD="docker run --rm --network host -i postgres:16-alpine pg_restore"

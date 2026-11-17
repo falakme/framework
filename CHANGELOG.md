@@ -29,6 +29,7 @@ Milestones M5 to M8 and a review of the whole code base. Every publishable crate
 * The compose files in `deploy/office/` no longer publish plain-HTTP ports on every interface: the stack is reached through a proxy, and the high-availability file binds to `127.0.0.1` unless `OFFICE_BIND` says otherwise. Containers drop all capabilities and cannot gain new privileges.
 * `falak` refuses to send a password, token or signed request to an Office URL that is not `https` (or `http` to this machine). `.falak/` is created readable by its owner only.
 * `/metrics` on Office answers `404` unless `FALAK_METRICS_TOKEN` is set and not empty.
+* A saga now survives Office stopping half way. Its id comes from the event that starts it, a publisher's retry starts it if the first attempt did not, and Office re-sends a step that was never stored or moves on a saga whose step was applied but never followed up. Before, such a saga could be lost or stay `running` for good.
 
 ### Security
 

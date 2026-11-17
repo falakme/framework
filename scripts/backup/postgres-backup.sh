@@ -11,6 +11,8 @@
 #   DATABASE_URL   - PostgreSQL connection string (required if not using standard PG* vars)
 #   BACKUP_DIR     - Target directory for backups (default: ./backups)
 #   BACKUP_NAME    - Optional backup archive prefix (default: falak_backup_<timestamp>)
+#   FALAK_PG_DOCKER - set to 1 to run pg_dump from the postgres:16-alpine image even if pg_dump is
+#                     installed (a client newer than the server writes a dump the server cannot read)
 
 set -euo pipefail
 
@@ -29,7 +31,7 @@ MANIFEST_FILE="${BACKUP_DIR}/${BACKUP_NAME}.sha256"
 
 echo "==> Creating PostgreSQL backup: ${ARCHIVE_FILE}"
 
-if command -v pg_dump >/dev/null 2>&1; then
+if [ "${FALAK_PG_DOCKER:-}" != "1" ] && command -v pg_dump >/dev/null 2>&1; then
   PG_DUMP_CMD="pg_dump"
 elif command -v docker >/dev/null 2>&1; then
   # Fallback to dockerized pg_dump

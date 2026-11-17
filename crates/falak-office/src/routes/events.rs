@@ -20,7 +20,7 @@ use falak_core::outbox::signing_message;
 use falak_runtime_native::context::extract_request_id;
 use serde_json::{Value as Json, json};
 
-use super::{Shared, body_json, fail, field, json_response, new_id, sha256_hex};
+use super::{Shared, body_json, fail, field, json_response, sha256_hex};
 use crate::{
     Office,
     db::{int, t, text},
@@ -37,6 +37,7 @@ const MAX_CLAIM: i64 = 100;
 const MAX_PAYLOAD: usize = 64 * 1024;
 
 static LAST_PRUNE: AtomicI64 = AtomicI64::new(0);
+static LAST_SAGA_SWEEP: AtomicI64 = AtomicI64::new(0);
 
 fn conflict_err(code: &'static str, m: &str) -> Error {
     crate::conflict(code, m)
@@ -171,24 +172,71 @@ impl Office {
 
     // ------------------------------------------------------------ sagas
 
-    /// Start every saga of `owner` that begins on this event.
-    async fn start_sagas(&self, owner: &str, contract: &Contract, event: &str, payload: &str) {
+    /// Start every saga of `owner` that begins on this event. A saga's id comes from the
+    /// event and the saga's name, so starting it again (the publisher sends the event
+    /// again after Office stopped half way) finds the saga and sends its first step again;
+    /// the step's event id is fixed, so that stores nothing twice.
+    async fn start_sagas(
+        &self,
+        owner: &str,
+        contract: &Contract,
+        event_id: &str,
+        event: &str,
+        payload: &str,
+    ) {
         let Some(sagas) = contract.0["sagas"].as_array() else {
             return;
         };
         for s in sagas.iter().filter(|s| s["start"] == event) {
-            let id = new_id();
-            let def = s.to_string();
             let name = s["name"].as_str().unwrap_or("");
+            let id = format!("{event_id}:{name}");
+            let def = s.to_string();
             let made = self
                 .db
                 .run(
-                    "INSERT INTO office_sagas (id, saga, owner, def, status, step, payload, updated_at) VALUES (?, ?, ?, ?, 'running', 0, ?, ?)",
+                    "INSERT INTO office_sagas (id, saga, owner, def, status, step, payload, updated_at) VALUES (?, ?, ?, ?, 'running', 0, ?, ?) ON CONFLICT (id) DO NOTHING",
                     vec![t(&id), t(name), t(owner), t(&def), t(payload), Value::Int64(now())],
                 )
                 .await;
-            if made.is_ok() {
-                self.saga_send(&id, owner, s, "step", 0, payload).await;
+            if made.is_err() {
+                continue;
+            }
+            // Only a saga still at its first step needs its first command (again).
+            if let Ok(Some((_, status, _, _, step))) = self.saga_row(&id).await {
+                if status == "running" && step == 0 {
+                    self.saga_send(&id, owner, s, "step", 0, payload).await;
+                }
+            }
+        }
+    }
+
+    /// Sagas that a stop of Office left half way: a step whose delivery is done but whose
+    /// next step was never sent, or a step whose command event was never stored. Run
+    /// from the claim route, at most every few seconds.
+    async fn recover_sagas(&self) {
+        let rows = self
+            .db
+            .rows(
+                "SELECT s.id, s.step, \
+                   (SELECT COUNT(*) FROM office_events e WHERE e.id = s.id || ':step:' || CAST(s.step AS TEXT)), \
+                   (SELECT COUNT(*) FROM office_events e JOIN office_deliveries d ON d.seq = e.seq \
+                      WHERE e.id = s.id || ':step:' || CAST(s.step AS TEXT) AND d.status <> 'done') \
+                 FROM office_sagas s WHERE s.status = 'running' ORDER BY s.updated_at LIMIT 100",
+                vec![],
+            )
+            .await
+            .unwrap_or_default();
+        for r in rows {
+            let (id, step) = (text(r.first()), int(r.get(1)));
+            let (stored, open) = (int(r.get(2)), int(r.get(3)));
+            let Ok(Some((def, _, payload, owner, _))) = self.saga_row(&id).await else {
+                continue;
+            };
+            if stored == 0 {
+                self.saga_send(&id, &owner, &def, "step", step as usize, &payload)
+                    .await;
+            } else if open == 0 {
+                self.saga_done(&id, "step", step as usize).await;
             }
         }
     }
@@ -277,10 +325,18 @@ impl Office {
     }
 
     async fn saga(&self, id: &str) -> Result<Option<(Json, String, String, String)>> {
+        Ok(self
+            .saga_row(id)
+            .await?
+            .map(|(def, status, payload, owner, _)| (def, status, payload, owner)))
+    }
+
+    /// A saga's definition, status, payload, owner and current step.
+    async fn saga_row(&self, id: &str) -> Result<Option<(Json, String, String, String, i64)>> {
         let rows = self
             .db
             .rows(
-                "SELECT def, status, payload, owner FROM office_sagas WHERE id = ?",
+                "SELECT def, status, payload, owner, step FROM office_sagas WHERE id = ?",
                 vec![t(id)],
             )
             .await?;
@@ -290,6 +346,7 @@ impl Office {
                 text(r.get(1)),
                 text(r.get(2)),
                 text(r.get(3)),
+                int(r.get(4)),
             ))
         }))
     }
@@ -515,8 +572,9 @@ pub async fn publish(State(o): State<Shared>, req: Request) -> Response {
         let seq = o.store_event(&ev, &subscribers).await?;
         if fresh {
             o.tally("event_published", &who.name).await;
-            o.start_sagas(&who.name, &contract, name, payload).await;
         }
+        // Also for an event stored before: Office may have stopped before it started the sagas.
+        o.start_sagas(&who.name, &contract, id, name, payload).await;
         Ok::<_, Error>(json!({"seq": seq}))
     };
     match run.await {
@@ -543,6 +601,10 @@ pub async fn claim(State(o): State<Shared>, req: Request) -> Response {
         if t0 - LAST_PRUNE.load(Ordering::Relaxed) > 60 {
             LAST_PRUNE.store(t0, Ordering::Relaxed);
             o.prune_events().await;
+        }
+        if t0 - LAST_SAGA_SWEEP.load(Ordering::Relaxed) > 3 {
+            LAST_SAGA_SWEEP.store(t0, Ordering::Relaxed);
+            o.recover_sagas().await;
         }
         let rows = o
             .db

@@ -245,6 +245,9 @@ jobs:
           docker run -d --name falak-test-postgres -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54321:5432 postgres:16-alpine
           for _ in $(seq 1 30); do docker exec falak-test-postgres pg_isready -U postgres && break; sleep 1; done
       - name: Backup and restore
+        env:
+          # The runner's pg_dump is newer than the server (16): use the matching client.
+          FALAK_PG_DOCKER: "1"
         run: bash scripts/smoke/postgres-backup-restore.sh
 
   # Sign-in through a real OpenID Connect provider: Dex, an independent open-source server.
