@@ -45,6 +45,33 @@ impl Default for SqliteConfig {
     }
 }
 
+/// Owns the temporary database file behind an "in-memory" driver and removes it, with its
+/// WAL and shared-memory files, when the last clone of the driver is dropped.
+struct TempDbFile(std::path::PathBuf);
+
+impl TempDbFile {
+    fn sidecars(path: &std::path::Path) -> [std::path::PathBuf; 3] {
+        let with = |suffix: &str| {
+            let mut name = path.as_os_str().to_owned();
+            name.push(suffix);
+            std::path::PathBuf::from(name)
+        };
+        [path.to_path_buf(), with("-wal"), with("-shm")]
+    }
+
+    fn remove_files(path: &std::path::Path) {
+        for f in Self::sidecars(path) {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+}
+
+impl Drop for TempDbFile {
+    fn drop(&mut self) {
+        Self::remove_files(&self.0);
+    }
+}
+
 /// A SQLite storage driver providing WAL mode, single dedicated writer,
 /// and concurrent reader pool.
 #[derive(Clone)]
@@ -52,6 +79,8 @@ pub struct SqliteDriver {
     writer_pool: SqlitePool,
     reader_pool: SqlitePool,
     writer_lock: Arc<Mutex<()>>,
+    // Declared last so the pools are dropped before the files are removed.
+    _temp_file: Option<Arc<TempDbFile>>,
 }
 
 impl SqliteDriver {
@@ -61,11 +90,18 @@ impl SqliteDriver {
 
         // If in-memory is requested, assign a distinct temporary file on disk with WAL
         // mode so writers and readers enjoy real WAL snapshot isolation without schema locks.
+        let mut temp_file = None;
         let effective_url = if is_memory {
             let id = DB_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path =
                 std::env::temp_dir().join(format!("falak_mem_{}_{}.db", std::process::id(), id));
-            format!("sqlite://{}", path.display())
+            // Process ids are reused and these files used to be left behind, so a file
+            // from an earlier run (possibly with an older `_falak_migrations` layout)
+            // can already sit at this path. An in-memory database must start empty.
+            TempDbFile::remove_files(&path);
+            let url = format!("sqlite://{}", path.display());
+            temp_file = Some(Arc::new(TempDbFile(path)));
+            url
         } else {
             config.url.clone()
         };
@@ -121,6 +157,7 @@ impl SqliteDriver {
             writer_pool,
             reader_pool,
             writer_lock: Arc::new(Mutex::new(())),
+            _temp_file: temp_file,
         })
     }
 
