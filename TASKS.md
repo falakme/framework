@@ -2,20 +2,15 @@
 
 What is still open, as of the 1.1.1 release work. The architecture is in [ARCHITECTURE.md](./ARCHITECTURE.md). Release history is in [CHANGELOG.md](./CHANGELOG.md).
 
-## Release 1.1.1
+## Release
 
-- [ ] Publish the 16 workspace crates to crates.io at 1.1.1 with `scripts/release/publish.py`. The owner's token is needed.
-- [ ] Tag `v1.1.1` and create the GitHub release.
-- [ ] Yank `falak-ledger` 1.1.0 from crates.io (`cargo yank --version 1.1.0 falak-ledger`). The crate was removed from the framework.
+- [x] Published 1.1.1 to crates.io (16 crates), tagged `v1.1.1`, created the GitHub release.
+- [x] Yanked `falak-ledger` 1.1.0 from crates.io.
 
 ## Verification
 
 - [ ] Build `examples/notebook/Dockerfile` on a machine with about 6 GB of Docker memory, or on Coolify. The local build ran out of memory.
-- [ ] Re-run the Coolify workspace test build after any change to `main`.
-
-## Security follow-up
-
-- [ ] Rotate the password of the Coolify test database `falak-test-db-2`. It appeared in tool output during the test-infrastructure work. The database holds test data only.
+- [ ] The Coolify test app ("Falak workspace tests") needs a new PostgreSQL database and its `DATABASE_URL`, `FALAK_TEST_PG_URL` and `FALAK_TEST_PG_ADMIN_URL` set again. Its test database was deleted, so its next build fails.
 
 ## Known limits
 
