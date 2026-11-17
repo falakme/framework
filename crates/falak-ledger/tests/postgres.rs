@@ -382,3 +382,27 @@ async fn checkout_saga_moves_money_or_gives_it_back() {
     assert_eq!(l.balance(&school).await.unwrap(), 400);
     assert!(l.invariants().await.unwrap().holds());
 }
+
+#[tokio::test]
+async fn an_account_whose_sum_leaves_the_i64_range_still_works() {
+    let Some(l) = ledger().await else { return };
+    // A bank may go negative and only collects debits: two huge transfers take it past
+    // i64::MIN. Reading its balance used to fail, and with it every command that touched
+    // it and the ledger-wide invariants check.
+    let bank = id("bank");
+    l.create_account(&bank, usd(), true).await.unwrap();
+    for _ in 0..2 {
+        let to = id("acct");
+        l.create_account(&to, usd(), false).await.unwrap();
+        l.execute(&id("big"), &transfer(&bank, &to, 9_000_000_000_000_000_000))
+            .await
+            .unwrap();
+    }
+    assert_eq!(l.balance(&bank).await.unwrap(), i64::MIN);
+    let to = id("acct");
+    l.create_account(&to, usd(), false).await.unwrap();
+    l.execute(&id("more"), &transfer(&bank, &to, 1))
+        .await
+        .unwrap();
+    assert!(l.invariants().await.unwrap().holds());
+}

@@ -42,12 +42,16 @@ const SQLITE_TRIGGERS: [&str; 2] = [
      BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END",
 ];
 
-const POSTGRES_TRIGGERS: [&str; 3] = [
+const POSTGRES_TRIGGERS: [&str; 5] = [
     "CREATE OR REPLACE FUNCTION falak_audit_immutable() RETURNS trigger AS $$ \
      BEGIN RAISE EXCEPTION 'the audit log is append-only'; END $$ LANGUAGE plpgsql",
     "DROP TRIGGER IF EXISTS falak_audit_immutable ON falak_audit",
     "CREATE TRIGGER falak_audit_immutable BEFORE UPDATE OR DELETE ON falak_audit \
      FOR EACH ROW EXECUTE FUNCTION falak_audit_immutable()",
+    // A row trigger does not fire for TRUNCATE, which would wipe the log in one statement.
+    "DROP TRIGGER IF EXISTS falak_audit_immutable_truncate ON falak_audit",
+    "CREATE TRIGGER falak_audit_immutable_truncate BEFORE TRUNCATE ON falak_audit \
+     FOR EACH STATEMENT EXECUTE FUNCTION falak_audit_immutable()",
 ];
 
 const COLUMNS: &str = "seq, at_micros, actor, action, target, outcome, details, prev_hash, hash";
@@ -298,11 +302,34 @@ impl<D: StorageDriver, C: Clock> AuditLog<D, C> {
                 None => Ok(()),
             };
         }
+        // The log is read whole, so it must begin at its beginning. `chain::verify` lets a
+        // page from the middle stand alone; here a first entry that is not seq 1 means
+        // the oldest entries were removed, which no anchor taken later would reveal.
+        if all[0].seq != 1 {
+            return Err(VerifyError::Tampered(Failure {
+                seq: all[0].seq,
+                problem: crate::chain::Problem::BadStart,
+            }));
+        }
         verify(&all, anchor).map_err(VerifyError::Tampered)
     }
 
     /// The hash the next entry will chain from.
     pub async fn head(&self) -> Result<[u8; 32]> {
         Ok(self.last().await?.map_or(GENESIS, |e| e.hash))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_refuses_truncate_as_well_as_update_and_delete() {
+        assert!(
+            POSTGRES_TRIGGERS
+                .iter()
+                .any(|s| s.contains("BEFORE TRUNCATE ON falak_audit"))
+        );
     }
 }

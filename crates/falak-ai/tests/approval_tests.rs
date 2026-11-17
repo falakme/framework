@@ -290,3 +290,77 @@ fn a_model_provider_must_be_listed_and_public() {
             .is_err()
     );
 }
+
+async fn clarity_app(expose: bool, writes: bool) -> axum::Router {
+    let w = world_with(clarity_ir()).await;
+    let mut config = McpConfig::new(&w.ir, &["document".to_owned()]).unwrap();
+    config.policy.expose_pii = expose;
+    config.writes = writes;
+    mcp_router(w.ir.clone(), config, Arc::new(DevAuthenticator), w.app)
+}
+
+#[tokio::test]
+async fn personal_data_cannot_be_probed_by_filtering_or_sorting_or_read_from_the_schema() {
+    let app = clarity_app(false, false).await;
+    for (title, body) in [("a", "zzz secret one"), ("b", "aaa secret two")] {
+        let (s, _) = rest(
+            &app,
+            ALICE,
+            "POST",
+            "/v1/documents",
+            Some(json!({"title": title, "body": body})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::CREATED);
+    }
+    // Neither the description nor the schema names the hidden field.
+    let (_, v) = rpc(&app, Some(ALICE), "tools/list", json!({})).await;
+    assert!(!v.to_string().contains("body"), "{v}");
+
+    // A filter on it is a yes/no question about its value; a sort ranks it and the
+    // next-page cursor would carry the last value. All are refused.
+    for args in [
+        json!({"filters": {"body": "zzz secret one"}}),
+        json!({"filters": {"BODY": "zzz secret one"}}),
+        json!({"filters": {"body][eq": "x"}}),
+        json!({"sort": "body"}),
+        json!({"sort": "-body"}),
+        json!({"sort": "title,-body", "page_size": 1}),
+    ] {
+        let (_, v) = call_tool(&app, ALICE, "list_document", args.clone()).await;
+        assert_eq!(v["result"]["isError"], true, "{args}: {v}");
+        assert!(!v.to_string().contains("secret"), "{args}: {v}");
+    }
+    // Ordinary filters and sorts still work.
+    let (_, v) = call_tool(
+        &app,
+        ALICE,
+        "list_document",
+        json!({"filters": {"title": "a"}, "sort": "-title"}),
+    )
+    .await;
+    assert_eq!(v["result"]["isError"], false, "{v}");
+    assert!(!v.to_string().contains("secret"));
+}
+
+#[tokio::test]
+async fn an_agent_cannot_queue_proposals_without_bound() {
+    let (app, alice_note, _) = with_writes().await;
+    let mut refused = false;
+    for _ in 0..(falak_ai::approval::MAX_PENDING_PER_SUBJECT + 5) {
+        let (_, v) = call_tool(&app, ALICE, "delete_note", json!({"id": alice_note})).await;
+        if v["result"]["isError"] == true {
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused, "the queue must have a limit");
+    // Bob's queue is separate: Alice's agent cannot crowd him out.
+    let (_, v) = call_tool(&app, BOB, "delete_note", json!({"id": alice_note})).await;
+    assert_eq!(v["result"]["isError"], false, "{v}");
+    let (_, listed) = rest(&app, ALICE, "GET", "/mcp/approvals", None).await;
+    assert_eq!(
+        listed["proposals"].as_array().unwrap().len(),
+        falak_ai::approval::MAX_PENDING_PER_SUBJECT
+    );
+}

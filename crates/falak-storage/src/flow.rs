@@ -197,6 +197,26 @@ impl<B: ObjectBackend> FileFlow<B> {
         match verdict {
             Ok(()) => {
                 self.backend.copy(&from, &to).await?;
+                // The upload URL stays valid for its whole lifetime and the client can
+                // write to the quarantine key at any moment, so what was checked may not
+                // be what was copied. The copy cannot be changed by the client: check
+                // that, and only then call the file clean.
+                let copied = async {
+                    if self.backend.size(&to).await? != Some(declared_size) {
+                        return Err(Error::invalid_input(
+                            "file_size",
+                            "the file is not the size that was declared",
+                        ));
+                    }
+                    let head = self.backend.head(&to, SNIFF_BYTES).await?;
+                    check_declared(declared_type, &head).map_err(|r| refusal(&r))
+                }
+                .await;
+                if let Err(e) = copied {
+                    let _ = self.backend.delete(&to).await;
+                    self.backend.delete(&from).await?;
+                    return Err(e);
+                }
                 self.backend.delete(&from).await?;
                 Ok(to)
             }
@@ -322,6 +342,56 @@ mod tests {
         assert_eq!(err.code(), "file_content_mismatch");
         assert!(!f.backend.has(&q));
         assert!(!f.backend.has(&format!("files/{T}/{ID}")));
+    }
+
+    /// A store whose quarantine object is replaced by the client after the check and
+    /// before the copy: the URL is still valid, so the client can do this.
+    struct Swapping {
+        inner: MemoryBackend,
+        swap_on_copy: Vec<u8>,
+    }
+
+    impl ObjectBackend for Swapping {
+        async fn size(&self, key: &str) -> Result<Option<u64>> {
+            self.inner.size(key).await
+        }
+        async fn head(&self, key: &str, n: usize) -> Result<Vec<u8>> {
+            self.inner.head(key, n).await
+        }
+        async fn copy(&self, from: &str, to: &str) -> Result<()> {
+            self.inner.put(from, &self.swap_on_copy);
+            self.inner.copy(from, to).await
+        }
+        async fn delete(&self, key: &str) -> Result<()> {
+            self.inner.delete(key).await
+        }
+    }
+
+    #[test]
+    fn a_file_swapped_after_the_check_is_not_published() {
+        let f = flow();
+        let swapping = FileFlow {
+            config: f.config.clone(),
+            limits: f.limits,
+            backend: Swapping {
+                inner: MemoryBackend::default(),
+                // Same length, no longer a PNG.
+                swap_on_copy: {
+                    let mut v = b"MZ".to_vec();
+                    v.resize(PNG.len() + 10, b'x');
+                    v
+                },
+            },
+        };
+        let q = format!("quarantine/{T}/{ID}");
+        let mut good = PNG.to_vec();
+        good.extend_from_slice(&[0; 10]);
+        swapping.backend.inner.put(&q, &good);
+        let err = block_on(swapping.finish_upload(Some(T), ID, "image/png", good.len() as u64))
+            .unwrap_err();
+        assert_eq!(err.code(), "file_content_mismatch");
+        assert!(!swapping.backend.inner.has(&format!("files/{T}/{ID}")));
+        assert!(!swapping.backend.inner.has(&q));
     }
 
     #[test]

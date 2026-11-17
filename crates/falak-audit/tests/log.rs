@@ -192,3 +192,32 @@ async fn oversized_fields_are_refused() {
         .unwrap_err();
     assert_eq!(e.code(), "audit_details_too_long");
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn removing_the_oldest_entries_is_found_without_an_anchor() {
+    let driver = SqliteDriver::in_memory().await.unwrap();
+    let log = AuditLog::new(
+        driver.clone(),
+        Tick(AtomicI64::new(1)),
+        Placeholders::Question,
+    );
+    log.migrate().await.unwrap();
+    fill(&log, 5).await;
+    for sql in [
+        "DROP TRIGGER falak_audit_no_delete",
+        "DELETE FROM falak_audit WHERE seq <= 2",
+    ] {
+        driver
+            .batch(&ctx(), vec![Statement::new(sql, vec![])])
+            .await
+            .unwrap();
+    }
+    // The rest is a valid chain from seq 3, but the log no longer starts at its start.
+    match log.verify(None).await {
+        Err(VerifyError::Tampered(f)) => {
+            assert_eq!(f.seq, 3);
+            assert_eq!(f.problem, Problem::BadStart);
+        }
+        other => panic!("expected a tamper finding, got {other:?}"),
+    }
+}

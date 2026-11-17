@@ -52,6 +52,38 @@ fn a_container_is_non_root_read_only_limited_and_has_no_network() {
     }
     assert!(args.ends_with("registry.example.com/scan:1 python main.py"));
     assert!(!args.contains("--privileged"));
+    // The credential travels in the engine's environment, not on its command line.
+    assert!(!args.contains("jt_x"), "{args}");
+    assert!(args.contains("-e FALAK_JOB_TOKEN"));
+}
+
+#[test]
+fn an_image_or_id_that_would_be_read_as_an_engine_option_is_refused() {
+    use falak_worker::runner::validate;
+    let mut s = spec(&["x"]);
+    assert!(validate(&request(&s, "{}")).is_ok());
+    for image in ["--privileged", "-v=/:/host", "a b", ""] {
+        s.image = image.into();
+        assert!(
+            matches!(validate(&request(&s, "{}")), Err(RunError::Fatal(_))),
+            "{image:?}"
+        );
+    }
+    let s = spec(&["x"]);
+    for id in ["../x", "a:b", "a/b", ""] {
+        let mut r = request(&s, "{}");
+        r.job_id = id;
+        assert!(validate(&r).is_err(), "{id:?}");
+    }
+    // The process runner refuses too, before it starts anything.
+    let mut bad = spec(&["true"]);
+    bad.image = "--privileged".into();
+    let e = ProcessRunner {
+        requirements_dir: None,
+    }
+    .run(&request(&bad, "{}"), &AtomicBool::new(false))
+    .unwrap_err();
+    assert!(matches!(e, RunError::Fatal(_)));
 }
 
 #[test]

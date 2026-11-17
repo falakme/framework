@@ -79,6 +79,8 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         return is_public_v4(v4);
     }
     !(ip.is_unspecified()                      // ::
+        || s[..6] == [0, 0, 0, 0, 0, 0]        // ::/96 IPv4-compatible (::7f00:1 is 127.0.0.1)
+        || (s[0] == 0x0064 && s[1] == 0xff9b)  // 64:ff9b:1::/48 local-use NAT64 and the rest
         || ip.is_loopback()                    // ::1
         || ip.is_multicast()                   // ff00::/8
         || (s[0] & 0xfe00) == 0xfc00           // fc00::/7 unique local
@@ -86,7 +88,8 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (s[0] & 0xffc0) == 0xfec0           // fec0::/10 site-local (deprecated)
         || (s[0] == 0x2001 && s[1] == 0x0db8)  // 2001:db8::/32 documentation
         || (s[0] == 0x0100 && s[1..4] == [0, 0, 0]) // 100::/64 discard
-        || (s[0] == 0x2001 && s[1] == 0 )) // 2001::/32 Teredo
+        || (s[0] == 0x2001 && s[1] < 0x0200)   // 2001::/23 IETF protocol assignments, Teredo
+        || (s[0] == 0x3fff && s[1] < 0x1000)) // 3fff::/20 documentation
 }
 
 // ---------------------------------------------------------------- allow-list
@@ -255,7 +258,10 @@ pub fn parse_url(url: &str) -> Result<Target> {
         // Forms like `2130706433`, `0x7f.1` or `127.1` that some stacks read as IPv4.
         return Err(deny("egress_bad_url"));
     } else {
-        let name = host_text.trim_end_matches('.').to_ascii_lowercase();
+        let name = host_text
+            .strip_suffix('.')
+            .unwrap_or(host_text)
+            .to_ascii_lowercase();
         if !valid_hostname(&name) {
             return Err(deny("egress_bad_url"));
         }
@@ -408,6 +414,12 @@ mod tests {
             "64:ff9b::7f00:1",
             "2002:7f00:1::1",
             "fec0::1",
+            "::7f00:1",    // IPv4-compatible 127.0.0.1
+            "::a9fe:a9fe", // IPv4-compatible 169.254.169.254
+            "::8.8.8.8",
+            "64:ff9b:1::1",
+            "2001:1::1",
+            "3fff::1",
         ] {
             assert!(!is_public(ip(private)), "{private}");
         }
@@ -565,9 +577,17 @@ mod tests {
             "https://[::1/",
             "//api.example.com/",
             "javascript:alert(1)",
+            "https://api.example.com../",
         ] {
             assert!(p.check(url, &r).is_err(), "{url:?}");
         }
+    }
+
+    #[test]
+    fn one_trailing_dot_is_the_same_host() {
+        let p = policy(&["api.example.com"]);
+        let r = dns(&[("api.example.com", &["93.184.216.34"])]);
+        assert!(p.check("https://api.example.com./x", &r).is_ok());
     }
 
     #[test]

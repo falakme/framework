@@ -122,6 +122,17 @@ fn classify(e: sqlx::Error) -> Fail {
     }
 }
 
+/// `SUM(amount)` as a `bigint` that cannot fail. The sum of many valid `bigint` entries
+/// can leave the `bigint` range (an account that is allowed to go negative, such as a
+/// bank, only ever collects debits), and a bare `::bigint` cast would then error on every
+/// command that reads that account. Clamping keeps the sign and the ordering that the
+/// callers use.
+fn sum_of(expr: &str) -> String {
+    format!(
+        "GREATEST(LEAST(COALESCE({expr}, 0), 9223372036854775807), -9223372036854775808)::bigint"
+    )
+}
+
 fn jitter_millis(max: u64) -> u64 {
     let bytes = *Uuid::new_v4().as_bytes();
     u64::from_le_bytes([
@@ -214,9 +225,10 @@ impl Ledger {
     }
 
     pub async fn balance(&self, id: &str) -> Result<i64> {
-        sqlx::query_scalar(
-            "SELECT COALESCE(SUM(amount), 0)::bigint FROM ledger_entries WHERE account_id = $1",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT {} FROM ledger_entries WHERE account_id = $1",
+            sum_of("SUM(amount)")
+        ))
         .bind(id)
         .fetch_one(&self.pool)
         .await
@@ -427,11 +439,11 @@ impl Ledger {
         .fetch_one(&self.pool)
         .await
         .map_err(db_err)?;
-        let row = sqlx::query(
-            "SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0)::bigint, \
-                    COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)::bigint \
-             FROM ledger_entries",
-        )
+        let row = sqlx::query(&format!(
+            "SELECT {}, {} FROM ledger_entries",
+            sum_of("SUM(amount) FILTER (WHERE amount > 0)"),
+            sum_of("-SUM(amount) FILTER (WHERE amount < 0)")
+        ))
         .fetch_one(&self.pool)
         .await
         .map_err(db_err)?;
@@ -470,9 +482,10 @@ async fn load_facts(
                 hold_of: row.get(1),
             },
         );
-        let balance: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(amount), 0)::bigint FROM ledger_entries WHERE account_id = $1",
-        )
+        let balance: i64 = sqlx::query_scalar(&format!(
+            "SELECT {} FROM ledger_entries WHERE account_id = $1",
+            sum_of("SUM(amount)")
+        ))
         .bind(id)
         .fetch_one(&mut **tx)
         .await

@@ -139,10 +139,16 @@ fn json_response(status: StatusCode, v: &Value) -> Response {
     r
 }
 
-fn describe(fields: &[IrField]) -> String {
+/// A name the REST API takes as a field: nothing that could carry extra query syntax.
+fn plain_name(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+fn describe(fields: &[IrField], hide: bool) -> String {
     fields
         .iter()
         .filter(|f| !f.builtin || f.name == "id")
+        .filter(|f| !(hide && (f.pii || f.encrypted)))
         .map(|f| f.name.as_str())
         .collect::<Vec<_>>()
         .join(", ")
@@ -156,7 +162,7 @@ impl Mcp {
             let Some(e) = self.ir.entity(name) else {
                 continue;
             };
-            let fields = describe(&e.fields);
+            let fields = describe(&e.fields, !self.config.policy.expose_pii);
             tools.push(json!({
                 "name": format!("list_{name}"),
                 "description": format!("List {name} records you are allowed to read. Fields: {fields}."),
@@ -224,6 +230,23 @@ impl Mcp {
         tools
     }
 
+    /// Fields of `entity` the model may not see: `pii` and encrypted ones. Filtering or
+    /// sorting on one would still tell the model about its values (a match is a yes/no
+    /// oracle, a sort order ranks them, and the next-page cursor carries the last sort
+    /// value), so those are refused as well as omitted.
+    fn is_hidden(&self, entity: &str, field: &str) -> bool {
+        if self.config.policy.expose_pii {
+            return false;
+        }
+        let Some(e) = self.ir.entity(entity) else {
+            return true;
+        };
+        // An unknown name is refused by the engine; a known hidden one is refused here.
+        e.fields
+            .iter()
+            .any(|f| (f.pii || f.encrypted) && f.name.eq_ignore_ascii_case(field))
+    }
+
     /// Turn a tool call into the REST path it stands for. `None`: no such tool, or the
     /// entity is not on the allow-list.
     fn route(&self, tool: &str, args: &Value) -> Option<Result<Call, String>> {
@@ -242,6 +265,15 @@ impl Mcp {
                     q.push(format!("page[after]={}", enc(c)));
                 }
                 if let Some(s) = args["sort"].as_str() {
+                    for part in s.split(',') {
+                        let name = part.trim().trim_start_matches('-');
+                        if part.trim().is_empty() {
+                            continue;
+                        }
+                        if !plain_name(name) || self.is_hidden(entity, name) {
+                            return Some(Err("that field cannot be used to sort".into()));
+                        }
+                    }
                     q.push(format!("sort={}", enc(s)));
                 }
                 if let Some(f) = args["filters"].as_object() {
@@ -249,6 +281,9 @@ impl Mcp {
                         let Some(v) = v.as_str() else {
                             return Some(Err("filter values must be text".into()));
                         };
+                        if !plain_name(k) || self.is_hidden(entity, k) {
+                            return Some(Err("that field cannot be used to filter".into()));
+                        }
                         q.push(format!("filter[{}]={}", enc(k), enc(v)));
                     }
                 }
@@ -431,9 +466,25 @@ async fn handle(State(mcp): State<Arc<Mcp>>, headers: HeaderMap, body: Bytes) ->
                     let Some(who) = mcp.principal(&headers) else {
                         return StatusCode::UNAUTHORIZED.into_response();
                     };
-                    let p =
-                        mcp.approvals
-                            .propose(&who.subject, tool, method, &path, body, &summary);
+                    let p = match mcp.approvals.propose(
+                        &who.subject,
+                        tool,
+                        method,
+                        &path,
+                        body,
+                        &summary,
+                    ) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            return json_response(
+                                StatusCode::OK,
+                                &json!({"jsonrpc": "2.0", "id": id, "result": tool_result(
+                                    true,
+                                    "too many proposals are waiting for approval; wait for the person to decide or for them to expire",
+                                )}),
+                            );
+                        }
+                    };
                     tool_result(
                         false,
                         &json!({
@@ -490,6 +541,10 @@ fn refusal(r: &Refusal) -> Response {
         Refusal::DigestMismatch => json_response(
             StatusCode::CONFLICT,
             &json!({"error": "the digest does not match the proposal you were shown"}),
+        ),
+        Refusal::TooMany => json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            &json!({"error": "too many proposals are waiting"}),
         ),
         Refusal::Closed => json_response(
             StatusCode::CONFLICT,

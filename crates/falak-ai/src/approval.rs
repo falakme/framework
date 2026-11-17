@@ -29,6 +29,11 @@ use sha2::{Digest, Sha256};
 pub const PROPOSAL_TTL_SECS: u64 = 15 * 60;
 /// The role a fresh proof of the person adds to their token.
 pub const STEP_UP_ROLE: &str = "step_up";
+/// Most proposals one person may have waiting. An agent that loops cannot grow the queue
+/// (and the process's memory) without bound, or bury the person's real proposals.
+pub const MAX_PENDING_PER_SUBJECT: usize = 50;
+/// Longest request body a proposal may carry.
+pub const MAX_PROPOSAL_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -83,6 +88,9 @@ pub enum Refusal {
     DigestMismatch,
     /// Already decided, or expired.
     Closed,
+    /// The person already has the most proposals waiting that is allowed, or this one is
+    /// too large.
+    TooMany,
 }
 
 fn now() -> u64 {
@@ -120,10 +128,12 @@ impl Approvals {
     }
 
     fn note(&self, line: String) {
-        self.log
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push(line);
+        let mut log = self.log.lock().unwrap_or_else(|p| p.into_inner());
+        // The audit trail is the durable record; this copy keeps the newest lines only.
+        if log.len() >= 10_000 {
+            log.drain(..1_000);
+        }
+        log.push(line);
     }
 
     pub fn log(&self) -> Vec<String> {
@@ -138,7 +148,11 @@ impl Approvals {
         path: &str,
         body: Value,
         summary: &str,
-    ) -> Proposal {
+    ) -> Result<Proposal, Refusal> {
+        if body.to_string().len() > MAX_PROPOSAL_BYTES {
+            return Err(Refusal::TooMany);
+        }
+        let t = now();
         let p = Proposal {
             id: random_hex(12),
             subject: subject.to_owned(),
@@ -148,16 +162,28 @@ impl Approvals {
             digest: digest_of(method, path, &body),
             body,
             summary: summary.to_owned(),
-            created: now(),
+            created: t,
             state: State::Pending,
             outcome: None,
         };
+        {
+            let mut items = self.items();
+            // Anything past its time to live is gone for good.
+            items.retain(|_, q| t.saturating_sub(q.created) <= PROPOSAL_TTL_SECS);
+            let waiting = items
+                .values()
+                .filter(|q| q.subject == subject && q.state == State::Pending)
+                .count();
+            if waiting >= MAX_PENDING_PER_SUBJECT {
+                return Err(Refusal::TooMany);
+            }
+            items.insert(p.id.clone(), p.clone());
+        }
         self.note(format!(
             "proposed {} by agent for {subject}: {summary}",
             p.id
         ));
-        self.items().insert(p.id.clone(), p.clone());
-        p
+        Ok(p)
     }
 
     /// The person's own proposals, newest first. Expired ones are dropped.

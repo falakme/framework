@@ -219,7 +219,7 @@ pub fn to_hex(hash: &Hash) -> String {
 
 /// Parse lowercase or uppercase hex into a hash.
 pub fn from_hex(text: &str) -> Option<Hash> {
-    if text.len() != 64 || !text.is_ascii() {
+    if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     let mut out = [0u8; 32];
@@ -398,5 +398,8 @@ mod tests {
         assert_eq!(from_hex(&to_hex(&h)), Some(h));
         assert_eq!(from_hex("zz"), None);
         assert_eq!(from_hex(&"g".repeat(64)), None);
+        // `from_str_radix` alone would accept a sign: one hash, many spellings.
+        let h = to_hex(&h);
+        assert_eq!(from_hex(&format!("+{}", &h[1..])), None);
     }
 }

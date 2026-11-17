@@ -44,6 +44,24 @@ pub trait Runner: Send + Sync {
     fn run(&self, req: &RunRequest, cancel: &AtomicBool) -> Result<Option<Value>, RunError>;
 }
 
+/// Refuse a job whose identifiers would reach the container engine or the file system as
+/// something other than a plain value: a job id or name with `/`, `:` or `..`, an image
+/// that starts with `-` (the engine would read it as an option such as `--privileged`).
+pub fn validate(req: &RunRequest) -> Result<(), RunError> {
+    let image = &req.spec.image;
+    if !crate::egress::safe_id(req.job_id)
+        || !crate::egress::safe_id(&req.spec.name)
+        || image.is_empty()
+        || image.starts_with('-')
+        || image.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(RunError::Fatal(
+            "the job's id, name or image is not a plain value".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Hash check for a job's pinned `uv` requirements: the file the worker would mount must
 /// be exactly the one the contract names.
 pub fn verify_requirements(dir: Option<&Path>, spec: &IrJob) -> Result<Option<PathBuf>, RunError> {
@@ -149,6 +167,7 @@ pub struct ProcessRunner {
 
 impl Runner for ProcessRunner {
     fn run(&self, req: &RunRequest, cancel: &AtomicBool) -> Result<Option<Value>, RunError> {
+        validate(req)?;
         let req_file = verify_requirements(self.requirements_dir.as_deref(), req.spec)?;
         let (program, args) = req
             .spec
@@ -222,13 +241,12 @@ pub fn container_args(req: &RunRequest, name: &str, requirements: Option<&Path>)
     a.extend(["--memory".into(), format!("{}m", s.memory_mb)]);
     a.extend(["--memory-swap".into(), format!("{}m", s.memory_mb)]);
     a.extend(["--cpus".into(), s.cpus.to_string()]);
-    for (k, v) in [
-        ("FALAK_JOB_ID", req.job_id),
-        ("FALAK_JOB_KIND", req.kind),
-        ("FALAK_JOB_TOKEN", req.credential),
-    ] {
+    for (k, v) in [("FALAK_JOB_ID", req.job_id), ("FALAK_JOB_KIND", req.kind)] {
         a.extend(["-e".into(), format!("{k}={v}")]);
     }
+    // No value: the engine takes it from its own environment (see `ContainerRunner`), so
+    // the job's credential is not on a command line that `ps` shows to other users.
+    a.extend(["-e".into(), "FALAK_JOB_TOKEN".into()]);
     a.extend([
         "-e".into(),
         format!("FALAK_EGRESS_ALLOW={}", s.egress.join(",")),
@@ -254,10 +272,12 @@ pub fn container_args(req: &RunRequest, name: &str, requirements: Option<&Path>)
 
 impl Runner for ContainerRunner {
     fn run(&self, req: &RunRequest, cancel: &AtomicBool) -> Result<Option<Value>, RunError> {
+        validate(req)?;
         let requirements = verify_requirements(self.requirements_dir.as_deref(), req.spec)?;
         let name = format!("falak-job-{}", req.job_id);
         let child = Command::new(&self.engine)
             .args(container_args(req, &name, requirements.as_deref()))
+            .env("FALAK_JOB_TOKEN", req.credential)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

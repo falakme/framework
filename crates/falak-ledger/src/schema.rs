@@ -165,7 +165,11 @@ pub fn schema_sql(app_role: Option<&str>) -> Result<String> {
             && role
                 .chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-            && !role.starts_with(|c: char| c.is_ascii_digit());
+            && !role.starts_with(|c: char| c.is_ascii_digit())
+            // `public` names every role, so granting to it would undo the point; `pg_`
+            // names are reserved for the server's own roles.
+            && role != "public"
+            && !role.starts_with("pg_");
         if !ok {
             return Err(Error::invalid_input(
                 "ledger_bad_role",
@@ -198,6 +202,8 @@ mod tests {
     fn role_name_is_checked() {
         assert!(schema_sql(Some("x; DROP TABLE y")).is_err());
         assert!(schema_sql(Some("")).is_err());
+        assert!(schema_sql(Some("public")).is_err());
+        assert!(schema_sql(Some("pg_write_all_data")).is_err());
         assert!(schema_sql(None).is_ok());
     }
 }
