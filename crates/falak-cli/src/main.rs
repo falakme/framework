@@ -33,6 +33,7 @@ COMMANDS:
     serve [dir] [options]        Serve the app
     dev [dir] [options]          Serve, and rebuild and reload when a file changes
     deploy [dir] [options]       Publish to Cloudflare Workers with a D1 database
+                                 Needs a clone of the framework repository (falak-runtime-edge is not published)
     tenant add [dir] --tenant <uuid> [--account <id>]
                                  Give a tenant a D1 database of its own (`tenancy: database`)
     policy explain [dir] --entity <e> [--action <a>] [--subject <id>] [--role <r>]...

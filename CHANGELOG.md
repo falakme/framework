@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+
+* Dependency upgrades: argon2 0.6 (existing password hashes still verify), ureq 3 (redirects are not followed), jsonwebtoken 10 with the `aws_lc_rs` backend, hmac 0.13 with sha2 0.11, chacha20poly1305 0.11 (a test opens a key wrapped by the old version), p256 0.14, TypeScript 7, Vite 8, `@vitejs/plugin-react` 6, and GitHub Actions `checkout` and `setup-node` v7.
+
 ## [1.1.0] - 2026-11-17
 
 Milestones M5 to M8 and a review of the whole code base. Every publishable crate is published to crates.io at this version.
