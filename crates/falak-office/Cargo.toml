@@ -29,7 +29,7 @@ chacha20poly1305 = "0.11"
 ed25519-dalek = "2"
 hex = "0.4"
 rand_core = { version = "0.6", features = ["getrandom"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -39,4 +39,5 @@ ureq = { version = "2", features = ["json"] }
 falak-federation = { path = "../falak-federation", version = "1.1.0" }
 falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.1.0" }
 http-body-util = "0.1"
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 tower = { version = "0.5", features = ["util"] }
