@@ -31,4 +31,4 @@ axum = { version = "0.8.9", default-features = false, features = ["tokio", "http
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "time", "macros", "sync"] }
 tower = "0.5"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }

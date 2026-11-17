@@ -190,15 +190,13 @@ pub fn rotate_key(o: &Options) -> Result<u8, String> {
     let password = std::env::var(var).map_err(|_| format!("`{var}` is not set"))?;
     let base = secure_base(office)?;
     let base = base.as_str();
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .build();
-    let login: Value = agent
-        .post(&format!("{base}/v1/auth/login"))
-        .send_json(json!({"email": email, "password": password}))
-        .map_err(|e| format!("sign-in to Office failed: {e}"))?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let agent = crate::ops_cmd::agent();
+    let login: Value = crate::ops_cmd::json_of(
+        agent
+            .post(&format!("{base}/v1/auth/login"))
+            .send_json(json!({"email": email, "password": password})),
+    )
+    .map_err(|e| format!("sign-in to Office failed: {e}"))?;
     let session = login["access_token"]
         .as_str()
         .ok_or("Office gave no session token")?;
@@ -207,13 +205,12 @@ pub fn rotate_key(o: &Options) -> Result<u8, String> {
     } else {
         "keys/rotate"
     };
-    let out: Value = agent
-        .post(&format!("{base}/v1/_office/{path}"))
-        .set("authorization", &format!("Bearer {session}"))
-        .send_string("")
-        .map_err(|e| format!("Office refused: {e}"))?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let out: Value = crate::ops_cmd::json_of(
+        agent
+            .post(&format!("{base}/v1/_office/{path}"))
+            .header("authorization", format!("Bearer {session}"))
+            .send(""),
+    )?;
     println!("{out}");
     Ok(0)
 }

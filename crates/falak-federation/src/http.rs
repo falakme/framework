@@ -5,20 +5,26 @@ use serde_json::Value;
 use crate::{AppKey, Federation, OfficeConfig, enroll_request, now, random_nonce, request_headers};
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
+    ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
         // Keys and the feed come from the configured address only: a redirect could
         // move them to plain http, or carry a signed request to another host.
-        .redirects(0)
+        .max_redirects(0)
         .build()
+        .into()
 }
 
-fn read(resp: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
+fn read(resp: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<Value, String> {
     match resp {
-        Ok(r) => r
-            .into_json()
+        // A redirect is not followed, so a 3xx arrives here as an answer: refuse it.
+        Ok(r) if !r.status().is_success() => {
+            Err(format!("Office answered {}", r.status().as_u16()))
+        }
+        Ok(mut r) => r
+            .body_mut()
+            .read_json()
             .map_err(|e| format!("Office sent something unreadable: {e}")),
-        Err(ureq::Error::Status(code, _)) => Err(format!("Office answered {code}")),
+        Err(ureq::Error::StatusCode(code)) => Err(format!("Office answered {code}")),
         Err(e) => Err(format!("cannot reach Office: {e}")),
     }
 }
@@ -44,7 +50,7 @@ pub fn signed_get(cfg: &OfficeConfig, key: &AppKey, path_and_query: &str) -> Res
     let url = format!("{}{path_and_query}", cfg.office_url.trim_end_matches('/'));
     let mut req = agent().get(&url);
     for (k, v) in headers {
-        req = req.set(&k, &v);
+        req = req.header(k.as_str(), v.as_str());
     }
     read(req.call())
 }
@@ -69,13 +75,15 @@ pub fn signed_send(
         &random_nonce(),
     );
     let url = format!("{}{path_and_query}", cfg.office_url.trim_end_matches('/'));
-    let mut req = agent()
-        .request(method, &url)
-        .set("content-type", "application/json");
+    let mut req = ureq::http::Request::builder()
+        .method(method)
+        .uri(url.as_str())
+        .header("content-type", "application/json");
     for (k, v) in headers {
-        req = req.set(&k, &v);
+        req = req.header(k.as_str(), v.as_str());
     }
-    read(req.send_string(&text))
+    let req = req.body(text).map_err(|e| format!("bad request: {e}"))?;
+    read(agent().run(req))
 }
 
 /// Tell Office what this app publishes and consumes.
@@ -123,7 +131,8 @@ pub fn fetch_jwks(cfg: &OfficeConfig) -> Result<String, String> {
         .get(&cfg.jwks_url)
         .call()
         .map_err(|e| format!("cannot fetch the key set: {e}"))?
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| e.to_string())
 }
 
@@ -147,4 +156,52 @@ pub fn sync_once(fed: &Federation, cfg: &OfficeConfig, key: &AppKey) -> Result<(
         fed.note_error(e.clone());
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+    };
+
+    use super::*;
+
+    /// Answer one request with a fixed reply; return the address.
+    fn serve_once(reply: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf);
+            s.write_all(reply.as_bytes()).unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn a_json_answer_is_read() {
+        let url = serve_once(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 8\r\nconnection: close\r\n\r\n{\"a\": 1}",
+        );
+        assert_eq!(read(agent().get(&url).call()).unwrap()["a"], 1);
+    }
+
+    #[test]
+    fn a_redirect_is_not_followed_and_a_refusal_names_its_status() {
+        let url = serve_once(
+            "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:1/elsewhere\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        );
+        assert_eq!(
+            read(agent().get(&url).call()).unwrap_err(),
+            "Office answered 302"
+        );
+        let url =
+            serve_once("HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        assert_eq!(
+            read(agent().get(&url).call()).unwrap_err(),
+            "Office answered 403"
+        );
+    }
 }

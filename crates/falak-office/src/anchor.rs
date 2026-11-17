@@ -320,10 +320,14 @@ async fn publish(
             f.sync_all().map_err(io)?;
         }
         if let Some(url) = url {
-            ureq::post(&url)
-                .timeout(std::time::Duration::from_secs(10))
-                .set("content-type", "application/json")
-                .send_string(&body)
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(10)))
+                .build()
+                .into();
+            agent
+                .post(&url)
+                .header("content-type", "application/json")
+                .send(&body)
                 .map_err(|e| {
                     falak_contracts::Error::internal(format!("cannot post the anchor: {e}"))
                 })?;

@@ -28,7 +28,7 @@ impl S3Backend {
         method: &str,
         key: &str,
         extra: &[(&str, &str)],
-    ) -> Result<Option<ureq::Response>> {
+    ) -> Result<Option<ureq::http::Response<ureq::Body>>> {
         let signed = sign_request(
             &self.config,
             method,
@@ -37,14 +37,17 @@ impl S3Backend {
             EMPTY_SHA256,
             wall_clock_micros() / 1_000_000,
         );
-        let mut req = ureq::request(method, &signed.url);
+        let mut req = ureq::http::Request::builder()
+            .method(method)
+            .uri(signed.url.as_str());
         for (k, v) in &signed.headers {
-            req = req.set(k, v);
+            req = req.header(k.as_str(), v.as_str());
         }
-        match req.call() {
+        let req = req.body(()).map_err(unavailable)?;
+        match ureq::run(req) {
             Ok(r) => Ok(Some(r)),
-            Err(ureq::Error::Status(404, _)) => Ok(None),
-            Err(ureq::Error::Status(code, _)) => Err(unavailable(format!("status {code}"))),
+            Err(ureq::Error::StatusCode(404)) => Ok(None),
+            Err(ureq::Error::StatusCode(code)) => Err(unavailable(format!("status {code}"))),
             Err(e) => Err(unavailable(e)),
         }
     }
@@ -52,9 +55,12 @@ impl S3Backend {
 
 impl ObjectBackend for S3Backend {
     async fn size(&self, key: &str) -> Result<Option<u64>> {
-        Ok(self
-            .call("HEAD", key, &[])?
-            .and_then(|r| r.header("content-length").and_then(|v| v.parse().ok())))
+        Ok(self.call("HEAD", key, &[])?.and_then(|r| {
+            r.headers()
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse().ok())
+        }))
     }
 
     async fn head(&self, key: &str, n: usize) -> Result<Vec<u8>> {
@@ -63,7 +69,7 @@ impl ObjectBackend for S3Backend {
             return Err(Error::not_found());
         };
         let mut buf = Vec::with_capacity(n);
-        std::io::Read::take(resp.into_reader(), n as u64)
+        std::io::Read::take(resp.into_body().into_reader(), n as u64)
             .read_to_end(&mut buf)
             .map_err(unavailable)?;
         Ok(buf)

@@ -194,10 +194,11 @@ impl Oidc {
     pub fn refresh_blocking(&self, now: i64) -> Result<(), String> {
         // No redirects: a provider (or whoever sits in front of it) must not be able to
         // move the key fetch to a plain http or internal address after the checks above.
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(10))
-            .redirects(0)
-            .build();
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .max_redirects(0)
+            .build()
+            .into();
         let doc: Value = agent
             .get(&format!(
                 "{}/.well-known/openid-configuration",
@@ -205,7 +206,8 @@ impl Oidc {
             ))
             .call()
             .map_err(|e| format!("cannot reach the identity provider: {e}"))?
-            .into_json()
+            .body_mut()
+            .read_json()
             .map_err(|e| e.to_string())?;
         // The document must name the issuer we were told to trust (OIDC Discovery §4.3).
         if doc["issuer"].as_str().map(|s| s.trim_end_matches('/')) != Some(&self.config.issuer) {
@@ -221,7 +223,8 @@ impl Oidc {
             .get(jwks_uri)
             .call()
             .map_err(|e| format!("cannot fetch the provider's key set: {e}"))?
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .map_err(|e| e.to_string())?;
         self.load_jwks(&text, now)
     }

@@ -283,10 +283,14 @@ impl Office {
             })
             .to_string();
             let _ = tokio::task::spawn_blocking(move || {
-                let _ = ureq::post(&url)
-                    .timeout(Duration::from_secs(5))
-                    .set("content-type", "application/json")
-                    .send_string(&body);
+                let agent: ureq::Agent = ureq::Agent::config_builder()
+                    .timeout_global(Some(Duration::from_secs(5)))
+                    .build()
+                    .into();
+                let _ = agent
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .send(&body);
             })
             .await;
         }

@@ -14,6 +14,34 @@ use serde_json::{Value, json};
 
 use crate::args::{Command, Extra};
 
+/// An agent for Office: ten seconds, and a refusal is an answer to read (it carries a
+/// problem document), not an error.
+pub(crate) fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+/// The JSON of a successful answer. Office answers errors with a problem document; show
+/// its detail, not the status line.
+pub(crate) fn json_of(
+    res: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<Value, String> {
+    let mut res = res.map_err(|e| format!("cannot reach Office: {e}"))?;
+    let code = res.status().as_u16();
+    if res.status().is_success() {
+        return res.body_mut().read_json().map_err(|e| e.to_string());
+    }
+    let body: Value = res.body_mut().read_json().unwrap_or(Value::Null);
+    let detail = body["detail"]
+        .as_str()
+        .or_else(|| body["title"].as_str())
+        .unwrap_or("refused");
+    Err(format!("Office refused ({code}): {detail}"))
+}
+
 fn session(agent: &ureq::Agent, base: &str, extra: &Extra) -> Result<String, String> {
     let email = extra.email.as_deref().ok_or("`--email` is required")?;
     let var = extra
@@ -21,31 +49,16 @@ fn session(agent: &ureq::Agent, base: &str, extra: &Extra) -> Result<String, Str
         .as_deref()
         .ok_or("`--password-env <VAR>` is required: the name of a variable holding the password")?;
     let password = std::env::var(var).map_err(|_| format!("`{var}` is not set"))?;
-    let login: Value = agent
-        .post(&format!("{base}/v1/auth/login"))
-        .send_json(json!({"email": email, "password": password}))
-        .map_err(|e| format!("sign-in to Office failed: {e}"))?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let login: Value = json_of(
+        agent
+            .post(&format!("{base}/v1/auth/login"))
+            .send_json(json!({"email": email, "password": password})),
+    )
+    .map_err(|e| format!("sign-in to Office failed: {e}"))?;
     login["access_token"]
         .as_str()
         .map(str::to_owned)
         .ok_or_else(|| "Office gave no session token".to_owned())
-}
-
-/// Office answers errors with a problem document; show its detail, not the status line.
-fn explain(e: ureq::Error) -> String {
-    match e {
-        ureq::Error::Status(code, res) => {
-            let body: Value = res.into_json().unwrap_or(Value::Null);
-            let detail = body["detail"]
-                .as_str()
-                .or_else(|| body["title"].as_str())
-                .unwrap_or("refused");
-            format!("Office refused ({code}): {detail}")
-        }
-        other => format!("cannot reach Office: {other}"),
-    }
 }
 
 pub fn breakglass(command: Command, extra: &Extra) -> Result<u8, String> {
@@ -55,9 +68,7 @@ pub fn breakglass(command: Command, extra: &Extra) -> Result<u8, String> {
         .ok_or("`--office <url>` is required")?;
     let base = crate::office_cmd::secure_base(office)?;
     let base = base.as_str();
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .build();
+    let agent = agent();
     let token = session(&agent, base, extra)?;
     let auth = format!("Bearer {token}");
     let need_id = || {
@@ -81,41 +92,37 @@ pub fn breakglass(command: Command, extra: &Extra) -> Result<u8, String> {
             if let Some(t) = extra.tier {
                 body["tier"] = json!(t);
             }
-            agent
-                .post(&format!("{base}/v1/_office/breakglass"))
-                .set("authorization", &auth)
-                .send_json(body)
-                .map_err(explain)?
-                .into_json()
-                .map_err(|e| e.to_string())?
+            json_of(
+                agent
+                    .post(&format!("{base}/v1/_office/breakglass"))
+                    .header("authorization", &auth)
+                    .send_json(body),
+            )?
         }
-        Command::BreakGlassApprove => agent
-            .post(&format!(
-                "{base}/v1/_office/breakglass/{}/approve",
-                need_id()?
-            ))
-            .set("authorization", &auth)
-            .send_string("")
-            .map_err(explain)?
-            .into_json()
-            .map_err(|e| e.to_string())?,
-        Command::BreakGlassClaim => agent
-            .post(&format!(
-                "{base}/v1/_office/breakglass/{}/claim",
-                need_id()?
-            ))
-            .set("authorization", &auth)
-            .send_string("")
-            .map_err(explain)?
-            .into_json()
-            .map_err(|e| e.to_string())?,
-        _ => agent
-            .get(&format!("{base}/v1/_office/breakglass"))
-            .set("authorization", &auth)
-            .call()
-            .map_err(explain)?
-            .into_json()
-            .map_err(|e| e.to_string())?,
+        Command::BreakGlassApprove => json_of(
+            agent
+                .post(&format!(
+                    "{base}/v1/_office/breakglass/{}/approve",
+                    need_id()?
+                ))
+                .header("authorization", &auth)
+                .send(""),
+        )?,
+        Command::BreakGlassClaim => json_of(
+            agent
+                .post(&format!(
+                    "{base}/v1/_office/breakglass/{}/claim",
+                    need_id()?
+                ))
+                .header("authorization", &auth)
+                .send(""),
+        )?,
+        _ => json_of(
+            agent
+                .get(&format!("{base}/v1/_office/breakglass"))
+                .header("authorization", &auth)
+                .call(),
+        )?,
     };
     println!("{out}");
     if command == Command::BreakGlassRequest && out["needs_second_approver"] == json!(true) {
@@ -138,17 +145,14 @@ pub fn rotate_credential(extra: &Extra) -> Result<u8, String> {
     let app = crate::office_cmd::path_segment(app, "app name")?;
     let base = crate::office_cmd::secure_base(office)?;
     let base = base.as_str();
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .build();
+    let agent = agent();
     let token = session(&agent, base, extra)?;
-    let out: Value = agent
-        .post(&format!("{base}/v1/_office/apps/{app}/rotate-credential"))
-        .set("authorization", &format!("Bearer {token}"))
-        .send_string("")
-        .map_err(explain)?
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    let out: Value = json_of(
+        agent
+            .post(&format!("{base}/v1/_office/apps/{app}/rotate-credential"))
+            .header("authorization", format!("Bearer {token}"))
+            .send(""),
+    )?;
     println!("{out}");
     eprintln!(
         "The old credential is revoked. Enroll the app again within 15 minutes: delete its .falak/office.json and .falak/office-app-key.json, then `falak office enroll --office {base} --token-env <VAR>` with the enrollment_token in that variable."
