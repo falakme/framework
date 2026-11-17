@@ -20,6 +20,8 @@ use crate::{
 };
 
 const COOKIE: &str = "studio_session";
+/// Sessions held at once. Ended ones are swept at each sign-in; past this, sign-in waits.
+const MAX_SESSIONS: usize = 1000;
 const INDEX: &str = include_str!("../static/index.html");
 const SCRIPT: &str = include_str!("../static/studio.js");
 const STYLE: &str = include_str!("../static/studio.css");
@@ -159,6 +161,9 @@ async fn upstream(
     tokio::task::spawn_blocking(move || {
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(10))
+            // A configured app or Office must not be able to send the person's token on
+            // to another address with a redirect.
+            .redirects(0)
             .build();
         let mut req = agent.request(method, &url);
         if let Some(t) = bearer {
@@ -422,7 +427,12 @@ async fn finish_login(studio: &Studio, code: u16, body: &Value, label: Option<&s
     let sid = random_id();
     let csrf = random_id();
     let t = now();
-    studio.sessions().insert(
+    let mut all = studio.sessions();
+    all.retain(|_, s| t - s.seen <= IDLE_SECS && t - s.created <= ABSOLUTE_SECS);
+    if all.len() >= MAX_SESSIONS {
+        return problem(503, "Too many people are signed in. Try again later.");
+    }
+    all.insert(
         sid.clone(),
         Session {
             label: label.clone(),
@@ -436,6 +446,7 @@ async fn finish_login(studio: &Studio, code: u16, body: &Value, label: Option<&s
             seen: t,
         },
     );
+    drop(all);
     let mut res = reply(200, &me_body(studio, &label, &csrf));
     res.headers_mut()
         .insert(header::SET_COOKIE, set_cookie(studio, &sid, ABSOLUTE_SECS));
@@ -449,7 +460,11 @@ fn me_body(studio: &Studio, label: &str, csrf: &str) -> Value {
     })
 }
 
-async fn login(State(studio): State<Shared>, body: Bytes) -> Response {
+async fn login(State(studio): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
+    // A page on another site must not be able to sign a browser in as someone else.
+    if !same_origin(&headers) {
+        return problem(403, "Request refused.");
+    }
     let Ok(v) = serde_json::from_slice::<Value>(&body) else {
         return problem(400, "Send email and password.");
     };
@@ -472,7 +487,10 @@ async fn login(State(studio): State<Shared>, body: Bytes) -> Response {
 }
 
 /// Sign in with an ID token from the identity provider Office trusts.
-async fn oidc(State(studio): State<Shared>, body: Bytes) -> Response {
+async fn oidc(State(studio): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
+    if !same_origin(&headers) {
+        return problem(403, "Request refused.");
+    }
     let Some(token) = serde_json::from_slice::<Value>(&body)
         .ok()
         .and_then(|v| v["id_token"].as_str().map(str::to_owned))
@@ -643,9 +661,11 @@ async fn list(
             let ok = match k.as_str() {
                 "page[size]" => v.parse::<u32>().is_ok_and(|n| (1..=100).contains(&n)),
                 "page[after]" => v.bytes().all(|c| c.is_ascii_hexdigit()),
-                "sort" => v
-                    .split(',')
-                    .all(|p| e.fields.iter().any(|f| f == p.trim_start_matches('-'))),
+                // Sorting by a personal field would show the order of the hidden values.
+                "sort" => v.split(',').all(|p| {
+                    let f = p.trim_start_matches('-');
+                    e.fields.iter().any(|x| x == f) && !e.sensitive.iter().any(|x| x == f)
+                }),
                 other => other
                     .strip_prefix("filter[")
                     .and_then(|r| r.strip_suffix(']'))

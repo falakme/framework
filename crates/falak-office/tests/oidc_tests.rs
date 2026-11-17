@@ -279,6 +279,23 @@ fn the_config_wants_https_and_the_key_set_refreshes_when_it_should() {
     assert!(o.load_jwks("nope", 1001).is_err());
 }
 
+#[test]
+fn a_fetch_is_handed_out_once_per_cooldown_even_when_the_provider_is_down() {
+    let o = Oidc::new(config(&[]));
+    let t = id_token(&claims("u", "a@b.test"));
+    // Nothing is ever loaded (the provider is down): one caller fetches, the rest wait.
+    assert!(o.wants_refresh(&t, 1000));
+    for _ in 0..50 {
+        assert!(
+            !o.wants_refresh(&t, 1001),
+            "no second fetch inside the cooldown"
+        );
+    }
+    assert!(o.wants_refresh(&t, 1011), "and one more once it has passed");
+    // Garbage that is not even a JWT gets no more than that.
+    assert!(!o.wants_refresh("junk", 1012));
+}
+
 async fn call(e: &Env, uri: &str, token: &str, body: Value) -> (StatusCode, Value) {
     let req = Request::builder()
         .method("POST")

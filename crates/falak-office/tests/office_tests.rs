@@ -662,3 +662,52 @@ async fn the_public_key_set_has_no_secrets_and_tier_three_is_refused() {
 
 #[allow(dead_code)]
 fn _config(_: OfficeConfig) {}
+
+#[tokio::test]
+async fn a_revoked_subject_loses_its_office_session_too() {
+    let e = env().await;
+    let (s, v) = e
+        .call(
+            "POST",
+            "/v1/_office/users",
+            Some(&e.admin),
+            Some(json!({
+                "email": "second@example.com", "password": PASSWORD,
+                "roles": ["office_admin"],
+            })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    let id = v["id"].as_str().unwrap().to_owned();
+    let second = e.login("second@example.com").await;
+    let (s, _) = e.call("GET", "/v1/_office/apps", Some(&second), None).await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (s, v) = e
+        .call(
+            "POST",
+            "/v1/_office/revocations",
+            Some(&e.admin),
+            Some(json!({"kind": "subject", "id": id})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+
+    // The session token is still signed and unexpired, but Office no longer serves it.
+    let (s, _) = e.call("GET", "/v1/_office/apps", Some(&second), None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _) = e
+        .call(
+            "POST",
+            "/v1/_office/revocations",
+            Some(&second),
+            Some(json!({"kind": "subject", "id": "anyone"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    // Other administrators are not affected.
+    let (s, _) = e
+        .call("GET", "/v1/_office/apps", Some(&e.admin), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+}

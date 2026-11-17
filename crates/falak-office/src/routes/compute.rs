@@ -44,8 +44,8 @@ pub fn routes() -> Router<Shared> {
         .route("/v1/_office/compute/job/result", post(job_result))
 }
 
-fn operator(o: &Office, headers: &HeaderMap) -> Result<Principal> {
-    let p = o.session(headers)?;
+async fn operator(o: &Office, headers: &HeaderMap) -> Result<Principal> {
+    let p = o.session(headers).await?;
     if p.roles
         .iter()
         .any(|r| r == "office_admin" || r == "compute")
@@ -64,8 +64,24 @@ async fn worker(o: &Office, headers: &HeaderMap) -> Result<String> {
         .ok_or_else(Error::unauthenticated)
 }
 
-/// The worker must hold the lease it acts on.
+/// Ids from the path are short tokens; anything else cannot name a lease or a job.
+fn token_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The worker must hold the lease it acts on (a lease is also still its worker's after the
+/// job finished, so a repeated completion stays harmless). A lease
+/// that belongs to another worker answers the same as one that does not exist.
 async fn holds(o: &Office, worker: &str, lease: &str) -> Result<()> {
+    if !token_ok(lease) {
+        return Err(Error::invalid_input(
+            "invalid_lease",
+            "The lease id is not valid.",
+        ));
+    }
     let rows =
         o.db.rows(
             "SELECT lease_worker FROM compute_jobs WHERE lease_id = ?",
@@ -89,7 +105,7 @@ fn respond(status: StatusCode, r: Result<Json>, rid: &str, inst: &str) -> Respon
 async fn make_worker(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/compute/workers");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let name = field(&v, "name")?;
         let (id, credential) = Queue::new(&o.db).create_worker(name).await?;
@@ -102,7 +118,7 @@ async fn make_worker(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -
 async fn workers(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/compute/workers");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let list = Queue::new(&o.db).workers().await?;
         Ok(
             json!({"workers": list.iter().map(|(id, name, status)| json!({"id": id, "name": name, "status": status})).collect::<Vec<_>>()}),
@@ -121,7 +137,7 @@ async fn revoke_worker(
         format!("/v1/_office/compute/workers/{id}/revoke"),
     );
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         if !Queue::new(&o.db).revoke_worker(&id).await? {
             return Err(Error::not_found());
         }
@@ -134,7 +150,7 @@ async fn revoke_worker(
 async fn enqueue(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/compute/jobs");
     let run = async {
-        let who = operator(&o, &headers)?;
+        let who = operator(&o, &headers).await?;
         let v = body_json(&body)?;
         let job: IrJob = serde_json::from_value(v["job"].clone()).map_err(|_| {
             Error::invalid_input("invalid_job", "`job` must be a compiled job contract.")
@@ -196,7 +212,10 @@ async fn job_status(
         format!("/v1/_office/compute/jobs/{id}"),
     );
     let run = async {
-        operator(&o, &headers)?;
+        operator(&o, &headers).await?;
+        if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(Error::invalid_input("invalid_id", "`id` must be a job id."));
+        }
         let s = Queue::new(&o.db)
             .status(&id)
             .await?
@@ -209,7 +228,7 @@ async fn job_status(
 async fn dead(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/compute/dead");
     let run = async {
-        operator(&o, &headers)?;
+        operator(&o, &headers).await?;
         let list = Queue::new(&o.db).dead_letters().await?;
         Ok(json!({"dead": list.iter().map(status_json).collect::<Vec<_>>()}))
     };
@@ -229,6 +248,12 @@ async fn lease(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Resp
                     .collect()
             })
             .unwrap_or_default();
+        if kinds.len() > 64 || kinds.iter().any(|k| k.is_empty() || k.len() > 128) {
+            return Err(Error::invalid_input(
+                "invalid_kinds",
+                "`kinds` holds at most 64 job names.",
+            ));
+        }
         let max = v["max"].as_u64().unwrap_or(1).clamp(1, 10) as usize;
         let millis = v["lease_millis"]
             .as_u64()

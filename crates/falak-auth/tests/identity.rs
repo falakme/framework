@@ -223,8 +223,33 @@ async fn duplicate_email_and_bad_input<S: AuthStore>((id, _clock): Fixture<S>) {
     );
 }
 
+/// The store decides who wins a rotation: only the first revoke of a session succeeds,
+/// so two refreshes with one token cannot both mint new tokens.
+async fn revoking_a_session_succeeds_once<S: AuthStore>(store: S) {
+    use falak_auth::store::{Revoked, SessionRecord};
+    store
+        .create_session(SessionRecord {
+            id: "s1".into(),
+            user_id: "u1".into(),
+            token_hash: "h1".into(),
+            expires_at: T0 + 100,
+            revoked: None,
+        })
+        .await
+        .unwrap();
+    assert!(store.revoke_session("s1", Revoked::Rotated).await.unwrap());
+    assert!(!store.revoke_session("s1", Revoked::Rotated).await.unwrap());
+    assert!(
+        !store
+            .revoke_session("missing", Revoked::Ended)
+            .await
+            .unwrap()
+    );
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn memory_store() {
+    revoking_a_session_succeeds_once(MemoryStore::new()).await;
     signup_login_and_verify(identity(MemoryStore::new())).await;
     wrong_password_and_unknown_email_look_the_same(identity(MemoryStore::new())).await;
     lockout_blocks_even_the_right_password_until_the_window_passes(identity(MemoryStore::new()))
@@ -244,6 +269,7 @@ async fn sqlite_store() {
         store
     };
     // Each scenario gets its own empty database.
+    revoking_a_session_succeeds_once(make().await).await;
     signup_login_and_verify(identity(make().await)).await;
     wrong_password_and_unknown_email_look_the_same(identity(make().await)).await;
     lockout_blocks_even_the_right_password_until_the_window_passes(identity(make().await)).await;

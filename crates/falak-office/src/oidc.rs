@@ -88,8 +88,15 @@ pub fn trusted_url(url: &str) -> bool {
         || ["http://127.0.0.1", "http://localhost", "http://[::1]"]
             .iter()
             .any(|p| {
-                url.starts_with(p)
-                    && matches!(url.as_bytes().get(p.len()), None | Some(b':' | b'/'))
+                // What follows the host must be a port and then a path: `@` (user
+                // information, which would name a different host), `\\` and the like fail.
+                url.strip_prefix(p).is_some_and(|rest| {
+                    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+                    authority.is_empty()
+                        || authority
+                            .strip_prefix(':')
+                            .is_some_and(|port| port.bytes().all(|b| b.is_ascii_digit()))
+                })
             })
 }
 
@@ -106,6 +113,8 @@ pub struct ExternalIdentity {
 struct Keys {
     set: JwkSet,
     fetched_at: Option<i64>,
+    /// When a fetch was last handed out, whether or not it worked.
+    attempted_at: Option<i64>,
 }
 
 pub struct Oidc {
@@ -130,37 +139,42 @@ impl Oidc {
             keys: RwLock::new(Keys {
                 set: JwkSet { keys: vec![] },
                 fetched_at: None,
+                attempted_at: None,
             }),
-        }
-    }
-
-    fn knows(&self, kid: Option<&str>) -> bool {
-        let k = self.keys.read().unwrap_or_else(|p| p.into_inner());
-        match kid {
-            Some(kid) => k
-                .set
-                .keys
-                .iter()
-                .any(|j| j.common.key_id.as_deref() == Some(kid)),
-            None => k.set.keys.len() == 1,
         }
     }
 
     /// Whether the key set should be fetched before this token is checked: never loaded
     /// or old, or the token names a key not in the set (and the last fetch was not
-    /// just now).
+    /// just now). A `true` hands out the fetch: the next caller gets `false` until the
+    /// cooldown has passed, even if the provider is down and nothing was loaded, so the
+    /// public exchange route cannot be used to start a fetch per request.
     pub fn wants_refresh(&self, token: &str, now: i64) -> bool {
         let kid = decode_header(token).ok().and_then(|h| h.kid);
-        let fetched = self
-            .keys
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .fetched_at;
-        match fetched {
+        let mut k = self.keys.write().unwrap_or_else(|p| p.into_inner());
+        let due = match k.fetched_at {
             None => true,
             Some(t) if now - t >= KEY_SET_TTL_SECS => true,
-            Some(t) => !self.knows(kid.as_deref()) && now - t >= UNKNOWN_KEY_COOLDOWN_SECS,
+            Some(t) => {
+                let known = match kid.as_deref() {
+                    Some(kid) => k
+                        .set
+                        .keys
+                        .iter()
+                        .any(|j| j.common.key_id.as_deref() == Some(kid)),
+                    None => k.set.keys.len() == 1,
+                };
+                !known && now - t >= UNKNOWN_KEY_COOLDOWN_SECS
+            }
+        };
+        if !due
+            || k.attempted_at
+                .is_some_and(|a| (0..UNKNOWN_KEY_COOLDOWN_SECS).contains(&(now - a)))
+        {
+            return false;
         }
+        k.attempted_at = Some(now);
+        true
     }
 
     /// Replace the key set. A document with no usable key leaves the old set alone.
@@ -178,8 +192,11 @@ impl Oidc {
 
     /// Discovery, then the key set. Blocking: call from a blocking task.
     pub fn refresh_blocking(&self, now: i64) -> Result<(), String> {
+        // No redirects: a provider (or whoever sits in front of it) must not be able to
+        // move the key fetch to a plain http or internal address after the checks above.
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(10))
+            .redirects(0)
             .build();
         let doc: Value = agent
             .get(&format!(
@@ -237,6 +254,7 @@ impl Oidc {
         let mut v = Validation::new(header.alg);
         v.set_issuer(&[self.config.issuer.as_str()]);
         v.set_required_spec_claims(&["exp", "iss", "sub"]);
+        v.validate_nbf = true;
         v.validate_aud = false; // checked below: some providers send `azp` and no `aud`
         v.leeway = 30;
         let claims = decode::<Claims>(token, &key, &v)

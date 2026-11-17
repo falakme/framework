@@ -395,7 +395,7 @@ const views = {
           ev.preventDefault();
           try {
             const r = await api("POST", "/v1/_office/enrollments", { app: name.value.trim(), tier: Number(tier.value) });
-            const cmd = `falak office enroll ./${r.app} --office ${overview.issuer} --token ${r.token} --name ${r.app}`;
+            const cmd = `FALAK_ENROLL_TOKEN='${r.token}' falak office enroll ./${r.app} --office ${overview.issuer} --name ${r.app}`;
             out.replaceChildren(el("p", { class: "ok" }, `Ready. This code works once and ends ${when(r.expires_at)}. Run, in the app's folder:`), command(cmd));
           } catch (e) { say(out, e.message, "err"); }
         },

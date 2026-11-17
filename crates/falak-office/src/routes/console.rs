@@ -143,7 +143,7 @@ impl Office {
 pub async fn overview(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/overview");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let users = count(
             &o.db
                 .rows("SELECT COUNT(*) FROM falak_auth_users", vec![])
@@ -189,7 +189,7 @@ pub async fn overview(State(o): State<Shared>, headers: HeaderMap) -> Response {
 pub async fn people(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/users");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows =
             o.db.rows(
                 "SELECT id, email, roles, created_at FROM falak_auth_users ORDER BY email LIMIT 500",
@@ -211,7 +211,7 @@ pub async fn people(State(o): State<Shared>, headers: HeaderMap) -> Response {
 pub async fn memberships(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/memberships");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows =
             o.db.rows(
                 "SELECT m.user_id, u.email, m.app, m.tenant, m.roles FROM office_memberships m \
@@ -238,7 +238,7 @@ pub async fn remove_membership(
 ) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/memberships");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let (user, app) = (field(&v, "user_id")?, field(&v, "app")?);
         let n =
@@ -264,7 +264,7 @@ pub async fn remove_membership(
 pub async fn audit_log(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/audit");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows =
             o.db.rows(
                 "SELECT seq, at, actor, action, detail FROM office_audit ORDER BY seq DESC LIMIT 100",
@@ -287,7 +287,7 @@ pub async fn audit_log(State(o): State<Shared>, headers: HeaderMap) -> Response 
 pub async fn set_oidc(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/settings/oidc");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         if v["enabled"] == false {
             o.set_oidc(None);
@@ -345,7 +345,7 @@ pub async fn set_oidc(State(o): State<Shared>, headers: HeaderMap, body: Bytes) 
 pub async fn set_address(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/settings/address");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let address = field(&v, "issuer")?.trim().to_owned();
         if !valid_address(&address) {
@@ -381,7 +381,7 @@ pub async fn stats(
 ) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/stats");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let days: i64 = q
             .get("days")
             .and_then(|d| d.parse().ok())

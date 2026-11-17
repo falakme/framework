@@ -76,12 +76,24 @@ impl LocalKeys {
     /// Write the key file, replacing any existing one, with owner-only permissions.
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = self.to_json().to_string();
-        let tmp = path.with_extension("tmp");
+        let tmp = temp_sibling(path)?;
+        // `create_new` (O_EXCL) never opens an existing file or follows a symlink at
+        // `tmp`, and the mode is set at creation, so the secret is never readable by
+        // others, not even briefly.
         let mut file = open_private(&tmp).map_err(|e| io_error("cannot write key file", e))?;
-        file.write_all(text.as_bytes())
+        let written = file
+            .write_all(text.as_bytes())
             .and_then(|()| file.sync_all())
-            .map_err(|e| io_error("cannot write key file", e))?;
-        fs::rename(&tmp, path).map_err(|e| io_error("cannot replace key file", e))
+            .map_err(|e| io_error("cannot write key file", e));
+        drop(file);
+        // `rename` replaces `path` itself (a symlink there is replaced, not followed).
+        let done = written.and_then(|()| {
+            fs::rename(&tmp, path).map_err(|e| io_error("cannot replace key file", e))
+        });
+        if done.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        done
     }
 
     /// Add a new key and make it active. Older keys still verify.
@@ -178,8 +190,7 @@ fn open_private(path: &Path) -> std::io::Result<fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
         .open(path)
 }
@@ -188,9 +199,20 @@ fn open_private(path: &Path) -> std::io::Result<fs::File> {
 fn open_private(path: &Path) -> std::io::Result<fs::File> {
     fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .open(path)
+}
+
+/// A fresh, unpredictable file name next to `path` (same directory, so the final
+/// rename is atomic). The key file's own name is only ever used as given by the
+/// operator; nothing remote is joined into it.
+fn temp_sibling(path: &Path) -> Result<std::path::PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty() && !n.contains('\0'))
+        .ok_or_else(|| Error::internal("key file path has no file name"))?;
+    Ok(path.with_file_name(format!(".{name}.{}.tmp", new_kid())))
 }
 
 /// A key id is 8 random bytes in base64url.
@@ -275,6 +297,40 @@ mod tests {
             assert_eq!(mode, 0o600);
         }
         fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn save_does_not_follow_a_planted_temp_symlink_and_leaves_no_temp() {
+        let dir = temp_path("dir");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("keys.json");
+        let victim = dir.join("victim");
+        fs::write(&victim, "keep").unwrap();
+        // The old fixed temp name, planted as a symlink to another file.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&victim, dir.join("keys.tmp")).unwrap();
+        let keys = LocalKeys::generate();
+        keys.save(&path).unwrap();
+        keys.save(&path).unwrap();
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep");
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".tmp") && n.starts_with('.'))
+            .collect();
+        assert!(names.is_empty(), "leftover temp files: {names:?}");
+        assert_eq!(
+            LocalKeys::load_or_create(&path).unwrap().active().0,
+            keys.active().0
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_rejects_a_path_without_a_file_name() {
+        assert!(LocalKeys::generate().save(Path::new("/")).is_err());
+        assert!(LocalKeys::generate().save(Path::new("..")).is_err());
     }
 
     #[test]

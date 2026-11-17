@@ -129,16 +129,30 @@ fn write_private(path: &Path, text: &str) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
-        let tmp = path.with_extension("tmp");
+        // A fresh name made with `create_new` (O_EXCL): never an existing file or a
+        // planted symlink, and 0600 from the moment it exists.
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("the key path has no file name")?;
+        let mut nonce = [0u8; 8];
+        rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut nonce);
+        let tmp = path.with_file_name(format!(".{name}.{}.tmp", B64.encode(nonce)));
         let mut f = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&tmp)
             .map_err(|e| e.to_string())?;
-        f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        let done = f
+            .write_all(text.as_bytes())
+            .and_then(|()| f.sync_all())
+            .and_then(|()| std::fs::rename(&tmp, path))
+            .map_err(|e| e.to_string());
+        if done.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        done
     }
     #[cfg(not(unix))]
     {
@@ -181,20 +195,14 @@ impl OfficeConfig {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, text).map_err(|e| e.to_string())
+        write_private(path, &text)
     }
 
     /// Keys come from Office over `https`, or over plain `http` to this machine in
     /// development (FEDERATION §5.4).
     pub fn validate(&self) -> Result<(), String> {
         for url in [&self.office_url, &self.jwks_url] {
-            let ok = url.starts_with("https://")
-                || ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-                    .iter()
-                    .any(|p| {
-                        url.starts_with(p)
-                            && matches!(url.as_bytes().get(p.len()), None | Some(b':' | b'/'))
-                    });
+            let ok = trusted_url(url);
             if !ok {
                 return Err(format!("`{url}` must be https (or http to this machine)"));
             }
@@ -204,6 +212,23 @@ impl OfficeConfig {
         }
         Ok(())
     }
+}
+
+/// `https`, or `http` to this machine for development. The part after the host must be a
+/// port and a path: `http://localhost:80@evil.example` names `evil.example` and is refused.
+fn trusted_url(url: &str) -> bool {
+    url.starts_with("https://")
+        || ["http://127.0.0.1", "http://localhost", "http://[::1]"]
+            .iter()
+            .any(|p| {
+                url.strip_prefix(p).is_some_and(|rest| {
+                    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+                    authority.is_empty()
+                        || authority
+                            .strip_prefix(':')
+                            .is_some_and(|port| port.bytes().all(|b| b.is_ascii_digit()))
+                })
+            })
 }
 
 // ---------------------------------------------------------------- wire formats
@@ -582,6 +607,21 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_config_is_saved_private_and_loads_back() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("falak-fed-save-{}", std::process::id()));
+        let path = dir.join("office.json");
+        let c = cfg(1);
+        c.save(&path).unwrap();
+        c.save(&path).unwrap(); // replacing an existing file works too
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(OfficeConfig::load(&path).unwrap(), c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn urls_must_be_https_or_this_machine() {
         assert!(cfg(1).validate().is_ok());
@@ -592,6 +632,9 @@ mod tests {
         for bad in [
             "http://office.test",
             "http://127.0.0.1.evil.test/x",
+            "http://localhost:80@evil.test/x",
+            "http://127.0.0.1@evil.test",
+            "http://localhost:8788\\@evil.test",
             "ftp://x",
         ] {
             let mut c = cfg(1);

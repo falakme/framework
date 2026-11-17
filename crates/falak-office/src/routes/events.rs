@@ -94,9 +94,21 @@ impl Office {
         for _ in 0..8 {
             let existing = self
                 .db
-                .rows("SELECT seq FROM office_events WHERE id = ?", vec![t(&e.id)])
+                .rows(
+                    "SELECT seq, publisher FROM office_events WHERE id = ?",
+                    vec![t(&e.id)],
+                )
                 .await?;
             if let Some(r) = existing.first() {
+                // An id is one publisher's. Another app that sends the same id is not
+                // told "stored": that would drop its event, and let it take an id its
+                // neighbour is about to use.
+                if text(r.get(1)) != e.publisher {
+                    return Err(conflict_err(
+                        "event_id_taken",
+                        "That event id belongs to another publisher.",
+                    ));
+                }
                 return Ok(int(r.first()));
             }
             let mut batch = vec![self.db.stmt(
@@ -646,7 +658,7 @@ pub async fn ack(State(o): State<Shared>, req: Request) -> Response {
 pub async fn dead(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/events/dead");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows = o
             .db
             .rows(
@@ -671,7 +683,7 @@ pub async fn dead(State(o): State<Shared>, headers: HeaderMap) -> Response {
 pub async fn replay(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/events/replay");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let seq = v["seq"]
             .as_i64()
@@ -702,7 +714,7 @@ pub async fn replay(State(o): State<Shared>, headers: HeaderMap, body: Bytes) ->
 pub async fn sagas(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/sagas");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows = o
             .db
             .rows(

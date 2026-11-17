@@ -74,7 +74,7 @@ macro_rules! admin_route {
     ($o:ident, $headers:ident, $inst:expr, $admin:ident, $body:block) => {{
         let (rid, inst) = (extract_request_id(&$headers), $inst);
         let run = async {
-            let $admin = $o.admin(&$headers)?;
+            let $admin = $o.admin(&$headers).await?;
             $body
         };
         match run.await {
@@ -103,17 +103,19 @@ async fn health(State(o): State<Shared>) -> Response {
     )
 }
 
-/// Prometheus scrape. Off unless `FALAK_METRICS_TOKEN` is set; then it needs that token.
+/// Prometheus scrape. Off (404) unless `FALAK_METRICS_TOKEN` is set and not empty; then
+/// it needs that token. The tokens are compared as SHA-256 digests.
 async fn metrics(headers: HeaderMap) -> Response {
-    let Ok(want) = std::env::var("FALAK_METRICS_TOKEN") else {
-        return StatusCode::NOT_FOUND.into_response();
+    let want = match std::env::var("FALAK_METRICS_TOKEN") {
+        Ok(w) if !w.is_empty() => w,
+        _ => return StatusCode::NOT_FOUND.into_response(),
     };
     let given = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
-    if want.is_empty() || sha256_hex(given.as_bytes()) != sha256_hex(want.as_bytes()) {
+    if sha256_hex(given.as_bytes()) != sha256_hex(want.as_bytes()) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     (

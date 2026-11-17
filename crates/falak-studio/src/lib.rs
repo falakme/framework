@@ -82,8 +82,15 @@ pub fn trusted_url(url: &str) -> bool {
         || ["http://127.0.0.1", "http://localhost", "http://[::1]"]
             .iter()
             .any(|p| {
-                url.starts_with(p)
-                    && matches!(url.as_bytes().get(p.len()), None | Some(b':' | b'/'))
+                // What follows the host must be a port and then a path: `@` (user
+                // information, which would name a different host), `\\` and the like fail.
+                url.strip_prefix(p).is_some_and(|rest| {
+                    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+                    authority.is_empty()
+                        || authority
+                            .strip_prefix(':')
+                            .is_some_and(|port| port.bytes().all(|b| b.is_ascii_digit()))
+                })
             })
 }
 
@@ -292,6 +299,18 @@ mod tests {
         let mut bad = ok.clone();
         bad.apps[0].url = "http://app.test".into();
         assert!(bad.validate().is_err());
+        // User information would make the host something else than it looks.
+        for url in [
+            "http://localhost:80@evil.test",
+            "http://127.0.0.1@evil.test/x",
+        ] {
+            let mut bad = ok.clone();
+            bad.apps[0].url = url.into();
+            assert!(bad.validate().is_err(), "{url}");
+            let mut bad = ok.clone();
+            bad.office_url = url.into();
+            assert!(bad.validate().is_err(), "{url}");
+        }
         let mut bad = ok;
         bad.apps[0].name = "../x".into();
         assert!(bad.validate().is_err());

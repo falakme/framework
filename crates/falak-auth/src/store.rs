@@ -73,7 +73,9 @@ pub trait AuthStore {
 
     async fn create_session(&self, session: SessionRecord) -> Result<()>;
     async fn session_by_hash(&self, token_hash: &str) -> Result<Option<SessionRecord>>;
-    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<()>;
+    /// Revoke the session only if it is still active. Returns whether this call did it,
+    /// so two callers racing on one session never both win.
+    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<bool>;
     async fn revoke_all_sessions(&self, user_id: &str) -> Result<()>;
 
     async fn create_reset(&self, token_hash: &str, user_id: &str, expires_at: i64) -> Result<()>;
@@ -163,13 +165,14 @@ impl AuthStore for MemoryStore {
             .find(|s| s.token_hash == token_hash)
             .cloned())
     }
-    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<()> {
+    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<bool> {
         if let Some(s) = self.lock().sessions.iter_mut().find(|s| s.id == id)
             && s.revoked.is_none()
         {
             s.revoked = Some(how);
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
     async fn revoke_all_sessions(&self, user_id: &str) -> Result<()> {
         for s in self
@@ -476,13 +479,14 @@ impl<D: StorageDriver> AuthStore for SqlStore<D> {
         }))
     }
 
-    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<()> {
+    async fn revoke_session(&self, id: &str, how: Revoked) -> Result<bool> {
+        // One conditional statement decides the winner of a race.
         self.run(
             "UPDATE falak_auth_sessions SET revoked = ? WHERE id = ? AND revoked IS NULL",
             vec![Value::Text(how.code().into()), Value::Text(id.into())],
         )
         .await
-        .map(|_| ())
+        .map(|changed| changed == 1)
     }
 
     async fn revoke_all_sessions(&self, user_id: &str) -> Result<()> {

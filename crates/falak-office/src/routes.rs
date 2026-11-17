@@ -194,14 +194,19 @@ impl Office {
             .await;
     }
 
-    /// The caller, from an Office session token.
-    fn session(&self, headers: &HeaderMap) -> Result<Principal> {
+    /// The caller, from an Office session token. A subject revoked in the feed is refused
+    /// here too: its sessions keep refreshing, but they open nothing in Office.
+    async fn session(&self, headers: &HeaderMap) -> Result<Principal> {
         let token = bearer_token(headers).ok_or_else(Error::unauthenticated)?;
-        self.session_verifier().verify(token, now())
+        let p = self.session_verifier().verify(token, now())?;
+        if self.is_subject_revoked(&p.subject).await? {
+            return Err(Error::unauthenticated());
+        }
+        Ok(p)
     }
 
-    fn admin(&self, headers: &HeaderMap) -> Result<Principal> {
-        let p = self.session(headers)?;
+    async fn admin(&self, headers: &HeaderMap) -> Result<Principal> {
+        let p = self.session(headers).await?;
         if p.roles.iter().any(|r| r == "office_admin") {
             Ok(p)
         } else {
@@ -420,7 +425,7 @@ async fn jwks(State(o): State<Shared>) -> Response {
 async fn make_enrollment(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/enrollments");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let app = field(&v, "app")?;
         let tier = v["tier"].as_i64().unwrap_or(1);
@@ -588,7 +593,7 @@ async fn manifest(State(o): State<Shared>, req: Request) -> Response {
 async fn token(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/token");
     let run = async {
-        let me = o.session(&headers)?;
+        let me = o.session(&headers).await?;
         let v = body_json(&body)?;
         app_token(&o, &me.subject, field(&v, "audience")?, false).await
     };
@@ -658,7 +663,7 @@ async fn step_up(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Re
         return StatusCode::NOT_FOUND.into_response();
     };
     let run = async {
-        let me = o.session(&headers)?;
+        let me = o.session(&headers).await?;
         let v = body_json(&body)?;
         let (audience, id_token) = (field(&v, "audience")?, field(&v, "id_token")?.to_owned());
         if oidc.wants_refresh(&id_token, now()) {
@@ -699,7 +704,7 @@ async fn step_up(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Re
 async fn make_user(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/users");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let (email, password) = (field(&v, "email")?, field(&v, "password")?);
         let roles: Vec<String> = v["roles"]
@@ -796,7 +801,7 @@ async fn oidc_exchange(State(o): State<Shared>, headers: HeaderMap, body: Bytes)
 async fn membership(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/memberships");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let app = field(&v, "app")?;
         let user = match v["user_id"].as_str() {
@@ -891,7 +896,7 @@ async fn feed(State(o): State<Shared>, req: Request) -> Response {
 async fn revoke(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/revocations");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let v = body_json(&body)?;
         let (kind, id) = (field(&v, "kind")?, field(&v, "id")?);
         if !["token", "subject", "app", "passport"].contains(&kind)
@@ -917,7 +922,7 @@ async fn revoke(State(o): State<Shared>, headers: HeaderMap, body: Bytes) -> Res
 async fn rotate(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/keys/rotate");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         let kid = o.rotate()?;
         o.persist_keys().await?;
         o.audit(&admin.subject, "key_rotated", &kid).await;
@@ -932,7 +937,7 @@ async fn rotate(State(o): State<Shared>, headers: HeaderMap) -> Response {
 async fn retire(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/keys/retire");
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         o.retire()?;
         o.persist_keys().await?;
         o.audit(&admin.subject, "keys_retired", "").await;
@@ -947,7 +952,7 @@ async fn retire(State(o): State<Shared>, headers: HeaderMap) -> Response {
 async fn apps(State(o): State<Shared>, headers: HeaderMap) -> Response {
     let (rid, inst) = (extract_request_id(&headers), "/v1/_office/apps");
     let run = async {
-        o.admin(&headers)?;
+        o.admin(&headers).await?;
         let rows =
             o.db.rows(
                 "SELECT name, tier, status, created_at FROM office_apps ORDER BY name",
@@ -975,7 +980,7 @@ async fn revoke_app(
         format!("/v1/_office/apps/{name}/revoke"),
     );
     let run = async {
-        let admin = o.admin(&headers)?;
+        let admin = o.admin(&headers).await?;
         if o.app(&name).await?.is_none() {
             return Err(Error::not_found());
         }

@@ -310,9 +310,16 @@ impl<S: AuthStore, C: Clock, G: IdGenerator> LocalIdentity<S, C, G> {
             .user_by_id(&session.user_id)
             .await?
             .ok_or_else(Error::unauthenticated)?;
-        self.store
+        // Only one concurrent refresh can flip the session; the loser used a token that
+        // was just rotated, which is treated as reuse.
+        if !self
+            .store
             .revoke_session(&session.id, Revoked::Rotated)
-            .await?;
+            .await?
+        {
+            self.store.revoke_all_sessions(&session.user_id).await?;
+            return Err(Error::unauthenticated());
+        }
         self.start_session(&user).await
     }
 

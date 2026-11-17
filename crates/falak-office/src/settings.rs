@@ -108,5 +108,10 @@ mod tests {
         assert!(!valid_address("https://office.example.com/"));
         assert!(!valid_address("https://office.example.com/x?y"));
         assert!(!valid_address("ftp://x"));
+        assert!(!valid_address("http://localhost:80@evil.example"));
+        assert!(!crate::oidc::trusted_url(
+            "http://127.0.0.1@evil.example/keys"
+        ));
+        assert!(crate::oidc::trusted_url("http://localhost:8080/keys"));
     }
 }

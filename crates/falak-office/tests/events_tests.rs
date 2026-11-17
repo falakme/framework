@@ -529,3 +529,31 @@ async fn a_saga_runs_its_steps_and_compensates_the_ones_done_when_a_later_step_f
             .any(|s| s["status"] == "completed")
     );
 }
+
+#[tokio::test]
+async fn another_publisher_cannot_take_an_event_id_that_is_already_stored() {
+    let e = env().await;
+    let orders = e.enroll("orders").await;
+    let inventory = e.enroll("inventory").await;
+    let rival = e.enroll("rival").await;
+    e.contract(&orders, "orders", orders_contract()).await;
+    e.contract(&inventory, "inventory", inventory_contract())
+        .await;
+    e.contract(&rival, "rival", orders_contract()).await;
+
+    let (s, first) = e
+        .publish(&orders, "orders", "r1:order_placed", "a1", "{}")
+        .await;
+    assert_eq!(s, StatusCode::OK, "{first}");
+    // The rival sends the same id with a valid signature of its own. It must not be told
+    // "stored" for an event that was never kept: it is refused.
+    let (s, v) = e
+        .publish(&rival, "rival", "r1:order_placed", "a1", "{\"x\":1}")
+        .await;
+    assert_eq!(s, StatusCode::CONFLICT, "{v}");
+    // The genuine publisher is unaffected: a repeat still answers with the same seq.
+    let (s, again) = e
+        .publish(&orders, "orders", "r1:order_placed", "a1", "{}")
+        .await;
+    assert_eq!((s, &again["seq"]), (StatusCode::OK, &first["seq"]));
+}

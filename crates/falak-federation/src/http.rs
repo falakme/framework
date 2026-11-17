@@ -7,6 +7,9 @@ use crate::{AppKey, Federation, OfficeConfig, enroll_request, now, random_nonce,
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
+        // Keys and the feed come from the configured address only: a redirect could
+        // move them to plain http, or carry a signed request to another host.
+        .redirects(0)
         .build()
 }
 

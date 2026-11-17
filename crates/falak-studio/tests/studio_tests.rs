@@ -640,3 +640,85 @@ async fn the_observatory_shows_office_state_to_signed_in_people_only() {
     .await;
     assert_eq!(r.status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn sorting_by_a_personal_field_and_a_cross_site_sign_in_are_refused() {
+    let e = env().await;
+    let (cookie, _) = sign_in(&e).await;
+    // The order of hidden values would show them as well as a filter would.
+    for sort in ["email", "-email", "title,email"] {
+        let r = send(
+            &e,
+            "GET",
+            &format!("/api/apps/notes/notes?sort={sort}"),
+            Some(&cookie),
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(r.status, StatusCode::BAD_REQUEST, "{sort}");
+    }
+    let r = send(
+        &e,
+        "GET",
+        "/api/apps/notes/notes?sort=-title",
+        Some(&cookie),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+
+    // A page on another site cannot sign this browser in as someone else.
+    for path in ["/api/login", "/api/oidc"] {
+        let r = send(
+            &e,
+            "POST",
+            path,
+            None,
+            None,
+            Some("https://evil.test"),
+            Some(json!({"email": "admin@x.test", "password": "pw", "id_token": "t"})),
+        )
+        .await;
+        assert_eq!(r.status, StatusCode::FORBIDDEN, "{path}");
+        assert!(r.headers.get(header::SET_COOKIE).is_none());
+    }
+    let r = send(
+        &e,
+        "POST",
+        "/api/login",
+        None,
+        None,
+        Some("http://studio.test"),
+        Some(json!({"email": "admin@x.test", "password": "pw"})),
+    )
+    .await;
+    assert_eq!(
+        r.status,
+        StatusCode::OK,
+        "the page's own origin still works"
+    );
+}
+
+#[tokio::test]
+async fn the_number_of_open_sessions_is_capped() {
+    let e = env().await;
+    let login = || {
+        send(
+            &e,
+            "POST",
+            "/api/login",
+            None,
+            None,
+            None,
+            Some(json!({"email": "admin@x.test", "password": "pw"})),
+        )
+    };
+    for _ in 0..1000 {
+        assert_eq!(login().await.status, StatusCode::OK);
+    }
+    assert_eq!(login().await.status, StatusCode::SERVICE_UNAVAILABLE);
+}
