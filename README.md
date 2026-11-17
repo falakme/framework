@@ -59,10 +59,10 @@ Nine acceptance-gated milestones. Gates, scope and validation apps are in [ARCHI
 
 ## Quickstart
 
-[`docs/quickstart.md`](./docs/quickstart.md) takes you from nothing to a running app in ten minutes:
+[`docs/quickstart.md`](./docs/quickstart.md) takes you from nothing to a running app in ten minutes (`falak deploy` still needs a clone of this repository, because `falak-runtime-edge` is not published; to install from a clone, run `cargo install --path crates/falak-cli --locked`):
 
 ```sh
-cargo install --path crates/falak-cli --locked
+cargo install falak-cli --locked
 falak init todo && cd todo
 falak dev
 ```
