@@ -4,6 +4,8 @@
 use falak_ledger::{Command, Currency, Ledger, reconcile::Line};
 use uuid::Uuid;
 
+const SCOPE: &str = "test-tenant";
+
 static SCHEMA: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 fn usd() -> Currency {
@@ -41,7 +43,7 @@ async fn funded(l: &Ledger, amount: i64) -> (String, String) {
     let acct = id("acct");
     l.create_account(&bank, usd(), true).await.unwrap();
     l.create_account(&acct, usd(), false).await.unwrap();
-    l.execute(&id("fund"), &transfer(&bank, &acct, amount))
+    l.execute(SCOPE, &id("fund"), &transfer(&bank, &acct, amount))
         .await
         .unwrap();
     (bank, acct)
@@ -59,7 +61,7 @@ async fn concurrent_transfers_never_overdraw() {
     for _ in 0..40 {
         let (l, from, to) = (l.clone(), from.clone(), to.clone());
         tasks.push(tokio::spawn(async move {
-            l.execute(&id("t"), &transfer(&from, &to, 100)).await
+            l.execute(SCOPE, &id("t"), &transfer(&from, &to, 100)).await
         }));
     }
     let mut ok = 0;
@@ -85,12 +87,21 @@ async fn idempotency_replays_and_refuses_a_changed_request() {
     let b = id("b");
     l.create_account(&b, usd(), false).await.unwrap();
     let key = id("k");
-    let first = l.execute(&key, &transfer(&a, &b, 200)).await.unwrap();
-    let again = l.execute(&key, &transfer(&a, &b, 200)).await.unwrap();
+    let first = l
+        .execute(SCOPE, &key, &transfer(&a, &b, 200))
+        .await
+        .unwrap();
+    let again = l
+        .execute(SCOPE, &key, &transfer(&a, &b, 200))
+        .await
+        .unwrap();
     assert!(!first.replayed && again.replayed);
     assert_eq!(first.tx_id, again.tx_id);
     assert_eq!(l.balance(&b).await.unwrap(), 200);
-    let other = l.execute(&key, &transfer(&a, &b, 201)).await.unwrap_err();
+    let other = l
+        .execute(SCOPE, &key, &transfer(&a, &b, 201))
+        .await
+        .unwrap_err();
     assert_eq!(other.code(), "ledger_key_reused");
 
     // The same key used at once, many times, posts once.
@@ -99,7 +110,7 @@ async fn idempotency_replays_and_refuses_a_changed_request() {
     for _ in 0..10 {
         let (l, a, b, key) = (l.clone(), a.clone(), b.clone(), key.clone());
         tasks.push(tokio::spawn(async move {
-            l.execute(&key, &transfer(&a, &b, 10)).await
+            l.execute(SCOPE, &key, &transfer(&a, &b, 10)).await
         }));
     }
     let mut ids = std::collections::HashSet::new();
@@ -111,6 +122,35 @@ async fn idempotency_replays_and_refuses_a_changed_request() {
 }
 
 #[tokio::test]
+async fn the_same_key_in_two_scopes_does_not_collide() {
+    let Some(l) = ledger().await else { return };
+    let (_bank, a) = funded(&l, 500).await;
+    let b = id("b");
+    l.create_account(&b, usd(), false).await.unwrap();
+    let key = id("shared");
+    let one = l
+        .execute("tenant-one", &key, &transfer(&a, &b, 100))
+        .await
+        .unwrap();
+    // Another caller with the same key and a different request posts its own transfer
+    // instead of replaying, or being refused by, the first caller's.
+    let two = l
+        .execute("tenant-two", &key, &transfer(&a, &b, 50))
+        .await
+        .unwrap();
+    assert!(!one.replayed && !two.replayed);
+    assert_ne!(one.tx_id, two.tx_id);
+    assert_eq!(l.balance(&b).await.unwrap(), 150);
+    // Each scope still replays its own key.
+    let again = l
+        .execute("tenant-one", &key, &transfer(&a, &b, 100))
+        .await
+        .unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.tx_id, one.tx_id);
+}
+
+#[tokio::test]
 async fn reserve_capture_release_and_reverse() {
     let Some(l) = ledger().await else { return };
     let (_bank, a) = funded(&l, 1_000).await;
@@ -118,6 +158,7 @@ async fn reserve_capture_release_and_reverse() {
     l.create_account(&shop, usd(), false).await.unwrap();
     let hold = id("hold");
     l.execute(
+        SCOPE,
         &id("r"),
         &Command::Reserve {
             hold: hold.clone(),
@@ -132,12 +173,13 @@ async fn reserve_capture_release_and_reverse() {
     assert_eq!(l.balance(&hold).await.unwrap(), 600);
     // Spending more than the unreserved 400 fails.
     let e = l
-        .execute(&id("t"), &transfer(&a, &shop, 401))
+        .execute(SCOPE, &id("t"), &transfer(&a, &shop, 401))
         .await
         .unwrap_err();
     assert_eq!(e.code(), "ledger_insufficient_funds");
     // Capture part, release the rest.
     l.execute(
+        SCOPE,
         &id("c"),
         &Command::Capture {
             hold: hold.clone(),
@@ -147,7 +189,7 @@ async fn reserve_capture_release_and_reverse() {
     )
     .await
     .unwrap();
-    l.execute(&id("rel"), &Command::Release { hold: hold.clone() })
+    l.execute(SCOPE, &id("rel"), &Command::Release { hold: hold.clone() })
         .await
         .unwrap();
     assert_eq!(l.balance(&shop).await.unwrap(), 250);
@@ -155,13 +197,13 @@ async fn reserve_capture_release_and_reverse() {
     assert_eq!(l.balance(&hold).await.unwrap(), 0);
     // Reverse the first transfer into the shop: only once.
     let paid = l
-        .execute(&id("t2"), &transfer(&a, &shop, 100))
+        .execute(SCOPE, &id("t2"), &transfer(&a, &shop, 100))
         .await
         .unwrap();
     let rev = Command::Reverse { tx: paid.tx_id };
-    l.execute(&id("rv1"), &rev).await.unwrap();
+    l.execute(SCOPE, &id("rv1"), &rev).await.unwrap();
     assert_eq!(l.balance(&shop).await.unwrap(), 250);
-    let twice = l.execute(&id("rv2"), &rev).await.unwrap_err();
+    let twice = l.execute(SCOPE, &id("rv2"), &rev).await.unwrap_err();
     assert_eq!(twice.code(), "ledger_already_reversed");
     assert!(l.invariants().await.unwrap().holds());
 }
@@ -174,7 +216,10 @@ async fn currency_mismatch_is_refused() {
     l.create_account(&e, Currency::new("EUR").unwrap(), false)
         .await
         .unwrap();
-    let err = l.execute(&id("x"), &transfer(&a, &e, 1)).await.unwrap_err();
+    let err = l
+        .execute(SCOPE, &id("x"), &transfer(&a, &e, 1))
+        .await
+        .unwrap_err();
     assert_eq!(err.code(), "ledger_currency_mismatch");
 }
 
@@ -252,6 +297,7 @@ async fn settle_and_reconcile() {
     let r2 = id("W");
     for (r, amt) in [(&r1, 100), (&r2, 250)] {
         l.execute(
+            SCOPE,
             &id("s"),
             &Command::Settle {
                 from: a.clone(),
@@ -290,6 +336,7 @@ async fn settle_and_reconcile() {
     // The same settlement reference cannot be posted twice under two keys.
     let dup = l
         .execute(
+            SCOPE,
             &id("s"),
             &Command::Settle {
                 from: a.clone(),
@@ -335,7 +382,10 @@ async fn checkout_saga_moves_money_or_gives_it_back() {
     let school = id("school");
     l.create_account(&school, usd(), false).await.unwrap();
     let router = |fail| Router {
-        horizon: HorizonParticipant { ledger: l.clone() },
+        horizon: HorizonParticipant {
+            ledger: l.clone(),
+            scope: "saga-tenant".into(),
+        },
         storefront: Storefront { fail },
     };
 
@@ -394,14 +444,18 @@ async fn an_account_whose_sum_leaves_the_i64_range_still_works() {
     for _ in 0..2 {
         let to = id("acct");
         l.create_account(&to, usd(), false).await.unwrap();
-        l.execute(&id("big"), &transfer(&bank, &to, 9_000_000_000_000_000_000))
-            .await
-            .unwrap();
+        l.execute(
+            SCOPE,
+            &id("big"),
+            &transfer(&bank, &to, 9_000_000_000_000_000_000),
+        )
+        .await
+        .unwrap();
     }
     assert_eq!(l.balance(&bank).await.unwrap(), i64::MIN);
     let to = id("acct");
     l.create_account(&to, usd(), false).await.unwrap();
-    l.execute(&id("more"), &transfer(&bank, &to, 1))
+    l.execute(SCOPE, &id("more"), &transfer(&bank, &to, 1))
         .await
         .unwrap();
     assert!(l.invariants().await.unwrap().holds());

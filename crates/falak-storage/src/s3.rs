@@ -29,6 +29,7 @@ impl S3Backend {
         key: &str,
         extra: &[(&str, &str)],
     ) -> Result<Option<ureq::http::Response<ureq::Body>>> {
+        let conditional = extra.iter().any(|(k, _)| *k == "if-none-match");
         let signed = sign_request(
             &self.config,
             method,
@@ -47,6 +48,12 @@ impl S3Backend {
         match ureq::run(req) {
             Ok(r) => Ok(Some(r)),
             Err(ureq::Error::StatusCode(404)) => Ok(None),
+            // A conditional write that lost: the object is already there.
+            Err(ureq::Error::StatusCode(409 | 412)) if conditional => Err(Error::new(
+                falak_contracts::ErrorKind::Conflict,
+                "object_exists",
+                "the object already exists",
+            )),
             Err(ureq::Error::StatusCode(code)) => Err(unavailable(format!("status {code}"))),
             Err(e) => Err(unavailable(e)),
         }
@@ -80,6 +87,24 @@ impl ObjectBackend for S3Backend {
         self.call("PUT", to, &[("x-amz-copy-source", source.as_str())])?
             .map(|_| ())
             .ok_or_else(Error::not_found)
+    }
+
+    async fn copy_if_absent(&self, from: &str, to: &str) -> Result<bool> {
+        let source = format!("/{}/{}", self.config.bucket, encode(from, true));
+        // `If-None-Match: *` makes the store create the object only if none exists.
+        match self.call(
+            "PUT",
+            to,
+            &[
+                ("if-none-match", "*"),
+                ("x-amz-copy-source", source.as_str()),
+            ],
+        ) {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Err(Error::not_found()),
+            Err(e) if e.code() == "object_exists" => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     async fn delete(&self, key: &str) -> Result<()> {

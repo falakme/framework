@@ -113,6 +113,8 @@ pub async fn run<P: Participant>(
 /// name must match its type, so a step cannot be redirected by editing one field.
 pub struct HorizonParticipant {
     pub ledger: Ledger,
+    /// The idempotency scope of the caller (tenant or account) running the saga.
+    pub scope: String,
 }
 
 impl Participant for HorizonParticipant {
@@ -138,7 +140,7 @@ impl Participant for HorizonParticipant {
                 "The command name does not match its arguments.",
             ));
         }
-        let posted = self.ledger.execute(key, &cmd).await?;
+        let posted = self.ledger.execute(&self.scope, key, &cmd).await?;
         Ok(json!({ "tx_id": posted.tx_id, "replayed": posted.replayed }))
     }
 }
