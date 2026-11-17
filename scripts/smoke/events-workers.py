@@ -44,7 +44,7 @@ ORDERS = int(os.environ.get("EVENTS_ORDERS", "30"))
 PASSWORD = "correct horse battery staple 42"
 PREFIX = "falak-t55"
 NAMES = {n: f"{PREFIX}-{n}" for n in ("orders", "inventory")}
-WRANGLER = ["npx", "--yes", "wrangler@4"]
+WRANGLER = ["npx", "--yes", "wrangler@4.156.2"]
 
 work = tempfile.mkdtemp(prefix="falak-events-workers-")
 procs, failed = [], []

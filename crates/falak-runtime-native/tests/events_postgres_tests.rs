@@ -74,7 +74,11 @@ async fn count(driver: &PostgresDriver, table: &str) -> i64 {
 #[tokio::test]
 async fn events_work_on_postgres() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
-        eprintln!("Skipping: DATABASE_URL is not set");
+        assert!(
+            std::env::var("FALAK_REQUIRE_PG").as_deref() != Ok("1"),
+            "FALAK_REQUIRE_PG=1 but DATABASE_URL is not set"
+        );
+        eprintln!("SKIPPED: DATABASE_URL is not set (set FALAK_REQUIRE_PG=1 to fail instead)");
         return;
     };
     let Ok(driver) = PostgresDriver::open(PostgresConfig {
@@ -87,7 +91,11 @@ async fn events_work_on_postgres() {
     })
     .await
     else {
-        eprintln!("Skipping: no PostgreSQL");
+        assert!(
+            std::env::var("FALAK_REQUIRE_PG").as_deref() != Ok("1"),
+            "FALAK_REQUIRE_PG=1 but PostgreSQL is unreachable"
+        );
+        eprintln!("SKIPPED: no PostgreSQL (set FALAK_REQUIRE_PG=1 to fail instead)");
         return;
     };
     let driver = Arc::new(driver);

@@ -61,7 +61,12 @@ async fn setup_postgres_driver() -> Option<PostgresDriver> {
     match PostgresDriver::open(config).await {
         Ok(driver) => Some(driver),
         Err(e) => {
-            eprintln!("Skipping PostgreSQL runtime test: {e}");
+            if std::env::var("FALAK_REQUIRE_PG").as_deref() == Ok("1") {
+                panic!("FALAK_REQUIRE_PG=1 but PostgreSQL is unavailable: {e}");
+            }
+            eprintln!(
+                "SKIPPED: PostgreSQL runtime test (no database; set FALAK_REQUIRE_PG=1 to fail instead): {e}"
+            );
             None
         }
     }

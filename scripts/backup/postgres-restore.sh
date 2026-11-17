@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# shellcheck source=scripts/backup/_pgurl.sh
+. "$(dirname "${BASH_SOURCE[0]}")/_pgurl.sh"
+
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <path_to_backup.dump>" >&2
   exit 1
@@ -30,6 +33,8 @@ if [ -z "${DATABASE_URL:-}" ]; then
   echo "Error: DATABASE_URL environment variable must be set." >&2
   exit 1
 fi
+
+falak_split_url_password
 
 MANIFEST_FILE="${ARCHIVE_FILE%.dump}.sha256"
 
@@ -56,9 +61,9 @@ fi
 echo "==> Restoring from ${ARCHIVE_FILE} into target database..."
 
 if [ "${FALAK_PG_DOCKER:-}" != "1" ] && command -v pg_restore >/dev/null 2>&1; then
-  PG_RESTORE_CMD="pg_restore"
+  PG_RESTORE_CMD=(pg_restore)
 elif command -v docker >/dev/null 2>&1; then
-  PG_RESTORE_CMD="docker run --rm --network host -i postgres:16-alpine pg_restore"
+  PG_RESTORE_CMD=(docker run --rm --network host -i -e PGPASSWORD postgres:16-alpine pg_restore)
 else
   echo "Error: Neither 'pg_restore' nor 'docker' is available on PATH." >&2
   exit 1
@@ -70,7 +75,7 @@ fi
 # --if-exists: avoid errors on missing objects during clean
 # --no-owner --no-privileges: ignore original database role owners and permissions
 # A failure is a failure: do not report a finished restore that was not.
-if ! $PG_RESTORE_CMD --clean --if-exists --no-owner --no-privileges -d "$DATABASE_URL" < "$ARCHIVE_FILE"; then
+if ! "${PG_RESTORE_CMD[@]}" --clean --if-exists --no-owner --no-privileges -d "$DATABASE_URL" < "$ARCHIVE_FILE"; then
   echo "Error: pg_restore reported errors; the target database may be incomplete." >&2
   exit 1
 fi
