@@ -38,11 +38,11 @@ fn config() -> Option<S3Config> {
 fn put(url: &str, headers: &[(String, String)], body: &[u8]) -> u16 {
     let mut req = ureq::put(url);
     for (k, v) in headers {
-        req = req.set(k, v);
+        req = req.header(k.as_str(), v.as_str());
     }
-    match req.send_bytes(body) {
-        Ok(r) => r.status(),
-        Err(ureq::Error::Status(code, _)) => code,
+    match req.send(body) {
+        Ok(r) => r.status().as_u16(),
+        Err(ureq::Error::StatusCode(code)) => code,
         Err(e) => panic!("{e}"),
     }
 }
@@ -94,17 +94,18 @@ fn upload_check_publish_and_download_against_a_real_store() {
         .download_url(Some(tenant), id, "photo.png", now)
         .unwrap();
     let resp = ureq::get(&url).call().unwrap();
+    let header = |n: &str| resp.headers().get(n).map(|v| v.to_str().unwrap());
     assert!(
-        resp.header("content-disposition")
+        header("content-disposition")
             .unwrap()
             .starts_with("attachment")
     );
-    assert_eq!(
-        resp.header("content-type"),
-        Some("application/octet-stream")
-    );
+    assert_eq!(header("content-type"), Some("application/octet-stream"));
     let mut got = Vec::new();
-    resp.into_reader().read_to_end(&mut got).unwrap();
+    resp.into_body()
+        .into_reader()
+        .read_to_end(&mut got)
+        .unwrap();
     assert_eq!(got, png);
 
     // A file that is not a PNG is refused and removed, and never reaches `files/`.
@@ -122,7 +123,7 @@ fn upload_check_publish_and_download_against_a_real_store() {
         .unwrap();
     assert!(matches!(
         ureq::get(&dl).call(),
-        Err(ureq::Error::Status(404, _))
+        Err(ureq::Error::StatusCode(404))
     ));
 
     // Another tenant's key is another object: the download of this id under a different
@@ -131,6 +132,6 @@ fn upload_check_publish_and_download_against_a_real_store() {
     let dl = flow.download_url(Some(other), id, "x.png", now).unwrap();
     assert!(matches!(
         ureq::get(&dl).call(),
-        Err(ureq::Error::Status(404, _))
+        Err(ureq::Error::StatusCode(404))
     ));
 }

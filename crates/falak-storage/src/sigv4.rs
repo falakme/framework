@@ -3,7 +3,7 @@
 //! Two uses: a presigned URL a client can use alone (query authentication), and the
 //! `Authorization` header for the server's own calls.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -309,6 +309,20 @@ mod tests {
             "{url}"
         );
         assert!(url.starts_with("https://examplebucket.s3.amazonaws.com/test.txt?"));
+    }
+
+    #[test]
+    fn hmac_and_sha256_match_published_known_answers() {
+        // RFC 4231 test case 2, and the FIPS 180 "abc" vector: these must not change
+        // across RustCrypto upgrades, since signatures and stored hashes depend on them.
+        assert_eq!(
+            hex::encode(hmac(b"Jefe", "what do ya want for nothing?")),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]

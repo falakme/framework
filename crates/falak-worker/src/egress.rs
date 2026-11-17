@@ -78,11 +78,25 @@ impl Resolver for System {
 }
 
 /// Connects only to the addresses the policy approved.
+#[derive(Debug)]
 struct Pinned(Vec<SocketAddr>);
 
-impl ureq::Resolver for Pinned {
-    fn resolve(&self, _netloc: &str) -> io::Result<Vec<SocketAddr>> {
-        Ok(self.0.clone())
+impl ureq::unversioned::resolver::Resolver for Pinned {
+    fn resolve(
+        &self,
+        _uri: &ureq::http::Uri,
+        _config: &ureq::config::Config,
+        _timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let mut out = self.empty();
+        // The resolver holds at most 16 addresses.
+        for a in self.0.iter().take(16) {
+            out.push(*a);
+        }
+        if out.is_empty() {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(out)
     }
 }
 
@@ -108,31 +122,49 @@ pub fn fetch(policy: &Policy, request: &Value) -> Value {
         .iter()
         .map(|ip| SocketAddr::new(*ip, permit.port))
         .collect();
-    let agent = ureq::AgentBuilder::new()
-        .resolver(Pinned(addrs))
-        .redirects(0)
-        .timeout(Duration::from_secs(60))
+    // Connect only to the approved addresses; a refusal (4xx, 5xx) is an answer to pass
+    // back, not an error; and a redirect is returned, never followed.
+    let config = ureq::Agent::config_builder()
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .timeout_global(Some(Duration::from_secs(60)))
         .build();
-    let mut call = agent.request(&method, url);
+    let agent = ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        Pinned(addrs),
+    );
+    let mut call = ureq::http::Request::builder()
+        .method(method.as_str())
+        .uri(url);
     for (k, v) in request["headers"].as_object().into_iter().flatten() {
         if let Some(v) = v.as_str()
             && header_allowed(k)
         {
-            call = call.set(k, v);
+            call = call.header(k.as_str(), v);
         }
     }
-    let res = match request["body"].as_str() {
-        Some(b) => call.send_string(b),
-        None => call.call(),
+    let sent = match request["body"].as_str() {
+        Some(b) => call.body(b.to_owned()).map(|r| agent.run(r)),
+        None => call.body(()).map(|r| agent.run(r)),
     };
-    let res = match res {
-        Ok(r) | Err(ureq::Error::Status(_, r)) => r,
+    let res = match sent {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return json!({"status": 502, "error": e.to_string()}),
         Err(e) => return json!({"status": 502, "error": e.to_string()}),
     };
-    let status = res.status();
-    let location = res.header("location").map(str::to_owned);
+    let status = res.status().as_u16();
+    let location = res
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
     let mut body = String::new();
-    let _ = res.into_reader().take(MAX_BODY).read_to_string(&mut body);
+    let _ = res
+        .into_body()
+        .into_reader()
+        .take(MAX_BODY)
+        .read_to_string(&mut body);
     json!({"status": status, "body": body, "location": location})
 }
 

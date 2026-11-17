@@ -159,27 +159,40 @@ async fn upstream(
     body: Option<Value>,
 ) -> (u16, Value) {
     tokio::task::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(10))
+        // A refusal (4xx, 5xx) is an answer whose body the caller wants, not an error.
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
             // A configured app or Office must not be able to send the person's token on
             // to another address with a redirect.
-            .redirects(0)
-            .build();
-        let mut req = agent.request(method, &url);
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let mut req = ureq::http::Request::builder()
+            .method(method)
+            .uri(url.as_str());
         if let Some(t) = bearer {
-            req = req.set("authorization", &format!("Bearer {t}"));
+            req = req.header("authorization", format!("Bearer {t}"));
         }
         for (k, v) in &headers {
-            req = req.set(k, v);
+            req = req.header(*k, v.as_str());
         }
         let res = match body {
-            Some(b) => req.send_json(b),
-            None if method == "GET" => req.call(),
-            None => req.send_string(""),
+            Some(b) => req
+                .header("content-type", "application/json")
+                .body(b.to_string())
+                .map_err(|_| ())
+                .and_then(|r| agent.run(r).map_err(|_| ())),
+            None => req
+                .body(())
+                .map_err(|_| ())
+                .and_then(|r| agent.run(r).map_err(|_| ())),
         };
         match res {
-            Ok(r) => (r.status(), r.into_json().unwrap_or(Value::Null)),
-            Err(ureq::Error::Status(code, r)) => (code, r.into_json().unwrap_or(Value::Null)),
+            Ok(mut r) => (
+                r.status().as_u16(),
+                r.body_mut().read_json().unwrap_or(Value::Null),
+            ),
             Err(_) => (502, json!({"title": "The service did not answer."})),
         }
     })

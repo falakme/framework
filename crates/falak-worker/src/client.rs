@@ -46,9 +46,10 @@ impl Office {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             credential: credential.to_owned(),
-            agent: ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(30))
-                .build(),
+            agent: ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_secs(30)))
+                .build()
+                .into(),
         }
     }
 
@@ -56,13 +57,14 @@ impl Office {
         let res = self
             .agent
             .post(&format!("{}/v1/_office/compute/{path}", self.base))
-            .set("authorization", &format!("Bearer {}", self.credential))
+            .header("authorization", format!("Bearer {}", self.credential))
             .send_json(body);
         match res {
-            Ok(r) => r
-                .into_json::<Value>()
+            Ok(mut r) => r
+                .body_mut()
+                .read_json::<Value>()
                 .map_err(|e| ClientError::Transport(e.to_string())),
-            Err(ureq::Error::Status(code, _)) => Err(ClientError::Rejected(code)),
+            Err(ureq::Error::StatusCode(code)) => Err(ClientError::Rejected(code)),
             Err(e) => Err(ClientError::Transport(e.to_string())),
         }
     }

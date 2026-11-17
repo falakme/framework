@@ -140,7 +140,7 @@ impl KekSet {
             self.keys.iter().find(|(i, _)| i == id).ok_or_else(|| {
                 Error::internal("a data key is wrapped by a KEK this Office lacks")
             })?;
-        Ok(ChaCha20Poly1305::new(Key::from_slice(k)))
+        Ok(ChaCha20Poly1305::new(&Key::from(*k)))
     }
 
     fn wrap(&self, kek: &str, tenant: &str, version: i64, dek: &[u8]) -> Result<String> {
@@ -150,7 +150,7 @@ impl KekSet {
         let ct = self
             .cipher(kek)?
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: dek,
                     aad: aad.as_bytes(),
@@ -167,10 +167,11 @@ impl KekSet {
             return Err(bad());
         }
         let (nonce, ct) = raw.split_at(12);
+        let nonce = Nonce::try_from(nonce).map_err(|_| bad())?;
         let aad = format!("{tenant}|{version}");
         self.cipher(kek)?
             .decrypt(
-                Nonce::from_slice(nonce),
+                &nonce,
                 Payload {
                     msg: ct,
                     aad: aad.as_bytes(),
@@ -346,6 +347,35 @@ pub async fn rotate_kek(db: &Db, kek: &mut KekSet) -> Result<(String, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dek_wrapped_by_an_earlier_release_still_opens() {
+        // Produced by chacha20poly1305 0.10 with a fixed key and nonce: wrapped keys are
+        // stored, so the format must not change when the crate is upgraded.
+        let k = KekSet {
+            keys: vec![("k1".into(), [7u8; 32])],
+            active: "k1".into(),
+        };
+        let nonce = [9u8; 12];
+        let ct = k
+            .cipher("k1")
+            .unwrap()
+            .encrypt(
+                &Nonce::from(nonce),
+                Payload {
+                    msg: b"0123456789abcdef0123456789abcdef",
+                    aad: b"acme|3",
+                },
+            )
+            .unwrap();
+        let known = "cc48c9e4d03bb392e5516f5aa383c1b74e3f78be0c327baf64955ff47e3a64bd9468f45e534a2ee99a5656298fc4d969";
+        assert_eq!(hex::encode(ct), known);
+        let wrapped = format!("{}{known}", hex::encode(nonce));
+        assert_eq!(
+            k.unwrap("k1", "acme", 3, &wrapped).unwrap(),
+            b"0123456789abcdef0123456789abcdef"
+        );
+    }
 
     #[test]
     fn a_wrapped_key_opens_only_for_its_tenant_and_version() {
