@@ -48,7 +48,11 @@ async fn main() {
         ledger.create_account(s, usd, false).await.unwrap();
         ledger.create_account(d, usd, false).await.unwrap();
         ledger
-            .execute(&format!("fund-{run}-{s}"), &transfer(&bank, s, FUNDING))
+            .execute(
+                "load",
+                &format!("fund-{run}-{s}"),
+                &transfer(&bank, s, FUNDING),
+            )
             .await
             .unwrap();
     }
@@ -61,9 +65,9 @@ async fn main() {
             let cmd = transfer(&s, &d, AMOUNT);
             // Requests come in pairs with one key: the second must replay, not post.
             let key = format!("xfer-{run}-{s}-{}", n / 2);
-            tasks.push(tokio::spawn(
-                async move { ledger.execute(&key, &cmd).await },
-            ));
+            tasks.push(tokio::spawn(async move {
+                ledger.execute("load", &key, &cmd).await
+            }));
         }
     }
     let (mut posted, mut refused, mut busy) = (0u32, 0u32, 0u32);
@@ -93,7 +97,7 @@ async fn main() {
             };
             tasks.push(tokio::spawn(async move {
                 if ledger
-                    .execute(&format!("settle-{reference}"), &cmd)
+                    .execute("load", &format!("settle-{reference}"), &cmd)
                     .await
                     .is_ok()
                 {

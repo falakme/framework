@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Mutex};
 
-use falak_contracts::{Error, Result};
+use falak_contracts::{Error, ErrorKind, Result};
 
 use crate::{
     Area, S3Config, object_key,
@@ -17,6 +17,10 @@ pub trait ObjectBackend {
     /// The first `n` bytes.
     async fn head(&self, key: &str, n: usize) -> Result<Vec<u8>>;
     async fn copy(&self, from: &str, to: &str) -> Result<()>;
+    /// Copy `from` to `to` only if nothing exists at `to`, as one atomic step in the
+    /// store (a conditional write). Returns `false`, and changes nothing, when `to`
+    /// already exists. [`FileFlow::finish_upload`] relies on this to be single-use.
+    async fn copy_if_absent(&self, from: &str, to: &str) -> Result<bool>;
     async fn delete(&self, key: &str) -> Result<()>;
 }
 
@@ -65,6 +69,16 @@ impl ObjectBackend for MemoryBackend {
         Ok(())
     }
 
+    async fn copy_if_absent(&self, from: &str, to: &str) -> Result<bool> {
+        let mut map = self.objects.lock().unwrap_or_else(|p| p.into_inner());
+        let b = map.get(from).cloned().ok_or_else(Error::not_found)?;
+        if map.contains_key(to) {
+            return Ok(false);
+        }
+        map.insert(to.to_owned(), b);
+        Ok(true)
+    }
+
     async fn delete(&self, key: &str) -> Result<()> {
         self.objects
             .lock()
@@ -104,6 +118,14 @@ pub struct FileFlow<B> {
     pub config: S3Config,
     pub backend: B,
     pub limits: UploadLimits,
+}
+
+fn already_finished() -> Error {
+    Error::new(
+        ErrorKind::Conflict,
+        "file_already_finished",
+        "this upload was already finished",
+    )
 }
 
 fn refusal(r: &Refusal) -> Error {
@@ -170,6 +192,11 @@ impl<B: ObjectBackend> FileFlow<B> {
 
     /// Check an uploaded file and, if it is what it says, move it out of quarantine.
     /// A file that is missing, the wrong size or the wrong kind is deleted and refused.
+    ///
+    /// Single use: a file id is finished once. The move to the clean area is a
+    /// conditional write that only one caller can win, so a second call, concurrent or
+    /// later (even after the client re-uploads to the quarantine URL), fails with
+    /// `file_already_finished` and does not publish anything again.
     pub async fn finish_upload(
         &self,
         tenant: Option<&str>,
@@ -179,6 +206,11 @@ impl<B: ObjectBackend> FileFlow<B> {
     ) -> Result<String> {
         let from = object_key(Area::Quarantine, tenant, id)?;
         let to = object_key(Area::Clean, tenant, id)?;
+        // Already finished: refuse before touching anything, including a quarantine
+        // object a client may have written again.
+        if self.backend.size(&to).await?.is_some() {
+            return Err(already_finished());
+        }
         let Some(size) = self.backend.size(&from).await? else {
             return Err(Error::invalid_input(
                 "file_missing",
@@ -196,7 +228,10 @@ impl<B: ObjectBackend> FileFlow<B> {
         };
         match verdict {
             Ok(()) => {
-                self.backend.copy(&from, &to).await?;
+                // The one atomic step: only a single caller can create `to`.
+                if !self.backend.copy_if_absent(&from, &to).await? {
+                    return Err(already_finished());
+                }
                 // The upload URL stays valid for its whole lifetime and the client can
                 // write to the quarantine key at any moment, so what was checked may not
                 // be what was copied. The copy cannot be changed by the client: check
@@ -332,6 +367,78 @@ mod tests {
     }
 
     #[test]
+    fn finishing_twice_fails_and_publishes_once() {
+        let f = flow();
+        let q = format!("quarantine/{T}/{ID}");
+        let c = format!("files/{T}/{ID}");
+        f.backend.put(&q, PNG);
+        let size = PNG.len() as u64;
+        assert_eq!(
+            block_on(f.finish_upload(Some(T), ID, "image/png", size)).unwrap(),
+            c
+        );
+        let err = block_on(f.finish_upload(Some(T), ID, "image/png", size)).unwrap_err();
+        assert_eq!(err.code(), "file_already_finished");
+
+        // The client re-uploads through the still-valid URL and tries again with other
+        // bytes: the published file is untouched and the new upload is not processed.
+        let other = [PNG, &[9, 9]].concat();
+        f.backend.put(&q, &other);
+        let err =
+            block_on(f.finish_upload(Some(T), ID, "image/png", other.len() as u64)).unwrap_err();
+        assert_eq!(err.code(), "file_already_finished");
+        assert_eq!(block_on(f.backend.size(&c)).unwrap(), Some(size));
+        assert!(
+            f.backend.has(&q),
+            "the second call does not touch quarantine"
+        );
+    }
+
+    #[test]
+    fn losing_the_atomic_move_is_reported_without_side_effects() {
+        // A store where another caller creates the target between the check and the move.
+        struct Raced(MemoryBackend);
+        impl ObjectBackend for Raced {
+            async fn size(&self, key: &str) -> Result<Option<u64>> {
+                // The first look at the clean key sees nothing.
+                if key.starts_with("files/") {
+                    return Ok(None);
+                }
+                self.0.size(key).await
+            }
+            async fn head(&self, key: &str, n: usize) -> Result<Vec<u8>> {
+                self.0.head(key, n).await
+            }
+            async fn copy(&self, from: &str, to: &str) -> Result<()> {
+                self.0.copy(from, to).await
+            }
+            async fn copy_if_absent(&self, from: &str, to: &str) -> Result<bool> {
+                self.0.copy_if_absent(from, to).await
+            }
+            async fn delete(&self, key: &str) -> Result<()> {
+                self.0.delete(key).await
+            }
+        }
+        let f = flow();
+        let raced = FileFlow {
+            config: f.config.clone(),
+            limits: f.limits,
+            backend: Raced(MemoryBackend::default()),
+        };
+        let winner = b"winner";
+        raced.backend.0.put(&format!("quarantine/{T}/{ID}"), PNG);
+        raced.backend.0.put(&format!("files/{T}/{ID}"), winner);
+        let err =
+            block_on(raced.finish_upload(Some(T), ID, "image/png", PNG.len() as u64)).unwrap_err();
+        assert_eq!(err.code(), "file_already_finished");
+        // The winner's file was not overwritten or deleted.
+        assert_eq!(
+            block_on(raced.backend.0.size(&format!("files/{T}/{ID}"))).unwrap(),
+            Some(winner.len() as u64)
+        );
+    }
+
+    #[test]
     fn a_file_that_is_not_what_it_says_is_deleted_and_never_published() {
         let f = flow();
         let q = format!("quarantine/{T}/{ID}");
@@ -361,6 +468,10 @@ mod tests {
         async fn copy(&self, from: &str, to: &str) -> Result<()> {
             self.inner.put(from, &self.swap_on_copy);
             self.inner.copy(from, to).await
+        }
+        async fn copy_if_absent(&self, from: &str, to: &str) -> Result<bool> {
+            self.inner.put(from, &self.swap_on_copy);
+            self.inner.copy_if_absent(from, to).await
         }
         async fn delete(&self, key: &str) -> Result<()> {
             self.inner.delete(key).await

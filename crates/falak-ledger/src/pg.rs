@@ -127,6 +127,24 @@ fn classify(e: sqlx::Error) -> Fail {
 /// bank, only ever collects debits), and a bare `::bigint` cast would then error on every
 /// command that reads that account. Clamping keeps the sign and the ordering that the
 /// callers use.
+/// Both halves of an idempotency identity are 1 to 200 characters. An empty scope is
+/// refused so a caller cannot land on rows that predate scoping.
+fn check_idempotency(scope: &str, key: &str) -> Result<()> {
+    if scope.is_empty() || scope.len() > 200 {
+        return Err(Error::invalid_input(
+            "ledger_bad_scope",
+            "An idempotency scope is 1 to 200 characters.",
+        ));
+    }
+    if key.is_empty() || key.len() > 200 {
+        return Err(Error::invalid_input(
+            "ledger_bad_key",
+            "An idempotency key is 1 to 200 characters.",
+        ));
+    }
+    Ok(())
+}
+
 fn sum_of(expr: &str) -> String {
     format!(
         "GREATEST(LEAST(COALESCE({expr}, 0), 9223372036854775807), -9223372036854775808)::bigint"
@@ -235,20 +253,17 @@ impl Ledger {
         .map_err(db_err)
     }
 
-    /// Run a command exactly once per idempotency `key`.
-    pub async fn execute(&self, key: &str, command: &Command) -> Result<Posted> {
-        if key.is_empty() || key.len() > 200 {
-            return Err(Error::invalid_input(
-                "ledger_bad_key",
-                "An idempotency key is 1 to 200 characters.",
-            ));
-        }
+    /// Run a command exactly once per `(scope, key)`. `scope` names the caller (a tenant
+    /// or account id) so that two callers choosing the same `key` never see each
+    /// other's results. Both are 1 to 200 characters.
+    pub async fn execute(&self, scope: &str, key: &str, command: &Command) -> Result<Posted> {
+        check_idempotency(scope, key)?;
         command.validate()?;
         let hash = command.hash();
         let mut attempts = 0;
         loop {
             attempts += 1;
-            match self.attempt(key, command, &hash).await {
+            match self.attempt(scope, key, command, &hash).await {
                 Ok(mut posted) => {
                     posted.attempts = attempts;
                     return Ok(posted);
@@ -275,6 +290,7 @@ impl Ledger {
 
     async fn attempt(
         &self,
+        scope: &str,
         key: &str,
         command: &Command,
         hash: &str,
@@ -285,12 +301,15 @@ impl Ledger {
             .await
             .map_err(classify)?;
 
-        if let Some(row) =
-            sqlx::query("SELECT request_hash, tx_id FROM ledger_idempotency WHERE key = $1")
-                .bind(key)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(classify)?
+        if let Some(row) = sqlx::query(
+            "SELECT request_hash, tx_id FROM ledger_idempotency \
+                 WHERE scope = $1 AND key = $2",
+        )
+        .bind(scope)
+        .bind(key)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(classify)?
         {
             let stored: String = row.get(0);
             if stored != hash {
@@ -310,7 +329,7 @@ impl Ledger {
         let facts = load_facts(&mut tx, command).await?;
         let plan = command.plan(&facts).map_err(Fail::Fatal)?;
         let tx_id = Uuid::new_v4();
-        write_plan(&mut tx, key, hash, tx_id, &plan).await?;
+        write_plan(&mut tx, scope, key, hash, tx_id, &plan).await?;
         tx.commit().await.map_err(classify)?;
         Ok(Posted {
             tx_id,
@@ -527,6 +546,7 @@ async fn load_facts(
 
 async fn write_plan(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    scope: &str,
     key: &str,
     hash: &str,
     tx_id: Uuid,
@@ -534,13 +554,17 @@ async fn write_plan(
 ) -> std::result::Result<(), Fail> {
     // The idempotency row goes first, so two requests with one key collide on it (and
     // the loser retries and sees the winner) rather than on some later row.
-    sqlx::query("INSERT INTO ledger_idempotency (key, request_hash, tx_id) VALUES ($1, $2, $3)")
-        .bind(key)
-        .bind(hash)
-        .bind(tx_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(classify)?;
+    sqlx::query(
+        "INSERT INTO ledger_idempotency (scope, key, request_hash, tx_id) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(scope)
+    .bind(key)
+    .bind(hash)
+    .bind(tx_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(classify)?;
     for a in &plan.new_accounts {
         sqlx::query(
             "INSERT INTO ledger_accounts (id, currency, allow_negative, hold_of) \
@@ -579,4 +603,24 @@ async fn write_plan(
         .map_err(classify)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_idempotency;
+
+    #[test]
+    fn scope_and_key_are_both_required() {
+        assert!(check_idempotency("tenant-a", "k").is_ok());
+        assert_eq!(
+            check_idempotency("", "k").unwrap_err().code(),
+            "ledger_bad_scope"
+        );
+        assert_eq!(
+            check_idempotency("t", "").unwrap_err().code(),
+            "ledger_bad_key"
+        );
+        assert!(check_idempotency(&"s".repeat(201), "k").is_err());
+        assert!(check_idempotency("t", &"k".repeat(201)).is_err());
+    }
 }

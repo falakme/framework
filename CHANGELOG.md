@@ -4,6 +4,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+
+* Ledger idempotency keys are now scoped to a caller. `Ledger::execute` takes a `scope` (a tenant or account id) before the key, `HorizonParticipant` has a `scope` field, and `ledger_idempotency` is keyed by `(scope, key)`. `ledger init` migrates an existing table; rows written before this keep the empty scope and no longer replay for a caller that passes a scope.
+* `finish_upload` is single-use per file id. The move into `files/` is an atomic conditional write (`ObjectBackend::copy_if_absent`, new required trait method; S3 and R2 use `If-None-Match: *`), and a second call fails with `file_already_finished` without processing the file again.
+
 ### Changed
 
 * Dependency upgrades: argon2 0.6 (existing password hashes still verify), ureq 3 (redirects are not followed), jsonwebtoken 10 with the `aws_lc_rs` backend, hmac 0.13 with sha2 0.11, chacha20poly1305 0.11 (a test opens a key wrapped by the old version), p256 0.14, TypeScript 7, Vite 8, `@vitejs/plugin-react` 6, and GitHub Actions `checkout` and `setup-node` v7.

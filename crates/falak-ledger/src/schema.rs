@@ -14,9 +14,10 @@
 //!   transaction's, by foreign key.
 //! * **One reversal per transaction, one transaction per external reference,** by unique
 //!   indexes.
-//! * **Idempotency.** `ledger_idempotency` maps a caller's key to the transaction it
-//!   produced and a hash of the request, so a retry returns the same result and a key
-//!   reused for a different request is refused.
+//! * **Idempotency.** `ledger_idempotency` maps a caller's `(scope, key)` to the
+//!   transaction it produced and a hash of the request, so a retry returns the same
+//!   result and a key reused for a different request is refused. Keys are scoped to a
+//!   caller (a tenant or account), so two callers may pick the same key independently.
 
 use falak_contracts::{Error, Result};
 
@@ -66,12 +67,30 @@ CREATE INDEX IF NOT EXISTS ledger_entries_account ON ledger_entries (account_id)
 CREATE INDEX IF NOT EXISTS ledger_entries_tx ON ledger_entries (tx_id);
 
 CREATE TABLE IF NOT EXISTS ledger_idempotency (
-    key          text PRIMARY KEY,
+    scope        text NOT NULL DEFAULT '',
+    key          text NOT NULL,
     request_hash text NOT NULL,
     tx_id        uuid NOT NULL REFERENCES ledger_transactions (id)
                       DEFERRABLE INITIALLY DEFERRED,
-    created_at   timestamptz NOT NULL DEFAULT now()
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ledger_idempotency_pkey PRIMARY KEY (scope, key)
 );
+-- Tables made before keys were scoped have `key` alone as the primary key. Move them to
+-- (scope, key); their existing rows keep the empty scope. Does nothing on a new table.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conrelid = 'ledger_idempotency'::regclass
+           AND c.contype = 'p' AND a.attname = 'scope'
+    ) THEN
+        ALTER TABLE ledger_idempotency ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT '';
+        ALTER TABLE ledger_idempotency DROP CONSTRAINT ledger_idempotency_pkey;
+        ALTER TABLE ledger_idempotency
+            ADD CONSTRAINT ledger_idempotency_pkey PRIMARY KEY (scope, key);
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS ledger_statements (
     id         text PRIMARY KEY,
@@ -196,6 +215,14 @@ mod tests {
         assert!(!sql.contains("GRANT UPDATE"));
         assert!(!sql.contains("GRANT ALL"));
         assert!(sql.contains("REVOKE UPDATE, DELETE, TRUNCATE"));
+    }
+
+    #[test]
+    fn idempotency_key_is_scoped() {
+        let sql = schema_sql(None).unwrap();
+        assert!(sql.contains("PRIMARY KEY (scope, key)"));
+        // Migration for tables created before scoping.
+        assert!(sql.contains("DROP CONSTRAINT ledger_idempotency_pkey"));
     }
 
     #[test]
