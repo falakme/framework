@@ -354,7 +354,7 @@ jobs:
         if: steps.secrets.outputs.present == 'true'
         id: deploy_falakme
         run: |
-          ./target/debug/falak deploy examples/falakme --name "$WORKER_NAME-iso" | tee deploy2.log
+          ./target/debug/falak deploy testdata/apps/falakme --name "$WORKER_NAME-iso" | tee deploy2.log
           echo "url=$(sed -n 's/^deployed: //p' deploy2.log)" >> "$GITHUB_OUTPUT"
       - name: Isolation smoke test on Workers
         if: steps.secrets.outputs.present == 'true'

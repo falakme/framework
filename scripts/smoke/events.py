@@ -7,7 +7,7 @@ them again. When the dust settles the orders and the inventory must agree exactl
 order has exactly one reservation, no reservation is without an order, nothing is left in
 an outbox, nothing is dead, and each order's saga ran to the end.
 
-usage: events.py <falak> <falak-office> <examples/gardenx> [office DATABASE_URL]
+usage: events.py <falak> <falak-office> <testdata/apps/gardenx> [office DATABASE_URL]
 """
 
 import json

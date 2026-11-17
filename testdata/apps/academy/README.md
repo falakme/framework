@@ -14,5 +14,5 @@ Roles come from Office: a person is a `teacher` in this app, or has no role (a s
 **Limits.** A relationship rule cannot allow `create`, so nothing stops a teacher from reviewing a submission of someone else's course (the review would be unreachable to that student, but it exists). A command or custom check can close that gap later.
 
 ```
-falak serve examples/academy
+falak serve testdata/apps/academy
 ```

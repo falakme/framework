@@ -281,10 +281,10 @@ Storage drivers must classify low-level database errors into Falak's standard `E
 
 ## 8. T0.8 Spike Result (2026-11-15)
 
-Crate: `crates/falak-spike-t08` (throwaway). One hard-coded entity, `notes`, served at `GET /notes/{id}`.
+The spike crate (`crates/falak-spike-t08`, throwaway) was removed after this result was recorded. One hard-coded entity, `notes`, served at `GET /notes/{id}`.
 
-* **Workers:** `https://falak-spike-t08.falakme.workers.dev/notes/1`, reading a D1 database in the Falak Cloudflare account.
-* **Native:** `cargo run -p falak-spike-t08 --bin native -- /notes/1`, reading in-memory SQLite.
+* **Workers:** deployed under the spike name, reading a D1 database in the Falak Cloudflare account (the URL is no longer served).
+* **Native:** run as a binary against in-memory SQLite.
 * **Result:** both return the identical body `{"id":1,"title":"hello","body":"same row on D1 and SQLite"}`. An unknown id returns 404 on Workers.
 * **WASM size:** 238,112 bytes after `wasm-opt` (release, `opt-level = "z"`, LTO). Upload to Workers: 271 KiB, 82 KiB gzip. Worker startup 2 ms. This includes the `worker` crate, `serde_json` and the JS glue, so it is the floor for the runtime, not the full cost.
 * **What it did not test:** `falak-driver-d1` (the spike calls the binding directly), batches, error mapping, or load.

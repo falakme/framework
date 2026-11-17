@@ -8,7 +8,7 @@ the app only through the MCP projection with the caller's own token. The checks 
 cannot read or write anything outside the caller's policy, that its writes only queue for a
 person, and that fields marked `pii` are not returned to it.
 
-usage: ai.py <falak> <examples/clarityai>
+usage: ai.py <falak> <testdata/apps/clarityai>
 """
 
 import json

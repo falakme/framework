@@ -76,23 +76,23 @@ pub fn clarity_ir() -> Ir {
     let (project, diags) = load_project(&[
         f(
             "app.yaml",
-            include_str!("../../../../examples/clarityai/app.yaml"),
+            include_str!("../../../../testdata/apps/clarityai/app.yaml"),
         ),
         f(
             "entities/document.yaml",
-            include_str!("../../../../examples/clarityai/entities/document.yaml"),
+            include_str!("../../../../testdata/apps/clarityai/entities/document.yaml"),
         ),
         f(
             "entities/summary.yaml",
-            include_str!("../../../../examples/clarityai/entities/summary.yaml"),
+            include_str!("../../../../testdata/apps/clarityai/entities/summary.yaml"),
         ),
         f(
             "policies/document.yaml",
-            include_str!("../../../../examples/clarityai/policies/document.yaml"),
+            include_str!("../../../../testdata/apps/clarityai/policies/document.yaml"),
         ),
         f(
             "policies/summary.yaml",
-            include_str!("../../../../examples/clarityai/policies/summary.yaml"),
+            include_str!("../../../../testdata/apps/clarityai/policies/summary.yaml"),
         ),
     ]);
     assert!(diags.is_empty(), "{diags:?}");

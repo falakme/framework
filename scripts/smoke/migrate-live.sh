@@ -29,7 +29,7 @@ if [ -z "${FALAK_BIN:-}" ]; then
   FALAK_BIN="$root/target/debug/falak"
 fi
 
-cp -R "$root/examples/falakme" "$work/v1"
+cp -R "$root/testdata/apps/falakme" "$work/v1"
 rm -rf "$work/v1/.falak"
 cp -R "$work/v1" "$work/v2"
 # Version 2: one more optional field on `page`.

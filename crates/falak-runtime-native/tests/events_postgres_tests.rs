@@ -24,7 +24,7 @@ use tower::ServiceExt;
 
 fn load(name: &str) -> Ir {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/gardenx")
+        .join("../../testdata/apps/gardenx")
         .join(name);
     let mut files = Vec::new();
     for rel in [

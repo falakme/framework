@@ -26,7 +26,7 @@ use tower::ServiceExt;
 
 fn app_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/gardenx")
+        .join("../../testdata/apps/gardenx")
         .join(name)
 }
 

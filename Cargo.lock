@@ -956,17 +956,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "falak-spike-t08"
-version = "1.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "worker",
-]
-
-[[package]]
 name = "falak-storage"
 version = "1.1.0"
 dependencies = [

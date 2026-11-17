@@ -24,10 +24,10 @@ Events need both apps enrolled with Office (see the Office smoke test for the fu
 
 ```sh
 falak-office serve --port 8788                          # then set up an administrator
-falak office enroll examples/gardenx/orders    --office http://127.0.0.1:8788 --token <token> --name orders
-falak office enroll examples/gardenx/inventory --office http://127.0.0.1:8788 --token <token> --name inventory
-falak serve examples/gardenx/orders    --port 8801
-falak serve examples/gardenx/inventory --port 8802
+falak office enroll testdata/apps/gardenx/orders    --office http://127.0.0.1:8788 --token <token> --name orders
+falak office enroll testdata/apps/gardenx/inventory --office http://127.0.0.1:8788 --token <token> --name inventory
+falak serve testdata/apps/gardenx/orders    --port 8801
+falak serve testdata/apps/gardenx/inventory --port 8802
 ```
 
 `scripts/smoke/events.sh` does all of this, places 120 orders, kills Office twice and the inventory app once with `SIGKILL` meanwhile, and checks that the orders and the reservations match one for one.

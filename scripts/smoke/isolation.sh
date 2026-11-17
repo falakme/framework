@@ -42,7 +42,7 @@ if [ -z "${FALAK_BIN:-}" ]; then
   FALAK_BIN="$root/target/debug/falak"
 fi
 
-cp -R "$root/examples/falakme" "$work/app"
+cp -R "$root/testdata/apps/falakme" "$work/app"
 rm -rf "$work/app/.falak"
 
 port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"

@@ -99,7 +99,8 @@ crates/          Rust crates: falak-core, falak-cli, falak-runtime-native,
                  falak-runtime-edge, falak-auth, falak-office, falak-studio,
                  falak-ledger and the rest
 packages/        TypeScript packages, including @falak/sdk
-examples/        Sample apps: notebook (the reference), gardenx and others
+examples/        The notebook reference app
+testdata/apps/   Sample apps used by the tests and smoke scripts, not shipped products
 specifications/  Normative specifications
 scripts/         Smoke tests, backup and release scripts
 deploy/          Docker Compose files for Falak Office

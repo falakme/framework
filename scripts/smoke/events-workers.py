@@ -11,7 +11,7 @@ and reservation counts must match exactly, with nothing dead and nothing left in
 outbox. There is no consumer process to kill on the edge: a Worker has no state outside
 D1, and every request or cron pass is a fresh isolate.
 
-    scripts/smoke/events-workers.py <falak> <falak-office> <examples/gardenx> [account id]
+    scripts/smoke/events-workers.py <falak> <falak-office> <testdata/apps/gardenx> [account id]
 
 The account id defaults to CLOUDFLARE_ACCOUNT_ID. Log in with `wrangler login` or set
 CLOUDFLARE_API_TOKEN. Needs `worker-build` and `npx` (for wrangler and cloudflared).

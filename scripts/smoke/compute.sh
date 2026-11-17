@@ -15,4 +15,4 @@ exec python3 "$root/scripts/smoke/compute.py" \
   "${FALAK_BIN:-$root/target/debug/falak}" \
   "${FALAK_OFFICE_BIN:-$root/target/debug/falak-office}" \
   "${FALAK_WORKER_BIN:-$root/target/debug/falak-worker}" \
-  "$root/examples/securablock"
+  "$root/testdata/apps/securablock"

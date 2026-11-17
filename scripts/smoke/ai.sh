@@ -14,4 +14,4 @@ if [ -z "${FALAK_BIN:-}" ]; then
 fi
 python3 "$root/scripts/smoke/ai.py" \
   "${FALAK_BIN:-$root/target/debug/falak}" \
-  "$root/examples/clarityai"
+  "$root/testdata/apps/clarityai"

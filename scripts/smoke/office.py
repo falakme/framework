@@ -25,8 +25,9 @@ import _http
 import uuid
 
 FALAK, OFFICE_BIN, NOTEBOOK = sys.argv[1], sys.argv[2], sys.argv[3]
-ACADEMY = os.path.join(os.path.dirname(NOTEBOOK), "academy")
-FALAKME = os.path.join(os.path.dirname(NOTEBOOK), "falakme")
+ROOT = os.path.dirname(os.path.dirname(NOTEBOOK))
+ACADEMY = os.path.join(ROOT, "testdata", "apps", "academy")
+FALAKME = os.path.join(ROOT, "testdata", "apps", "falakme")
 TENANTS = {"alice": "aaaaaaaa-0000-4000-8000-000000000001", "bob": "bbbbbbbb-0000-4000-8000-000000000002", "admin": "aaaaaaaa-0000-4000-8000-000000000001"}
 STUDIO_BIN = sys.argv[4]
 OFFICE_DB = sys.argv[5] if len(sys.argv) > 5 else ""

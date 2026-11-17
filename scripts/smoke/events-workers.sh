@@ -11,5 +11,5 @@ fi
 exec python3 "$root/scripts/smoke/events-workers.py" \
   "${FALAK_BIN:-$root/target/debug/falak}" \
   "${FALAK_OFFICE_BIN:-$root/target/debug/falak-office}" \
-  "$root/examples/gardenx" \
+  "$root/testdata/apps/gardenx" \
   "${1:-${CLOUDFLARE_ACCOUNT_ID:-cc0e1d4c6b2d2777745f5b92c2c654c3}}"

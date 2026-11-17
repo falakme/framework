@@ -14,5 +14,5 @@ fi
 exec python3 "$root/scripts/smoke/events.py" \
   "${FALAK_BIN:-$root/target/debug/falak}" \
   "${FALAK_OFFICE_BIN:-$root/target/debug/falak-office}" \
-  "$root/examples/gardenx" \
+  "$root/testdata/apps/gardenx" \
   "${OFFICE_DATABASE_URL:-}"

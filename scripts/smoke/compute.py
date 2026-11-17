@@ -6,7 +6,7 @@ part-way through, and checks that a second worker finishes the job exactly once,
 the worker host listens on no port. It also checks dead-lettering, worker revocation and
 job-scoped credentials.
 
-usage: compute.py <falak> <falak-office> <falak-worker> <examples/securablock>
+usage: compute.py <falak> <falak-office> <falak-worker> <testdata/apps/securablock>
 Environment: SMOKE_JOB_SECONDS (default 150) sets how long the scan runs.
 """
 
