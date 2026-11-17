@@ -19,10 +19,34 @@ DST_URL="${PG_URL_BASE}/${DST_DB}"
 
 echo "==> Preparing PostgreSQL test databases..."
 
-# Helper to run SQL
-psql_cmd() {
-  docker exec -i falak-test-postgres psql -U postgres -d postgres -c "$1" >/dev/null 2>&1 || true
+PG_CONTAINER="falak-test-postgres"
+
+# The official image first runs a temporary server (unix socket only) to initialise, then stops it
+# and starts the real one. pg_isready on the socket succeeds against the temporary server, so wait
+# for a real query over TCP (which only the final server offers) to succeed twice in a row.
+wait_for_postgres() {
+  local ok=0
+  for _ in $(seq 1 60); do
+    if docker exec "$PG_CONTAINER" psql -h 127.0.0.1 -U postgres -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+      ok=$((ok + 1))
+      if [ "$ok" -ge 2 ]; then
+        return 0
+      fi
+    else
+      ok=0
+    fi
+    sleep 1
+  done
+  echo "Error: PostgreSQL in ${PG_CONTAINER} did not become ready." >&2
+  return 1
 }
+
+# Run SQL against the maintenance database; any failure aborts the script.
+psql_cmd() {
+  docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$1" >/dev/null
+}
+
+wait_for_postgres
 
 psql_cmd "DROP DATABASE IF EXISTS ${SRC_DB};"
 psql_cmd "DROP DATABASE IF EXISTS ${DST_DB};"

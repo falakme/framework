@@ -243,7 +243,19 @@ jobs:
       - name: Start PostgreSQL
         run: |
           docker run -d --name falak-test-postgres -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54321:5432 postgres:16-alpine
-          for _ in $(seq 1 30); do docker exec falak-test-postgres pg_isready -U postgres && break; sleep 1; done
+          # The image starts a temporary socket-only server to initialise, then restarts: wait until a
+          # query over TCP succeeds twice in a row, which only the final server can do.
+          ok=0
+          for _ in $(seq 1 60); do
+            if docker exec falak-test-postgres psql -h 127.0.0.1 -U postgres -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+              ok=$((ok + 1))
+              [ "$ok" -ge 2 ] && break
+            else
+              ok=0
+            fi
+            sleep 1
+          done
+          [ "$ok" -ge 2 ] || { echo "PostgreSQL did not become ready" >&2; docker logs falak-test-postgres; exit 1; }
       - name: Backup and restore
         env:
           # The runner's pg_dump is newer than the server (16): use the matching client.
