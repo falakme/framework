@@ -181,8 +181,8 @@ def cleanup():
         if p.poll() is None:
             p.kill()
     for argv in (
-        ["npx", "--yes", "wrangler@4", "delete", WORKER, "--force"],
-        ["npx", "--yes", "wrangler@4", "d1", "delete", f"{WORKER}-db", "-y"],
+        ["npx", "--yes", "wrangler@4.156.2", "delete", WORKER, "--force"],
+        ["npx", "--yes", "wrangler@4.156.2", "d1", "delete", f"{WORKER}-db", "-y"],
     ):
         subprocess.run(argv, capture_output=True, text=True, env=env, cwd=work)
     shutil.rmtree(work, ignore_errors=True)

@@ -4,7 +4,7 @@
 #
 # The default command runs Office. Studio is the same image with another command:
 #   falak-studio serve --config /config/studio.json --data /data/studio
-FROM rust:1-bookworm AS build
+FROM rust:1.100.0-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
 COPY crates ./crates
@@ -12,7 +12,7 @@ COPY specifications ./specifications
 COPY examples ./examples
 RUN cargo build --release --locked -p falak-office -p falak-studio
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-20261027-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \

@@ -99,6 +99,7 @@ jobs:
       - name: Runtime REST on PostgreSQL
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/runtime_rest
+          FALAK_REQUIRE_PG: "1"
           PGPASSWORD: postgres
         run: |
           psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE runtime_rest'
@@ -364,10 +365,10 @@ jobs:
       - name: Delete the throwaway Worker and database
         if: always() && steps.secrets.outputs.present == 'true'
         run: |
-          npx --yes wrangler@4 delete --name "$WORKER_NAME" --force || true
-          npx --yes wrangler@4 d1 delete "$WORKER_NAME-db" -y || true
-          npx --yes wrangler@4 delete --name "$WORKER_NAME-iso" --force || true
-          npx --yes wrangler@4 d1 delete "$WORKER_NAME-iso-db" -y || true
+          npx --yes wrangler@4.156.2 delete --name "$WORKER_NAME" --force || true
+          npx --yes wrangler@4.156.2 d1 delete "$WORKER_NAME-db" -y || true
+          npx --yes wrangler@4.156.2 delete --name "$WORKER_NAME-iso" --force || true
+          npx --yes wrangler@4.156.2 d1 delete "$WORKER_NAME-iso-db" -y || true
 
   web:
     runs-on: ubuntu-latest
