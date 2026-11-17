@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 falak-contracts.workspace = true
-falak-egress = { path = "../falak-egress", version = "1.1.0" }
+falak-egress = { path = "../falak-egress", version = "1.1.1" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

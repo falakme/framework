@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "falak-ai"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "falak-contracts",
@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "falak-audit"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "falak-driver-sqlite",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "falak-auth"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "falak-cli"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "falak-ai",
@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "falak-contracts"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "js-sys",
  "serde",
@@ -783,7 +783,7 @@ dependencies = [
 
 [[package]]
 name = "falak-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "saphyr-parser",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "falak-driver-d1"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "serde",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "falak-driver-postgres"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "chrono",
  "falak-contracts",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "falak-driver-sqlite"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "sqlx",
@@ -826,14 +826,14 @@ dependencies = [
 
 [[package]]
 name = "falak-egress"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
 ]
 
 [[package]]
 name = "falak-federation"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "falak-ledger"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "serde",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "falak-migrate"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "falak-core",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "falak-office"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "falak-runtime-edge"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "console_error_panic_hook",
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "falak-runtime-native"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "falak-auth",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "falak-storage"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "hex",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "falak-studio"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "falak-worker"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "falak-contracts",
  "falak-egress",

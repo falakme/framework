@@ -4,18 +4,22 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-17
+
+### Removed
+
+* The T0.8 spike crate (`falak-spike-t08`). Its result stays in the DRIVER specification.
+* Example apps other than `examples/notebook`. `academy`, `clarityai`, `falakme`, `gardenx` and `securablock` moved to `testdata/apps/` as test fixtures, and `horizon` was deleted.
+
+### Changed
+
+* `falak-ai` is a plain MCP server. Each tool call runs as the signed-in user through the policy engine. The approval queue (`FALAK_MCP_WRITES=approval`, the `/mcp/approvals` routes), the PII redaction (`FALAK_AI_EXPOSE_PII`) and the egress allow-list (`FALAK_AI_ALLOW`) were removed. Writes are on with `FALAK_MCP_WRITES=on` and run immediately as the user.
+* Dependency upgrades: argon2 0.6 (existing password hashes still verify), ureq 3 (redirects are not followed), jsonwebtoken 10 with the `aws_lc_rs` backend, hmac 0.13 with sha2 0.11, chacha20poly1305 0.11 (a test opens a key wrapped by the old version), p256 0.14, TypeScript 7, Vite 8, `@vitejs/plugin-react` 6, and GitHub Actions `checkout` and `setup-node` v7.
+
 ### Fixed
 
 * Ledger idempotency keys are now scoped to a caller. `Ledger::execute` takes a `scope` (a tenant or account id) before the key, `HorizonParticipant` has a `scope` field, and `ledger_idempotency` is keyed by `(scope, key)`. `ledger init` migrates an existing table; rows written before this keep the empty scope and no longer replay for a caller that passes a scope.
 * `finish_upload` is single-use per file id. The move into `files/` is an atomic conditional write (`ObjectBackend::copy_if_absent`, new required trait method; S3 and R2 use `If-None-Match: *`), and a second call fails with `file_already_finished` without processing the file again.
->
-### Known limit
-
-* Known limit: `FALAK_AI_EXPOSE_PII` was removed (PII and encrypted fields are never exposed to AI). `FALAK_AI_ALLOW` is parsed but no outbound model call exists yet, so it is not enforced.
-
-### Changed
-
-* Dependency upgrades: argon2 0.6 (existing password hashes still verify), ureq 3 (redirects are not followed), jsonwebtoken 10 with the `aws_lc_rs` backend, hmac 0.13 with sha2 0.11, chacha20poly1305 0.11 (a test opens a key wrapped by the old version), p256 0.14, TypeScript 7, Vite 8, `@vitejs/plugin-react` 6, and GitHub Actions `checkout` and `setup-node` v7.
 
 ## [1.1.0] - 2026-11-17
 
