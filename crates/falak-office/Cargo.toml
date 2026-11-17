@@ -16,12 +16,12 @@ name = "falak-office"
 path = "src/main.rs"
 
 [dependencies]
-falak-auth = { path = "../falak-auth", version = "1.0.0" }
+falak-auth = { path = "../falak-auth", version = "1.1.0" }
 falak-contracts.workspace = true
 falak-core.workspace = true
-falak-driver-postgres = { path = "../falak-driver-postgres", version = "1.0.0" }
-falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.0.0" }
-falak-runtime-native = { path = "../falak-runtime-native", version = "1.0.0" }
+falak-driver-postgres = { path = "../falak-driver-postgres", version = "1.1.0" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.1.0" }
+falak-runtime-native = { path = "../falak-runtime-native", version = "1.1.0" }
 axum = { version = "0.8.9", default-features = false, features = ["json", "query", "tokio", "http1"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "macros", "time"] }
 base64 = "0.22"
@@ -36,7 +36,7 @@ sha2.workspace = true
 ureq = { version = "2", features = ["json"] }
 
 [dev-dependencies]
-falak-federation = { path = "../falak-federation", version = "1.0.0" }
-falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.0.0" }
+falak-federation = { path = "../falak-federation", version = "1.1.0" }
+falak-driver-sqlite = { path = "../falak-driver-sqlite", version = "1.1.0" }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-17
+
+Milestones M5 to M8 and a review of the whole code base. Every publishable crate is published to crates.io at this version.
+
 ### Added
 
 * Durable cross-app events (M5): `events/*.yaml` and `workflows/*.yaml`, event contracts in the IR with a build-time compatibility check, the outbox and inbox written in the business transaction, a relay and consumer on the native runtime and on Workers (Cron Trigger), Office Events (persist before acknowledge, per-aggregate ordering, retries, dead-letter replay, saga orchestrator), Ed25519 event signing with Office-attested publisher keys, and contract-based subscriber authorisation. The FEDERATION specification is frozen at 1.0.
@@ -87,7 +91,7 @@ Fixes from a review of the whole code base, most serious first. Each has a test.
 * Ledger idempotency keys are global, not per caller. Callers should prefix them (for example with the app and tenant).
 * `finish_upload` must be made single-use per file id by the caller; the file flow does not remember which ids it has finished.
 * `FALAK_AI_ALLOW` (the model host allow-list) has no connecting caller yet: nothing in the framework makes a model request, so it takes effect only when an app uses `falak-ai`'s egress policy.
-* The `falak-cli` crate is installed from a clone of this repository, or with `scripts/install.sh`, until the crates.io release completes.
+* 1.1.0 is the first version in which all publishable crates are on crates.io (1.0.0 reached it for only five of them). `falak deploy` still needs a clone of this repository, because it builds the Worker from `crates/falak-runtime-edge`, which is not published.
 
 ## [1.0.0] - 2026-11-16
 

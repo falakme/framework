@@ -18,13 +18,13 @@ crate-type = ["cdylib", "rlib"]
 # Everything here exists only for the edge build. On other targets the crate is empty,
 # so `cargo build --workspace` stays fast.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-falak-auth = { path = "../falak-auth", version = "1.0.0" }
+falak-auth = { path = "../falak-auth", version = "1.1.0" }
 falak-contracts.workspace = true
 falak-core.workspace = true
-falak-driver-d1 = { path = "../falak-driver-d1", version = "1.0.0" }
-falak-federation = { path = "../falak-federation", version = "1.0.0", default-features = false }
-falak-migrate = { path = "../falak-migrate", version = "1.0.0" }
-falak-runtime-native = { path = "../falak-runtime-native", version = "1.0.0", default-features = false }
+falak-driver-d1 = { path = "../falak-driver-d1", version = "1.1.0" }
+falak-federation = { path = "../falak-federation", version = "1.1.0", default-features = false }
+falak-migrate = { path = "../falak-migrate", version = "1.1.0" }
+falak-runtime-native = { path = "../falak-runtime-native", version = "1.1.0", default-features = false }
 axum = { version = "0.8.9", default-features = false, features = ["json", "query"] }
 worker = { version = "0.9", default-features = false, features = ["http", "axum", "d1"] }
 tower-service = "0.3"

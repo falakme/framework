@@ -17,10 +17,10 @@ default = ["http"]
 http = ["dep:ureq"]
 
 [dependencies]
-falak-auth = { path = "../falak-auth", version = "1.0.0", default-features = false }
+falak-auth = { path = "../falak-auth", version = "1.1.0", default-features = false }
 falak-contracts.workspace = true
 falak-core.workspace = true
-falak-runtime-native = { path = "../falak-runtime-native", version = "1.0.0", default-features = false }
+falak-runtime-native = { path = "../falak-runtime-native", version = "1.1.0", default-features = false }
 axum = { version = "0.8.9", default-features = false }
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
