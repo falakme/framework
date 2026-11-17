@@ -15,15 +15,15 @@ ARG DATABASE_URL
 ARG FALAK_TEST_PG_ADMIN_URL
 ARG FALAK_TEST_PG_URL
 
-# The related-policy tests need two empty databases on the same server as the admin URL.
-# The RLS test gets its own empty database too: the driver tests leave tables in
-# falak_test, and the RLS test must not see them.
+# These tests need empty databases on the same server as the admin URL. The database
+# server outlives each build, so drop and recreate them every time: rows left by one
+# build would break the next one. The RLS test gets its own database too, because the
+# driver tests leave tables in falak_test.
 RUN set -eu; \
     base="${FALAK_TEST_PG_ADMIN_URL%/*}"; \
     for db in related_reads related_writes rls; do \
-      if ! psql "$base/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1; then \
-        psql "$base/postgres" -c "CREATE DATABASE $db"; \
-      fi; \
+      psql "$base/postgres" -q -c "DROP DATABASE IF EXISTS $db WITH (FORCE)"; \
+      psql "$base/postgres" -q -c "CREATE DATABASE $db"; \
     done
 
 # Keep the full log in the image layer. Print the panic lines last, so the short
