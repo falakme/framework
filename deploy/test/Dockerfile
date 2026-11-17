@@ -9,4 +9,10 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 
+# Coolify passes build-time variables as build args. Declare the ones the
+# PostgreSQL tests read; without ARG, Docker does not expose them to RUN.
+ARG DATABASE_URL
+ARG FALAK_TEST_PG_ADMIN_URL
+ARG FALAK_TEST_PG_URL
+
 RUN cargo test --workspace --no-fail-fast
