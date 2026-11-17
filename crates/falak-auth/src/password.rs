@@ -8,10 +8,9 @@ use std::sync::OnceLock;
 
 use argon2::{
     Algorithm, Argon2, Params, Version,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
 use falak_contracts::{Error, Result};
-use rand_core::OsRng;
 
 pub const MIN_PASSWORD_CHARS: usize = 12;
 pub const MAX_PASSWORD_CHARS: usize = 128;
@@ -49,16 +48,15 @@ fn is_one_repeated_character(password: &str) -> bool {
 
 /// Hash a password with a fresh random salt.
 pub fn hash_password(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
     argon2()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| Error::internal(e.to_string()))
 }
 
 /// Check a password against a stored hash. A malformed hash counts as a mismatch.
 pub fn verify_password(hash: &str, password: &str) -> bool {
-    let Ok(parsed) = PasswordHash::new(hash) else {
+    let Ok(parsed) = hash.parse::<PasswordHash>() else {
         return false;
     };
     argon2()
@@ -85,6 +83,14 @@ mod tests {
         assert!(h.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
         assert!(verify_password(&h, "correct horse battery"));
         assert!(!verify_password(&h, "correct horse batterY"));
+    }
+
+    #[test]
+    fn hashes_made_before_the_argon2_0_6_update_still_verify() {
+        // Produced by the argon2 0.5 build of this module.
+        let old = "$argon2id$v=19$m=19456,t=2,p=1$6cSuh/vJcA/9szxqedW8Sw$N3Vu9aKo0M4pH/TZOMYPhqFK1ZgKPFmUleZRYZ8eKXo";
+        assert!(verify_password(old, "correct horse battery"));
+        assert!(!verify_password(old, "correct horse batterY"));
     }
 
     #[test]
