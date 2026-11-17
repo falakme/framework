@@ -639,7 +639,7 @@ dependencies = [
  "http-body-util",
  "rand_core 0.6.4",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tower",
 ]
@@ -650,7 +650,7 @@ version = "1.1.0"
 dependencies = [
  "falak-contracts",
  "falak-driver-sqlite",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
 ]
 
@@ -668,7 +668,7 @@ dependencies = [
  "p256",
  "rand_core 0.6.4",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
 ]
 
@@ -710,7 +710,7 @@ dependencies = [
  "saphyr-parser",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlparser",
 ]
 
@@ -767,7 +767,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "ureq",
 ]
 
@@ -778,7 +778,7 @@ dependencies = [
  "falak-contracts",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "sqlx",
  "tokio",
  "uuid",
@@ -795,7 +795,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
 ]
 
@@ -820,7 +820,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tower",
  "ureq",
@@ -863,7 +863,7 @@ dependencies = [
  "http-body-util",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tower",
  "tower-http",
@@ -889,8 +889,8 @@ version = "1.1.0"
 dependencies = [
  "falak-contracts",
  "hex",
- "hmac 0.12.1",
- "sha2 0.10.9",
+ "hmac 0.13.0",
+ "sha2 0.11.0",
  "ureq",
 ]
 
@@ -905,7 +905,7 @@ dependencies = [
  "rand_core 0.6.4",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tower",
  "ureq",
@@ -920,7 +920,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "ureq",
 ]
 

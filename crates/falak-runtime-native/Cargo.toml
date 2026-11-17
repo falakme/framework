@@ -41,7 +41,7 @@ tower = "0.5"
 tower-http = { version = "0.6", default-features = false, features = ["cors", "trace"], optional = true }
 tracing = "0.1"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 unicode-normalization = "0.1.26"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "json", "ansi"], optional = true }
 
