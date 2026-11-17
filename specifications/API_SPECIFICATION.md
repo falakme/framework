@@ -37,13 +37,18 @@ To maintain $O(1)$ query execution, prevent page-drift anomalies during concurre
 
 ### 2.1 Query Parameters
 * `page[size]`: Integer, default `20`, maximum allowable `100`. Values exceeding `100` are clamped or rejected with `400 Bad Request`.
-* `page[after]`: Opaque base64url-encoded cursor representing the position after which records should be fetched.
-* `page[before]`: Opaque base64url-encoded cursor for reverse pagination.
+* `page[after]`: Opaque cursor (hex-encoded JSON, see 2.2) representing the position after which records should be fetched.
+* `page[before]`: Opaque cursor for reverse pagination. Reserved: the reference runtime does not implement reverse pagination yet and `prev_cursor` is always `null`.
 
 ### 2.2 Cursor Structure
-Under the hood, cursors encode the sort values and the primary key of the boundary record:
-`cursor = base64url(json({ "values": [created_at_micros, id] }))`
-Cursors are signed or tamper-resistant to prevent client manipulation.
+Under the hood, cursors encode the sort values of the boundary record, in the order of the active sort (the primary key is the final tiebreaker):
+`cursor = hex(json([sort_value_1, sort_value_2, ...]))`
+
+Clients MUST treat a cursor as opaque and MUST NOT construct or modify one. The encoding is not signed or encrypted, so a client can forge one. This is safe by construction rather than by signature:
+
+* Cursor values are bound as query parameters, never interpolated into SQL text, and each value is type-checked against its sort field.
+* The tenant and policy predicates are applied to every page, including a page fetched with a forged cursor. Tampering can therefore change only the position within the rows the caller is already allowed to see; it cannot widen access.
+* A cursor that cannot be decoded, or that does not match the requested sort order, is rejected with `400 Bad Request` and the `invalid_cursor` code.
 
 ### 2.3 Response Envelope
 All collection endpoints return a standardized data and metadata envelope:
