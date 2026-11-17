@@ -373,6 +373,9 @@ async fn events_for_one_aggregate_arrive_in_order_and_a_dead_one_blocks_until_re
     assert_eq!(ids, ["e1", "e3"]);
 
     // A retry backs off, and the second event keeps waiting behind it.
+    // The backoff is whole seconds from the wall clock, so `e1` may be due again if the
+    // clock ticked over during the test. It must not come back before its backoff.
+    let retried_at = falak_office::now();
     assert_eq!(
         e.ack(&inventory, "inventory", first, "retry").await["status"],
         "pending"
@@ -383,7 +386,14 @@ async fn events_for_one_aggregate_arrive_in_order_and_a_dead_one_blocks_until_re
         .iter()
         .map(|g| g["id"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(ids, ["e3"]);
+    assert!(ids.iter().any(|id| id == "e3"), "{ids:?}");
+    assert!(ids.iter().all(|id| id != "e2"), "{ids:?}");
+    if ids.iter().any(|id| id == "e1") {
+        assert!(
+            falak_office::now() > retried_at,
+            "e1 came back before its backoff: {ids:?}"
+        );
+    }
 
     // A failure that cannot be fixed goes to the dead-letter queue and still blocks.
     assert_eq!(
