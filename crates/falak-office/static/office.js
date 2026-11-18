@@ -235,7 +235,8 @@ function barChart(values, firstDay) {
   values.forEach((v, i) => {
     const x = PL + slot * i + (slot - bw) / 2;
     const h = v === 0 ? 6 : Math.max(8, (v / max) * plotH);
-    const bar = svg("rect", { x, y: PT + plotH - h, width: bw, height: h, rx: Math.min(bw / 2, h / 2), class: v === 0 ? "bar-zero" : "", fill: v === 0 ? "" : "url(#bars)" });
+    const bar = svg("rect", { x, y: PT + plotH - h, width: bw, height: h, rx: Math.min(bw / 2, h / 2), class: v === 0 ? "bar-zero" : "bar", fill: v === 0 ? "" : "url(#bars)" });
+    bar.style.setProperty("--i", i);
     const tip = svg("title"); tip.textContent = `${dayLabel(firstDay + i)}: ${v}`;
     bar.append(tip); s.append(bar);
     if (i % every === 0) {
@@ -260,7 +261,7 @@ function lineChart(a, b, firstDay) {
   }
   for (const [vals, cls] of [[a, "a"], [b, "b"]]) {
     const d = vals.map((v, i) => `${i ? "L" : "M"}${px(i).toFixed(1)} ${py(v).toFixed(1)}`).join(" ");
-    s.append(svg("path", { class: "line " + cls, d }));
+    s.append(svg("path", { class: "line " + cls, d, pathLength: 1 }));
     if (n <= 16) vals.forEach((v, i) => {
       const dot = svg("circle", { class: "dot " + cls, cx: px(i), cy: py(v), r: 3 });
       const tip = svg("title"); tip.textContent = `${dayLabel(firstDay + i)}: ${v}`;

@@ -226,3 +226,69 @@ td, th { overflow-wrap: anywhere; }
   .kpi { padding: .9rem 1rem; }
   .kpi .value b { font-size: 1.5rem; }
 }
+
+/* ---- motion: new views rise in, charts draw themselves, controls respond.
+   Everything here is decoration; the page is complete without it, and
+   prefers-reduced-motion turns it all off. */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(28, 122, 61, .45); }
+  70% { box-shadow: 0 0 0 6px rgba(28, 122, 61, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(28, 122, 61, 0); }
+}
+@keyframes spin-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+
+main > * { animation: rise .5s cubic-bezier(.2, .7, .2, 1) both; }
+main > *:nth-child(2) { animation-delay: .05s; }
+main > *:nth-child(3) { animation-delay: .1s; }
+main > *:nth-child(4) { animation-delay: .15s; }
+main > *:nth-child(n+5) { animation-delay: .2s; }
+
+.kpis > .kpi { animation: rise .5s cubic-bezier(.2, .7, .2, 1) both; }
+.kpis > .kpi:nth-child(2) { animation-delay: .06s; }
+.kpis > .kpi:nth-child(3) { animation-delay: .12s; }
+.kpis > .kpi:nth-child(4) { animation-delay: .18s; }
+.kpi { transition: transform .2s ease, box-shadow .2s ease; }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 1px 2px rgba(20, 23, 43, .05), 0 18px 36px -16px rgba(20, 23, 43, .2); }
+
+/* charts: bars grow from the baseline, lines are drawn, points appear last */
+svg.chart .bar { transform-box: fill-box; transform-origin: 50% 100%; animation: grow .7s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
+svg.chart .line { stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw 1.2s ease-out both; }
+svg.chart .dot { animation: fade .4s ease both 1s; }
+svg.chart .grid, svg.chart .axis { animation: fade .6s ease both; }
+
+/* tables and lists */
+tbody tr { animation: fade .4s ease both; }
+tbody tr:nth-child(2) { animation-delay: .03s; }
+tbody tr:nth-child(3) { animation-delay: .06s; }
+tbody tr:nth-child(4) { animation-delay: .09s; }
+tbody tr:nth-child(n+5) { animation-delay: .12s; }
+tbody tr td { transition: background .15s ease; }
+.steps li { animation: rise .45s cubic-bezier(.2, .7, .2, 1) both; }
+.steps li:nth-child(2) { animation-delay: .08s; }
+.steps li:nth-child(3) { animation-delay: .16s; }
+.steps li b { transition: background .3s ease, border-color .3s ease, color .3s ease; }
+.banner, .empty { animation: spin-in .45s ease both; }
+
+/* controls */
+nav button { transition: background .18s ease, color .18s ease, box-shadow .18s ease; }
+button { transition: background .15s ease, border-color .15s ease, color .15s ease, transform .12s ease, box-shadow .15s ease; }
+button:not(:disabled):active { transform: scale(.97); }
+button.primary:not(:disabled):hover { box-shadow: 0 6px 16px -8px rgba(29, 42, 56, .6); }
+input:focus, select:focus, textarea:focus { transition: border-color .15s ease, box-shadow .2s ease; }
+.pill::before { animation: pulse 2.4s ease-out infinite; }
+.pill.bad::before, .pill.info::before { animation: none; }
+.chip, .delta { transition: background .2s ease, color .2s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .kpi:hover { transform: none; }
+  button:not(:disabled):active { transform: none; }
+}
