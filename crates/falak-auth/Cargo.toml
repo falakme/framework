@@ -21,7 +21,7 @@ native = ["dep:argon2", "dep:rand_core", "dep:sha2", "dep:p256", "ed25519-dalek/
 [dependencies]
 falak-contracts.workspace = true
 argon2 = { version = "0.6", optional = true }
-base64 = "0.22"
+base64 = "0.23"
 ed25519-dalek = "2"
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 serde_json.workspace = true

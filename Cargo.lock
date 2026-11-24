@@ -738,7 +738,7 @@ name = "falak-auth"
 version = "1.1.1"
 dependencies = [
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "falak-contracts",
  "falak-driver-sqlite",
@@ -835,7 +835,7 @@ name = "falak-federation"
 version = "1.1.1"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "falak-auth",
  "falak-contracts",
@@ -869,7 +869,7 @@ name = "falak-office"
 version = "1.1.1"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chacha20poly1305",
  "ed25519-dalek",
  "falak-auth",
@@ -953,7 +953,7 @@ name = "falak-studio"
 version = "1.1.1"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "hex",
  "http-body-util",
  "rand_core 0.6.4",
