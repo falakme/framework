@@ -22,7 +22,7 @@ falak-contracts.workspace = true
 falak-core.workspace = true
 falak-runtime-native = { path = "../falak-runtime-native", version = "1.1.1", default-features = false }
 axum = { version = "0.8.9", default-features = false }
-base64 = "0.22"
+base64 = "0.23"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
 rand_core = { version = "0.6", features = ["getrandom"] }
